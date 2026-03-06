@@ -1,0 +1,21 @@
+{
+    "name": "orbit-v2",
+    "$schema": "node_modules/firebase-tools/schema/firebase.json",
+    "hosting": {
+        "public": "out",
+        "ignore": [
+            "firebase.json",
+            "**/.*",
+            "**/node_modules/**"
+        ],
+        "rewrites": [
+            {
+                "source": "**",
+                "destination": "/index.html"
+            }
+        ]
+    },
+    "firestore": {
+        "rules": "firestore.rules"
+    }
+}

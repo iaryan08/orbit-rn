@@ -1,0 +1,61 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: check if user belongs to a specific couple
+    function isCoupleMemeber(coupleId) {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.couple_id == coupleId;
+    }
+
+    // ── Users collection ─────────────────────────────────────────
+    // Users can only read/write their own profile
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── Couples collection ────────────────────────────────────────
+    // Only members of the couple can access couple data and all sub-collections
+    match /couples/{coupleId} {
+      allow read, write: if isCoupleMemeber(coupleId);
+
+      match /profiles/{userId} {
+        allow read, write: if isCoupleMemeber(coupleId);
+      }
+
+      match /memories/{memoryId} {
+        allow read, write: if isCoupleMemeber(coupleId);
+      }
+
+      match /letters/{letterId} {
+        allow read, write: if isCoupleMemeber(coupleId);
+      }
+
+      match /moods/{moodId} {
+        allow read, write: if isCoupleMemeber(coupleId);
+      }
+
+      match /lunara/{cycleId} {
+        allow read, write: if isCoupleMemeber(coupleId);
+      }
+
+      match /dates/{dateId} {
+        allow read, write: if isCoupleMemeber(coupleId);
+      }
+
+      match /doodles/{doodleId} {
+        allow read, write: if isCoupleMemeber(coupleId);
+      }
+    }
+
+    // ── Pairing codes ─────────────────────────────────────────────
+    // Anyone authenticated can look up a pairing code to join a couple
+    match /pair_codes/{code} {
+      allow read: if request.auth != null;
+      // Only the couple member can create/delete their own code
+      allow write: if request.auth != null &&
+        request.auth.uid == resource.data.created_by;
+    }
+  }
+}
