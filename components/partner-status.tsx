@@ -1,15 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useCoupleChannel } from '@/hooks/use-couple-channel'
+import { useAuth } from '@/contexts/auth-context'
 
 /**
  * PartnerStatus — shows partner's online presence dot.
- *
- * IMPORTANT: uses the SAME channel name as DashboardHeader (`online-${coupleId}`)
- * so Supabase multiplexes both components into ONE WebSocket connection.
- * Pass `coupleId` to enable deduplication. Falls back to `partnerId`-only channel.
+ * Uses the shared useCoupleChannel hook for consistent RTDB presence tracking.
  */
 export function PartnerStatus({
     partnerId,
@@ -19,20 +17,15 @@ export function PartnerStatus({
     coupleId?: string | null
 }) {
     const [isOnline, setIsOnline] = useState(false)
-    const supabase = createClient()
+    const { user } = useAuth()
 
-    useEffect(() => {
-        if (!partnerId) return
-
-        const onPresenceSync = (e: any) => {
-            const state = e.detail;
-            const onlineUsers = Object.values(state).flat() as any[]
-            setIsOnline(onlineUsers.some(u => (u as any).user_id === partnerId))
+    useCoupleChannel({
+        coupleId: coupleId || '',
+        userId: user?.uid || '',
+        onPresenceChange: (onlineIds) => {
+            setIsOnline(!!partnerId && onlineIds.includes(partnerId))
         }
-
-        window.addEventListener('orbit:presence-sync', onPresenceSync);
-        return () => { window.removeEventListener('orbit:presence-sync', onPresenceSync); }
-    }, [partnerId])
+    })
 
     return (
         <div className="relative flex items-center justify-center">

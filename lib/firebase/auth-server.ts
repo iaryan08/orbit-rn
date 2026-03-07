@@ -1,17 +1,26 @@
 import { adminAuth } from '@/lib/firebase/admin';
 import { NextRequest } from 'next/server';
+import { headers } from 'next/headers';
 
 /**
  * Verifies Firebase ID token from Authorization header.
- * Use this in all API routes that need authentication.
+ * Works in both API routes (pass request) and Server Actions (no args).
  * 
  * Usage:
- *   const user = await requireUser(request);
- *   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+ *   const user = await requireUser(); // In Server Actions
+ *   const user = await requireUser(request); // In API Routes
  */
-export async function requireUser(request: NextRequest) {
+export async function requireUser(request?: NextRequest) {
     try {
-        const authHeader = request.headers.get('Authorization');
+        let authHeader: string | null = null;
+
+        if (request) {
+            authHeader = request.headers.get('Authorization');
+        } else {
+            const h = await headers();
+            authHeader = h.get('Authorization');
+        }
+
         if (!authHeader?.startsWith('Bearer ')) return null;
 
         const token = authHeader.slice(7);

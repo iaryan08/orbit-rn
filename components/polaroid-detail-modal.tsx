@@ -5,7 +5,16 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { motion } from "framer-motion"
 import { formatDistanceToNow } from "date-fns"
 import { Maximize2, Download, Heart, Check, Trash2 } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
+import { auth, db } from "@/lib/firebase/client"
+import {
+    collection,
+    query,
+    where,
+    onSnapshot,
+    QuerySnapshot,
+    DocumentData,
+    doc
+} from "firebase/firestore"
 import { Keyboard } from '@capacitor/keyboard'
 import { useBackHandler } from './global-back-handler'
 import {
@@ -56,7 +65,6 @@ interface CommentData {
 
 export function PolaroidDetailModal({ polaroid, title, isOpen, onClose }: PolaroidDetailModalProps) {
     const [comments, setComments] = useState<CommentData[]>([])
-    const [currentUserId, setCurrentUserId] = useState<string>('')
     const [fullScreenImage, setFullScreenImage] = useState<string | null>(null)
     const [isExpanded, setIsExpanded] = useState(false)
     const { toast } = useToast()
@@ -65,8 +73,10 @@ export function PolaroidDetailModal({ polaroid, title, isOpen, onClose }: Polaro
     const [isDownloading, setIsDownloading] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
 
-    const supabase = createClient()
+    const user = auth.currentUser
+    const currentUserId = user?.uid || ''
     const { profile, partnerProfile } = useOrbitStore()
+    const coupleId = profile?.couple_id
 
     const avatarMap: Record<string, string | null> = {}
     if (profile?.id && profile.avatar_url) {
@@ -76,16 +86,8 @@ export function PolaroidDetailModal({ polaroid, title, isOpen, onClose }: Polaro
         avatarMap[partnerProfile.id] = getPublicStorageUrl(partnerProfile.avatar_url, 'avatars')
     }
 
-    useEffect(() => {
-        const getUser = async () => {
-            const { data: { user } } = await supabase.auth.getUser()
-            if (user) setCurrentUserId(user.id)
-        }
-        getUser()
-    }, [supabase])
-
     const fetchComments = useCallback(async () => {
-        if (!polaroid || !isUuid(polaroid.id)) return
+        if (!polaroid?.id) return
         const commentsRes = await getPolaroidComments(polaroid.id)
         if (commentsRes.data) {
             const formatted = commentsRes.data.map((c: any) => ({
@@ -97,13 +99,34 @@ export function PolaroidDetailModal({ polaroid, title, isOpen, onClose }: Polaro
     }, [polaroid])
 
     useEffect(() => {
-        if (!polaroid || !isOpen) return
+        if (!coupleId || !polaroid?.id || !isOpen) return
         fetchComments()
-        const sub = supabase.channel(`polaroid-comments:${polaroid.id}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'polaroid_comments', filter: `polaroid_id=eq.${polaroid.id}` }, () => fetchComments())
-            .subscribe()
-        return () => { sub.unsubscribe() }
-    }, [polaroid, isOpen, supabase, fetchComments])
+
+        // Firestore real-time listener for comments
+        const q = query(
+            collection(db, 'couples', coupleId, 'polaroid_comments'),
+            where('polaroid_id', '==', polaroid.id)
+        )
+
+        const unsub = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
+            const data = snapshot.docs.map(doc => ({
+                ...doc.data(),
+                id: doc.id,
+                profiles: (doc.data() as any).profiles || { display_name: 'User', avatar_url: null }
+            }))
+
+            // Client-side sort: latest on top
+            const sorted = data.sort((a: any, b: any) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )
+
+            setComments(sorted as any)
+        }, (err: Error) => {
+            console.warn('[PolaroidComments] Listener error:', err)
+        })
+
+        return () => unsub()
+    }, [polaroid, isOpen, fetchComments])
 
     useBackHandler(() => {
         if (fullScreenImage) setFullScreenImage(null)

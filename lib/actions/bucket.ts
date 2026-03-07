@@ -1,157 +1,140 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { revalidatePath, revalidateTag } from 'next/cache'
+import { adminDb } from '@/lib/firebase/admin'
+import { revalidatePath } from 'next/cache'
 import { sendNotification } from '@/lib/actions/notifications'
+import { FieldValue } from 'firebase-admin/firestore'
+import { requireUser } from '@/lib/firebase/auth-server'
 
 export async function getBucketList() {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
+    const user = await requireUser();
     if (!user) return { error: 'Not authenticated' }
 
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('couple_id')
-        .eq('id', user.id)
-        .single()
+    try {
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        const coupleId = userDoc.data()?.couple_id;
+        if (!coupleId) return { items: [] }
 
-    if (!profile?.couple_id) return { items: [] }
+        const itemsSnap = await adminDb.collection('couples').doc(coupleId).collection('bucket_list')
+            .orderBy('created_at', 'desc')
+            .get();
 
-    const { data: items, error } = await supabase
-        .from('bucket_list')
-        .select('*')
-        .eq('couple_id', profile.couple_id)
-        .order('created_at', { ascending: false })
-
-    if (error) {
-        console.error('Error fetching bucket list:', error)
-        return { error: error.message }
+        const items = itemsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        return { items }
+    } catch (err: any) {
+        console.error('Error fetching bucket list:', err)
+        return { error: err.message }
     }
-
-    return { items }
 }
 
-export async function addBucketItem(title: string, description: string = '') {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
+export async function addBucketItem(title: string, description: string = '', is_private: boolean = false) {
+    const user = await requireUser();
     if (!user) return { error: 'Not authenticated' }
 
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('couple_id, display_name')
-        .eq('id', user.id)
-        .single()
+    try {
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        const profile = userDoc.data();
+        if (!profile?.couple_id) return { error: 'No couple found' }
 
-    if (!profile?.couple_id) return { error: 'No couple found' }
-
-    const { data: item, error } = await supabase
-        .from('bucket_list')
-        .insert({
+        const itemData = {
             couple_id: profile.couple_id,
-            created_by: user.id,
+            created_by: user.uid,
             title,
             description,
-        })
-        .select('id')
-        .single()
+            is_completed: false,
+            is_private: is_private,
+            created_at: FieldValue.serverTimestamp()
+        };
 
-    if (error) return { error: error.message }
+        const docRef = await adminDb.collection('couples').doc(profile.couple_id).collection('bucket_list').add(itemData);
 
-    // Notify Partner
-    const { data: couple } = await supabase
-        .from('couples')
-        .select('user1_id, user2_id')
-        .eq('id', profile.couple_id)
-        .single()
-
-    if (couple) {
-        const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-        if (partnerId) {
-            await sendNotification({
-                recipientId: partnerId,
-                actorId: user.id,
-                type: 'bucket_list',
-                title: 'New Bucket List Item',
-                message: `${profile.display_name || 'Your partner'} added "${title}" to your bucket list.`,
-                actionUrl: item?.id ? `/dashboard?bucketItemId=${encodeURIComponent(item.id)}` : '/dashboard',
-                metadata: item?.id ? { bucket_item_id: item.id } : undefined,
-            })
-        }
-    }
-
-    revalidatePath('/dashboard', 'layout')
-    return { success: true }
-}
-
-export async function toggleBucketItem(id: string, isCompleted: boolean) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    if (!user) return { error: 'Not authenticated' }
-
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('couple_id, display_name')
-        .eq('id', user.id)
-        .single()
-
-    const { error } = await supabase
-        .from('bucket_list')
-        .update({
-            is_completed: isCompleted,
-            completed_at: isCompleted ? new Date().toISOString() : null,
-            updated_at: new Date().toISOString()
-        })
-        .eq('id', id)
-
-    if (error) return { error: error.message }
-
-    // Notify Partner if completed
-    if (isCompleted && profile?.couple_id) {
-        const { data: couple } = await supabase
-            .from('couples')
-            .select('user1_id, user2_id')
-            .eq('id', profile.couple_id)
-            .single()
-
-        if (couple) {
-            const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-            // Get item title for notification
-            const { data: item } = await supabase.from('bucket_list').select('title').eq('id', id).single()
-
-            if (partnerId && item) {
+        // Notify Partner
+        const coupleDoc = await adminDb.collection('couples').doc(profile.couple_id).get();
+        const coupleData = coupleDoc.data();
+        if (coupleData && !is_private) {
+            const partnerId = coupleData.user1_id === user.uid ? coupleData.user2_id : coupleData.user1_id
+            if (partnerId) {
                 await sendNotification({
                     recipientId: partnerId,
-                    actorId: user.id,
+                    actorId: user.uid,
                     type: 'bucket_list',
-                    title: 'Bucket List Item Completed! 🎉',
-                    message: `${profile.display_name || 'Your partner'} marked "${item.title}" as completed!`,
-                    actionUrl: `/dashboard?bucketItemId=${encodeURIComponent(id)}`,
-                    metadata: { bucket_item_id: id },
+                    title: 'New Bucket List Item',
+                    message: `${profile.display_name || 'Your partner'} added "${title}" to your bucket list.`,
+                    actionUrl: `/dashboard?bucketItemId=${encodeURIComponent(docRef.id)}`,
+                    metadata: { bucket_item_id: docRef.id },
                 })
             }
         }
-    }
 
-    revalidatePath('/dashboard', 'layout')
-    return { success: true }
+        revalidatePath('/dashboard', 'layout')
+        return { success: true, id: docRef.id }
+    } catch (err: any) {
+        return { error: err.message }
+    }
+}
+
+export async function toggleBucketItem(id: string, isCompleted: boolean) {
+    const user = await requireUser();
+    if (!user) return { error: 'Not authenticated' }
+
+    try {
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        const profile = userDoc.data();
+        if (!profile?.couple_id) return { error: 'No couple found' }
+
+        const itemRef = adminDb.collection('couples').doc(profile.couple_id).collection('bucket_list').doc(id);
+        const itemSnap = await itemRef.get();
+        if (!itemSnap.exists) return { error: 'Item not found' };
+
+        await itemRef.update({
+            is_completed: isCompleted,
+            completed_at: isCompleted ? FieldValue.serverTimestamp() : null,
+            updated_at: FieldValue.serverTimestamp()
+        });
+
+        // Notify Partner if completed
+        if (isCompleted) {
+            const coupleDoc = await adminDb.collection('couples').doc(profile.couple_id).get();
+            const coupleData = coupleDoc.data();
+            if (coupleData) {
+                const partnerId = coupleData.user1_id === user.uid ? coupleData.user2_id : coupleData.user1_id
+                const itemData = itemSnap.data();
+
+                if (partnerId && itemData) {
+                    await sendNotification({
+                        recipientId: partnerId,
+                        actorId: user.uid,
+                        type: 'bucket_list',
+                        title: 'Bucket List Item Completed! 🎉',
+                        message: `${profile.display_name || 'Your partner'} marked "${itemData.title}" as completed!`,
+                        actionUrl: `/dashboard?bucketItemId=${encodeURIComponent(id)}`,
+                        metadata: { bucket_item_id: id },
+                    })
+                }
+            }
+        }
+
+        revalidatePath('/dashboard', 'layout')
+        return { success: true }
+    } catch (err: any) {
+        return { error: err.message }
+    }
 }
 
 export async function deleteBucketItem(id: string) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
+    const user = await requireUser();
     if (!user) return { error: 'Not authenticated' }
 
-    const { error } = await supabase
-        .from('bucket_list')
-        .delete()
-        .eq('id', id)
+    try {
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        const coupleId = userDoc.data()?.couple_id;
+        if (!coupleId) return { error: 'No couple found' }
 
-    if (error) return { error: error.message }
+        await adminDb.collection('couples').doc(coupleId).collection('bucket_list').doc(id).delete();
 
-    revalidatePath('/dashboard', 'layout')
-    return { success: true }
+        revalidatePath('/dashboard', 'layout')
+        return { success: true }
+    } catch (err: any) {
+        return { error: err.message }
+    }
 }

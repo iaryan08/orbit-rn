@@ -1,140 +1,112 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { adminDb } from "@/lib/firebase/admin";
 import { revalidatePath } from "next/cache";
+import { requireUser } from "@/lib/firebase/auth-server";
+import { sendNotification } from "@/lib/actions/notifications";
+import { FieldValue } from "firebase-admin/firestore";
 
 export async function getLatestPolaroid() {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await requireUser();
     if (!user) return null;
 
-    const { data: profile } = await supabase
-        .from("profiles")
-        .select("couple_id")
-        .eq("id", user.id)
-        .single();
-
+    const userDoc = await adminDb.collection('users').doc(user.uid).get();
+    const profile = userDoc.data();
     if (!profile?.couple_id) return null;
 
-    const { data: polaroid } = await supabase
-        .from("polaroids")
-        .select("*")
-        .eq("couple_id", profile.couple_id)
-        .order("created_at", { ascending: false })
+    const snap = await adminDb.collection('couples').doc(profile.couple_id).collection('polaroids')
+        .orderBy("created_at", "desc")
         .limit(1)
-        .single();
+        .get();
 
-    return polaroid;
+    if (snap.empty) return null;
+    return { id: snap.docs[0].id, ...snap.docs[0].data() };
 }
 
 export async function getDashboardPolaroids(providedCoupleId?: string) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await requireUser();
     if (!user) return { userPolaroid: null, partnerPolaroid: null };
 
     let coupleId = providedCoupleId;
     if (!coupleId) {
-        const { data: profile } = await supabase
-            .from("profiles")
-            .select("couple_id")
-            .eq("id", user.id)
-            .single();
-        coupleId = profile?.couple_id;
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        coupleId = userDoc.data()?.couple_id;
     }
 
     if (!coupleId) return { userPolaroid: null, partnerPolaroid: null };
 
-    const { data: couple } = await supabase
-        .from("couples")
-        .select("user1_id, user2_id")
-        .eq("id", coupleId)
-        .single();
-
+    const coupleDoc = await adminDb.collection('couples').doc(coupleId).get();
+    const couple = coupleDoc.data();
     if (!couple) return { userPolaroid: null, partnerPolaroid: null };
 
-    const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id;
+    const partnerId = couple.user1_id === user.uid ? couple.user2_id : couple.user1_id;
 
-    const [userRes, partnerRes] = await Promise.all([
-        supabase
-            .from("polaroids")
-            .select("*")
-            .eq("user_id", user.id)
-            .order("created_at", { ascending: false })
+    const [userSnap, partnerSnap] = await Promise.all([
+        adminDb.collection('couples').doc(coupleId).collection('polaroids')
+            .where("user_id", "==", user.uid)
+            .orderBy("created_at", "desc")
             .limit(1)
-            .maybeSingle(),
-        partnerId ? supabase
-            .from("polaroids")
-            .select("*")
-            .eq("user_id", partnerId)
-            .order("created_at", { ascending: false })
+            .get(),
+        partnerId ? adminDb.collection('couples').doc(coupleId).collection('polaroids')
+            .where("user_id", "==", partnerId)
+            .orderBy("created_at", "desc")
             .limit(1)
-            .maybeSingle() : Promise.resolve({ data: null })
+            .get() : Promise.resolve({ empty: true, docs: [] })
     ]);
 
     return {
-        userPolaroid: userRes.data,
-        partnerPolaroid: partnerRes.data
+        userPolaroid: userSnap.empty ? null : { id: userSnap.docs[0].id, ...userSnap.docs[0].data() },
+        partnerPolaroid: partnerSnap.empty ? null : { id: partnerSnap.docs[0].id, ...partnerSnap.docs[0].data() }
     };
 }
-
-import { sendNotification } from "@/lib/actions/notifications";
 
 export async function createPolaroid(payload: {
     imageUrl: string;
     caption: string;
 }) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await requireUser();
     if (!user) return { error: "Unauthorized" };
 
-    const { data: profile } = await supabase
-        .from("profiles")
-        .select("couple_id, display_name")
-        .eq("id", user.id)
-        .single();
-
+    const userDoc = await adminDb.collection('users').doc(user.uid).get();
+    const profile = userDoc.data();
     if (!profile?.couple_id) return { error: "No couple linked" };
 
-    // Get partner ID for notification
-    const { data: couple } = await supabase
-        .from("couples")
-        .select("user1_id, user2_id")
-        .eq("id", profile.couple_id)
-        .single();
-
+    const coupleDoc = await adminDb.collection('couples').doc(profile.couple_id).get();
+    const couple = coupleDoc.data();
     if (!couple) return { error: "Couple data error" };
-    const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id;
 
-    // Delete previous polaroid for this user specifically (keep only latest per user)
-    await supabase
-        .from("polaroids")
-        .delete()
-        .eq("user_id", user.id);
+    const partnerId = couple.user1_id === user.uid ? couple.user2_id : couple.user1_id;
 
-    // Insert new polaroid
-    const { data: polaroid, error } = await supabase
-        .from("polaroids")
-        .insert({
-            image_url: payload.imageUrl,
-            caption: payload.caption,
-            user_id: user.id,
-            couple_id: profile.couple_id
-        })
-        .select()
-        .single();
+    // Delete previous polaroids for this user
+    const oldSnaps = await adminDb.collection('couples').doc(profile.couple_id).collection('polaroids')
+        .where("user_id", "==", user.uid)
+        .get();
 
-    if (error) return { error: error.message };
+    const batch = adminDb.batch();
+    oldSnaps.docs.forEach(doc => batch.delete(doc.ref));
+
+    // Insert new
+    const newRef = adminDb.collection('couples').doc(profile.couple_id).collection('polaroids').doc();
+    batch.set(newRef, {
+        image_url: payload.imageUrl,
+        caption: payload.caption,
+        user_id: user.uid,
+        couple_id: profile.couple_id,
+        created_at: FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
 
     // Notify Partner
     if (partnerId) {
         await sendNotification({
             recipientId: partnerId,
-            actorId: user.id,
+            actorId: user.uid,
             type: 'polaroid',
             title: 'New Polaroid Snapped',
             message: `${profile.display_name || 'Your partner'} just snapped a new polaroid!`,
-            actionUrl: `/dashboard?polaroidId=${encodeURIComponent(polaroid.id)}`,
-            metadata: { polaroid_id: polaroid.id }
+            actionUrl: `/dashboard?polaroidId=${encodeURIComponent(newRef.id)}`,
+            metadata: { polaroid_id: newRef.id }
         });
     }
 
@@ -142,19 +114,30 @@ export async function createPolaroid(payload: {
     return { success: true };
 }
 
+import { deleteFromR2, extractFilePathFromStorageUrl } from "@/lib/storage";
+
 export async function deletePolaroid(id: string) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await requireUser();
     if (!user) return { error: "Unauthorized" };
 
-    const { error } = await supabase
-        .from("polaroids")
-        .delete()
-        .eq("id", id)
-        .eq("user_id", user.id);
+    const userDoc = await adminDb.collection('users').doc(user.uid).get();
+    const coupleId = userDoc.data()?.couple_id;
+    if (!coupleId) return { error: "No couple linked" };
 
-    if (error) return { error: error.message };
+    try {
+        const docRef = adminDb.collection('couples').doc(coupleId).collection('polaroids').doc(id);
+        const snap = await docRef.get();
+        const data = snap.data();
 
-    revalidatePath("/dashboard");
-    return { success: true };
+        if (data?.image_url) {
+            const path = extractFilePathFromStorageUrl(data.image_url, 'polaroids');
+            if (path) await deleteFromR2('polaroids', path);
+        }
+
+        await docRef.delete();
+        revalidatePath("/dashboard");
+        return { success: true };
+    } catch (err: any) {
+        return { error: err.message };
+    }
 }

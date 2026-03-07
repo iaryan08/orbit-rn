@@ -39,7 +39,6 @@ import { useAppMode } from './app-mode-context'
 import { LunaraToggle } from './lunara-toggle'
 import { SyncCinema } from './sync-cinema'
 import { ImpactStyle } from '@capacitor/haptics'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { fetchUnreadCounts } from '@/lib/client/auth'
 import { useBatteryOptimization } from '@/hooks/use-battery-optimization'
@@ -118,7 +117,6 @@ export function DashboardHeader({
 
   const currentPath = (optimisticPath || pathname).replace(/\/$/, '') || '/'
 
-  const supabase = createClient()
   const { isVisible } = useBatteryOptimization()
   const DASH_FOCUS_REFRESH_KEY = 'orbit:dashboard_focus_refresh_at'
   const DASH_FOCUS_REFRESH_TTL_MS = 30000

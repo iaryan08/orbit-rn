@@ -236,15 +236,24 @@ export default function LettersPage() {
     };
 
     const sortedLetters = useMemo(() => {
-        if (!pinnedLetterIds.length) return letters;
+        // First handle pins
+        let baseList = [...letters];
+        if (pinnedLetterIds.length) {
+            const letterMap = new Map(letters.map((letter) => [letter.id, letter]));
+            const pinned = pinnedLetterIds
+                .map((id) => letterMap.get(id))
+                .filter(Boolean) as LoveLetter[];
+            const unpinned = letters.filter((letter) => !pinnedLetterIds.includes(letter.id));
+            baseList = [...pinned, ...unpinned];
+            return baseList;
+        }
 
-        const letterMap = new Map(letters.map((letter) => [letter.id, letter]));
-        const pinned = pinnedLetterIds
-            .map((id) => letterMap.get(id))
-            .filter(Boolean) as LoveLetter[];
-
-        const unpinned = letters.filter((letter) => !pinnedLetterIds.includes(letter.id));
-        return [...pinned, ...unpinned];
+        // Default sort by date
+        return baseList.sort((a, b) => {
+            const dateA = normalizeDate(a.created_at).getTime();
+            const dateB = normalizeDate(b.created_at).getTime();
+            return dateB - dateA;
+        });
     }, [letters, pinnedLetterIds]);
 
     useEffect(() => {
@@ -525,7 +534,7 @@ export default function LettersPage() {
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-[9px] uppercase tracking-widest font-black text-white/25 italic">{dateLabel}</span>
-                                                    <span className="text-[10px] font-mono text-white/55">{letter.created_at ? format(normalizeDate(letter.created_at), "MMM d, yyyy") : ""}</span>
+                                                    <span className="text-[10px] font-mono text-white/55">{letter.created_at && !isNaN(normalizeDate(letter.created_at).getTime()) ? format(normalizeDate(letter.created_at), "MMM d, yyyy") : ""}</span>
                                                 </div>
                                             </div>
                                         )}

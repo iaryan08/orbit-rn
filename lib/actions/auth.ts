@@ -1,117 +1,80 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { adminDb, adminAuth } from '@/lib/firebase/admin'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { sendNotification } from '@/lib/actions/notifications'
 import { getTodayIST } from '@/lib/utils'
-import { resolveLocation } from '@/lib/location'
+import { requireUser } from '@/lib/firebase/auth-server'
+import { FieldValue } from 'firebase-admin/firestore'
+
+// --- AUTH ACTIONS ---
 
 export async function signUp(prevState: any, formData: FormData) {
-  const supabase = await createClient()
-  const headersList = await headers()
-  const origin = headersList.get('origin') || ''
-
   const email = formData.get('email') as string
   const password = formData.get('password') as string
   const displayName = formData.get('displayName') as string
   const gender = formData.get('gender') as string
 
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${origin}/dashboard`,
-      data: {
-        display_name: displayName,
-        gender: gender,
-      },
-    },
-  })
+  try {
+    const user = await adminAuth.createUser({
+      email,
+      password,
+      displayName,
+    });
 
-  if (error) {
+    await adminDb.collection('users').doc(user.uid).set({
+      display_name: displayName,
+      gender,
+      email,
+      created_at: FieldValue.serverTimestamp(),
+      updated_at: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath('/', 'layout')
+    redirect('/auth/sign-up-success')
+  } catch (error: any) {
     return { error: error.message }
   }
-
-  revalidatePath('/', 'layout')
-  redirect('/auth/sign-up-success')
 }
 
 export async function signIn(prevState: any, formData: FormData) {
-  const supabase = await createClient()
-
-  const email = formData.get('email') as string
-  const password = formData.get('password') as string
-
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  })
-
-  if (error) {
-    // Provide user-friendly error messages
-    if (error.message.includes('Invalid login credentials') || error.code === 'invalid_credentials') {
-      return { error: 'Invalid email or password. Please try again.' }
-    }
-    if (error.message.includes('Email not confirmed')) {
-      return { error: 'Please verify your email before logging in. Check your inbox for the confirmation link.' }
-    }
-    return { error: error.message }
-  }
-
-  revalidatePath('/', 'layout')
-  redirect('/dashboard')
+  // Client-side handles Firebase signInWithPassword
+  // This action is mostly legacy if the client uses the SDK directly.
+  return { error: "Please use the client-side Firebase login." }
 }
 
 export async function signOut() {
-  const supabase = await createClient()
-  await supabase.auth.signOut()
   redirect('/')
 }
 
 export async function getUser() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  return user
+  const user = await requireUser();
+  return user ? { id: user.uid, email: user.email } : null;
 }
 
 export async function getProfile() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
+  const user = await requireUser();
   if (!user) return null
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
+  const userDoc = await adminDb.collection('users').doc(user.uid).get();
+  if (!userDoc.exists) return null;
+  const profile = { id: user.uid, ...userDoc.data() } as any;
 
-  if (!profile) return null
-
-  // Fetch couple and partner info in parallel if paired
   let couple = null
   let partner = null
 
   if (profile.couple_id) {
-    const { data: coupleData } = await supabase
-      .from('couples')
-      .select('*')
-      .eq('id', profile.couple_id)
-      .single()
-
-    couple = coupleData
+    const coupleDoc = await adminDb.collection('couples').doc(profile.couple_id).get();
+    couple = coupleDoc.exists ? { id: profile.couple_id, ...coupleDoc.data() } : null;
 
     if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
+      const c = couple as any;
+      const partnerId = c.user1_id === user.uid ? c.user2_id : c.user1_id
       if (partnerId) {
-        const { data: partnerData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', partnerId)
-          .single()
-        partner = partnerData
+        const partnerDoc = await adminDb.collection('users').doc(partnerId).get();
+        partner = partnerDoc.exists ? { id: partnerId, ...partnerDoc.data() } : null;
       }
     }
   }
@@ -119,59 +82,42 @@ export async function getProfile() {
   return { ...profile, couple, partner }
 }
 
-export async function fetchUnreadCounts() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+// --- DASHBOARD & VIEW STATE ---
 
+export async function fetchUnreadCounts() {
+  const user = await requireUser();
   if (!user) return { memories: 0, letters: 0 }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('couple_id, last_viewed_memories_at, last_viewed_letters_at')
-    .eq('id', user.id)
-    .single()
-
+  const userDoc = await adminDb.collection('users').doc(user.uid).get();
+  const profile = userDoc.data();
   if (!profile?.couple_id) return { memories: 0, letters: 0 }
 
-  // Count new memories
-  const { count: memoriesCount } = await supabase
-    .from('memories')
-    .select('*', { count: 'exact', head: true })
-    .eq('couple_id', profile.couple_id)
-    .gt('created_at', profile.last_viewed_memories_at || new Date(0).toISOString())
+  const lastMemView = profile.last_viewed_memories_at ? new Date(profile.last_viewed_memories_at) : new Date(0);
+  const lastLetView = profile.last_viewed_letters_at ? new Date(profile.last_viewed_letters_at) : new Date(0);
 
-  // Count new letters (from partner only)
-  // We need to verify if the letter is from the partner, but checking couple_id + sender != me is best
-  const { count: lettersCount } = await supabase
-    .from('love_letters')
-    .select('*', { count: 'exact', head: true })
-    .eq('couple_id', profile.couple_id)
-    .neq('sender_id', user.id)
-    .gt('created_at', profile.last_viewed_letters_at || new Date(0).toISOString())
-  // Ensure we don't count locked letters that shouldn't be visible yet? 
-  // Actually, notification should probably appear even if locked, "you have a letter waiting"
-  // But user requirement says "new entry". Let's stick to created_at logic.
+  const memoriesSnap = await adminDb.collection('couples').doc(profile.couple_id).collection('memories')
+    .where('created_at', '>', lastMemView)
+    .get();
+
+  const lettersSnap = await adminDb.collection('couples').doc(profile.couple_id).collection('letters')
+    .where('receiver_id', '==', user.uid)
+    .where('created_at', '>', lastLetView)
+    .get();
 
   return {
-    memories: memoriesCount || 0,
-    letters: lettersCount || 0
+    memories: memoriesSnap.size,
+    letters: lettersSnap.size
   }
 }
 
-export async function markAsViewed(type: 'memories' | 'letters', providedUser?: any) {
-  const supabase = await createClient()
-  const user = providedUser || (await supabase.auth.getUser()).data.user
-
+export async function markAsViewed(type: 'memories' | 'letters') {
+  const user = await requireUser();
   if (!user) return
 
   const field = type === 'memories' ? 'last_viewed_memories_at' : 'last_viewed_letters_at'
-
-  await supabase
-    .from('profiles')
-    .update({
-      [field]: new Date().toISOString()
-    })
-    .eq('id', user.id)
+  await adminDb.collection('users').doc(user.uid).update({
+    [field]: new Date().toISOString()
+  });
 
   revalidatePath('/dashboard', 'layout')
 }
@@ -180,242 +126,94 @@ export async function refreshDashboard() {
   revalidatePath('/dashboard', 'layout')
 }
 
-
-
-export async function deleteMemory(memoryId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return { error: 'Not authenticated' }
-
-  // 1. Fetch the memory to get image URLs for cleanup
-  const { data: memory, error: fetchError } = await supabase
-    .from('memories')
-    .select('image_urls, couple_id')
-    .eq('id', memoryId)
-    .single()
-
-  if (fetchError || !memory) {
-    return { error: fetchError?.message || 'Memory not found' }
-  }
-
-  // 2. Cleanup storage files if they exist
-  if (memory.image_urls && memory.image_urls.length > 0) {
-    try {
-      // Extract paths from URLs
-      // Supabase URLs are usually https://[project].supabase.co/storage/v1/object/public/memories/[path]
-      const paths = memory.image_urls.map((url: string) => {
-        const parts = url.split('/storage/v1/object/public/memories/');
-        return parts.length > 1 ? parts[1] : null;
-      }).filter(Boolean);
-
-      if (paths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from('memories')
-          .remove(paths);
-
-        if (storageError) {
-          console.error('Error deleting storage files:', storageError);
-          // We continue anyway to delete the DB record, or should we stop?
-          // Usually better to delete DB record even if storage cleanup fails partially
-        }
-      }
-    } catch (err) {
-      console.error('Unexpected error during storage cleanup:', err);
-    }
-  }
-
-  // 3. Delete the database record
-  const { error } = await supabase
-    .from('memories')
-    .delete()
-    .eq('id', memoryId)
-
-  if (error) return { error: error.message }
-
-  revalidatePath('/dashboard', 'layout')
-  return { success: true }
-}
+// --- PROFILE & COUPLE MANAGEMENT ---
 
 export async function updateProfile(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
-    return { error: 'Not authenticated' }
-  }
+  const user = await requireUser();
+  if (!user) return { error: 'Not authenticated' }
 
   const displayName = formData.get('displayName') as string
   const avatarUrl = formData.get('avatarUrl') as string
 
-  const { error } = await supabase
-    .from('profiles')
-    .update({
+  try {
+    await adminDb.collection('users').doc(user.uid).update({
       display_name: displayName,
       avatar_url: avatarUrl,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', user.id)
-
-  if (error) {
+      updated_at: FieldValue.serverTimestamp(),
+    });
+    return { success: true }
+  } catch (error: any) {
     return { error: error.message }
   }
-
-  return { success: true }
-}
-
-export async function createCouple(partnerEmail: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
-    return { error: 'Not authenticated' }
-  }
-
-  // Find partner by email
-  const { data: partner } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('id', (await supabase.from('auth.users').select('id').eq('email', partnerEmail).single()).data?.id)
-    .single()
-
-  if (!partner) {
-    return { error: 'Partner not found. Make sure they have signed up first.' }
-  }
-
-  // Generate unique pair code
-  const pairCode = Math.random().toString(36).substring(2, 8).toUpperCase()
-
-  // Create couple
-  const { data: couple, error } = await supabase
-    .from('couples')
-    .insert({
-      user1_id: user.id,
-      user2_id: partner.id,
-      pair_code: pairCode,
-      anniversary_date: new Date().toISOString(),
-    })
-    .select()
-    .single()
-
-  if (error) {
-    return { error: error.message }
-  }
-
-  // Update both profiles
-  await supabase
-    .from('profiles')
-    .update({ couple_id: couple.id })
-    .in('id', [user.id, partner.id])
-
-  return { success: true, couple }
 }
 
 export async function generatePairCode() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await requireUser();
+  if (!user) return { error: 'Not authenticated' }
 
-  if (!user) {
-    return { error: 'Not authenticated' }
+  const userDoc = await adminDb.collection('users').doc(user.uid).get();
+  const existingCoupleId = userDoc.data()?.couple_id;
+
+  if (existingCoupleId) {
+    const coupleDoc = await adminDb.collection('couples').doc(existingCoupleId).get();
+    return { success: true, pairCode: coupleDoc.data()?.couple_code }
   }
 
-  // Check if user already has a couple
-  const { data: existingProfile } = await supabase
-    .from('profiles')
-    .select('couple_id')
-    .eq('id', user.id)
-    .single()
-
-  if (existingProfile?.couple_id) {
-    // Get existing couple code
-    const { data: existingCouple } = await supabase
-      .from('couples')
-      .select('couple_code')
-      .eq('id', existingProfile.couple_id)
-      .single()
-
-    return { success: true, pairCode: existingCouple?.couple_code }
-  }
-
-  // Generate unique pair code
   const pairCode = Math.random().toString(36).substring(2, 8).toUpperCase()
+  const coupleRef = await adminDb.collection('couples').add({
+    user1_id: user.uid,
+    couple_code: pairCode,
+    created_at: FieldValue.serverTimestamp(),
+  });
 
-  // Create couple with only user1_id (waiting for partner)
-  const { data: couple, error } = await supabase
-    .from('couples')
-    .insert({
-      user1_id: user.id,
-      couple_code: pairCode,
-    })
-    .select()
-    .single()
-
-  if (error) {
-    return { error: error.message }
-  }
-
-  // Update user profile with couple_id
-  await supabase
-    .from('profiles')
-    .update({ couple_id: couple.id })
-    .eq('id', user.id)
+  await adminDb.collection('users').doc(user.uid).update({ couple_id: coupleRef.id });
 
   return { success: true, pairCode }
 }
 
 export async function joinCouple(pairCode: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
-    return { error: 'Not authenticated' }
-  }
+  const user = await requireUser();
+  if (!user) return { error: 'Not authenticated' }
 
   const trimmedCode = pairCode.trim().toUpperCase()
 
-  const { data: result, error } = await supabase.rpc('join_couple_by_code', {
-    code: trimmedCode,
-    joining_user_id: user.id
-  })
+  try {
+    const couplesSnap = await adminDb.collection('couples').where('couple_code', '==', trimmedCode).limit(1).get();
+    if (couplesSnap.empty) return { error: "Invalid pair code" }
 
-  if (error) {
-    // If the function doesn't exist, we might get an error here.
-    // In dev it should be fine if we run the migration.
-    return { error: error.message }
+    const coupleDoc = couplesSnap.docs[0];
+    const coupleData = coupleDoc.data();
+
+    if (coupleData.user2_id) return { error: "This couple is already full" }
+    if (coupleData.user1_id === user.uid) return { error: "You cannot join your own couple" }
+
+    await coupleDoc.ref.update({
+      user2_id: user.uid,
+      joined_at: FieldValue.serverTimestamp()
+    });
+
+    await adminDb.collection('users').doc(user.uid).update({ couple_id: coupleDoc.id });
+
+    revalidatePath('/dashboard')
+    return { success: true, couple: { id: coupleDoc.id, ...coupleData, user2_id: user.uid } }
+  } catch (err: any) {
+    return { error: err.message }
   }
-
-  // RPC returns a JSON object with success/error/couple fields
-  const response = result as any
-
-  if (!response.success) {
-    return { error: response.error }
-  }
-
-  revalidatePath('/dashboard')
-  return { success: true, couple: response.couple }
 }
 
+// --- LUNARA / CYCLE ACTIONS ---
+
 export async function saveLunaraOnboarding(onboardingData: any) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await requireUser();
+  if (!user) return { error: 'Not authenticated' }
 
-  if (!user) {
-    return { error: 'Not authenticated' }
-  }
+  const userDoc = await adminDb.collection('users').doc(user.uid).get();
+  const coupleId = userDoc.data()?.couple_id;
 
-  console.log('Saving Lunara onboarding for user:', user.id, onboardingData)
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('couple_id')
-    .eq('id', user.id)
-    .single()
-
-  const { error } = await supabase
-    .from('cycle_profiles')
-    .upsert({
-      user_id: user.id,
-      couple_id: profile?.couple_id,
+  try {
+    await adminDb.collection('couples').doc(coupleId || 'none').collection('cycle_profiles').doc(user.uid).set({
+      user_id: user.uid,
+      couple_id: coupleId || null,
       last_period_start: onboardingData.lastPeriodStart,
       avg_cycle_length: parseInt(onboardingData.cycleLength),
       avg_period_length: parseInt(onboardingData.periodLength),
@@ -426,445 +224,131 @@ export async function saveLunaraOnboarding(onboardingData: any) {
       tracking_goals: onboardingData.trackingGoals,
       sharing_enabled: onboardingData.sharingEnabled,
       onboarding_completed: true,
-      updated_at: new Date().toISOString(),
-    })
+      updated_at: FieldValue.serverTimestamp(),
+    }, { merge: true });
 
-  // Surgical Cache Invalidation
-  revalidateTag(`dashboard-${user.id}`, 'default')
-
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) revalidateTag(`dashboard-${partnerId}`, 'default')
-    }
+    revalidatePath('/dashboard', 'layout')
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message }
   }
-
-  revalidatePath('/dashboard', 'layout')
-  return { success: true }
 }
 
 export async function logSupportAction(trackerId: string, actionText: string, category: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await requireUser();
+  if (!user) return { error: 'Not authenticated' }
 
-  if (!user) {
-    return { error: 'Not authenticated' }
-  }
+  const userDoc = await adminDb.collection('users').doc(user.uid).get();
+  const coupleId = userDoc.data()?.couple_id;
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('couple_id')
-    .eq('id', user.id)
-    .single()
-
-  const { error } = await supabase
-    .from('support_logs')
-    .insert({
+  try {
+    const logData = {
       tracker_id: trackerId,
-      supporter_id: user.id,
-      couple_id: profile?.couple_id,
+      supporter_id: user.uid,
+      couple_id: coupleId || null,
       action_text: actionText,
       category: category,
-      log_date: new Date().toISOString().split('T')[0]
-    })
+      log_date: new Date().toISOString().split('T')[0],
+      created_at: FieldValue.serverTimestamp()
+    };
 
-  // Surgical Cache Invalidation
-  revalidateTag(`dashboard-${user.id}`, 'default')
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) revalidateTag(`dashboard-${partnerId}`, 'default')
-    }
+    await adminDb.collection('couples').doc(coupleId || 'none').collection('support_logs').add(logData);
+
+    revalidatePath('/dashboard', 'layout')
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message }
   }
-
-  revalidatePath('/dashboard', 'layout')
-  return { success: true }
 }
 
-export async function toggleLunaraSharing(enabled: boolean) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return { error: 'Not authenticated' }
-
-  const { error } = await supabase
-    .from('cycle_profiles')
-    .update({ sharing_enabled: enabled })
-    .eq('user_id', user.id)
-
-  // Surgical Cache Invalidation
-  revalidateTag(`dashboard-${user.id}`, 'default')
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('couple_id')
-    .eq('id', user.id)
-    .single()
-
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) revalidateTag(`dashboard-${partnerId}`, 'default')
-    }
-  }
-
-  revalidatePath('/dashboard', 'layout')
-  return { success: true }
-}
 export async function logPeriodStart() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
+  const user = await requireUser();
   if (!user) return { error: 'Not authenticated' }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('couple_id, display_name')
-    .eq('id', user.id)
-    .single()
-
+  const userDoc = await adminDb.collection('users').doc(user.uid).get();
+  const profile = userDoc.data();
   const today = getTodayIST()
 
-  // 1. Update the cycle profile
-  const { error: profileError } = await supabase
-    .from('cycle_profiles')
-    .update({
+  try {
+    const cpRef = adminDb.collection('couples').doc(profile?.couple_id || 'none').collection('cycle_profiles').doc(user.uid);
+    await cpRef.update({
       last_period_start: today,
       period_ended_at: null,
-      updated_at: new Date().toISOString()
-    })
-    .eq('user_id', user.id)
+      updated_at: FieldValue.serverTimestamp()
+    });
 
-  if (profileError) {
-    console.error('Error updating cycle profile:', profileError)
-    return { error: profileError.message }
-  }
-
-  // 2. Add to cycle logs
-  const { error: logError } = await supabase
-    .from('cycle_logs')
-    .upsert({
-      user_id: user.id,
-      couple_id: profile?.couple_id,
+    await adminDb.collection('couples').doc(profile?.couple_id || 'none').collection('cycle_logs').doc(`${user.uid}_${today}`).set({
+      user_id: user.uid,
+      couple_id: profile?.couple_id || null,
       log_date: today,
       flow_level: 'medium',
-      notes: 'Period started'
-    }, { onConflict: 'user_id, log_date' })
+      notes: 'Period started',
+      created_at: FieldValue.serverTimestamp()
+    }, { merge: true });
 
-  if (logError) {
-    console.error('Error adding cycle log:', logError)
-    // We don't return error here because the main profile update succeeded
-  }
-
-  // 3. Notify Partner
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
+    if (profile?.couple_id) {
+      const coupleDoc = await adminDb.collection('couples').doc(profile.couple_id).get();
+      const couple = coupleDoc.data();
+      const partnerId = couple?.user1_id === user.uid ? couple?.user2_id : couple?.user1_id;
       if (partnerId) {
         await sendNotification({
           recipientId: partnerId,
-          actorId: user.id,
+          actorId: user.uid,
           type: 'period_start',
           title: 'Period Started',
-          message: `${profile.display_name || 'Your partner'} logged the start of their period.`,
+          message: `${profile?.display_name || 'Your partner'} logged the start of their period.`,
           actionUrl: '/dashboard',
           metadata: { log_date: today }
-        })
+        });
       }
     }
+
+    revalidatePath('/dashboard', 'layout')
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message }
   }
-
-  // Surgical Cache Invalidation
-  revalidateTag(`dashboard-${user.id}`, 'default')
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) revalidateTag(`dashboard-${partnerId}`, 'default')
-    }
-  }
-
-  revalidatePath('/dashboard', 'layout')
-  return { success: true }
 }
-
-export async function logPeriodEnd() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return { error: 'Not authenticated' }
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('couple_id, display_name')
-    .eq('id', user.id)
-    .single()
-
-  const today = getTodayIST()
-
-  const { error } = await supabase
-    .from('cycle_profiles')
-    .update({
-      period_ended_at: today,
-      updated_at: new Date().toISOString()
-    })
-    .eq('user_id', user.id)
-
-  if (error) return { error: error.message }
-
-  // Surgical Cache Invalidation
-  revalidateTag(`dashboard-${user.id}`, 'default')
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) {
-        revalidateTag(`dashboard-${partnerId}`, 'default')
-
-        // Notify Partner
-        await sendNotification({
-          recipientId: partnerId,
-          actorId: user.id,
-          type: 'period_start', // Reusing type or could add period_end
-          title: 'Period Ended',
-          message: `${profile.display_name || 'Your partner'} logged that their period has ended.`,
-          actionUrl: '/dashboard',
-          metadata: { log_date: today }
-        })
-      }
-    }
-  }
-
-  revalidatePath('/dashboard', 'layout')
-  return { success: true }
-}
-
-
-
 
 export async function logSymptoms(symptoms: string[]) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
+  const user = await requireUser();
   if (!user) return { error: 'Not authenticated' }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('couple_id, display_name')
-    .eq('id', user.id)
-    .single()
-
+  const userDoc = await adminDb.collection('users').doc(user.uid).get();
+  const profile = userDoc.data();
   const today = getTodayIST()
 
-  // Upsert symptoms into cycle_logs
-  // Ensure unique symptoms and no empty strings
-  const uniqueSymptoms = Array.from(new Set(symptoms.map(s => s.trim()).filter(Boolean)))
-
-  const { error } = await supabase
-    .from('cycle_logs')
-    .upsert({
-      user_id: user.id,
-      couple_id: profile?.couple_id,
+  try {
+    await adminDb.collection('couples').doc(profile?.couple_id || 'none').collection('cycle_logs').doc(`${user.uid}_${today}`).set({
+      user_id: user.uid,
+      couple_id: profile?.couple_id || null,
       log_date: today,
-      symptoms: uniqueSymptoms,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id, log_date' })
+      symptoms: symptoms,
+      updated_at: FieldValue.serverTimestamp()
+    }, { merge: true });
 
-  // Notify Partner
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) {
-        await sendNotification({
-          recipientId: partnerId,
-          actorId: user.id,
-          type: 'mood',
-          title: 'Symptoms Updated',
-          message: `${profile.display_name || 'Your partner'} updated their cycle symptoms.`,
-          actionUrl: '/dashboard',
-          metadata: { log_date: today }
-        })
-      }
-    }
+    revalidatePath('/dashboard', 'layout')
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message }
   }
-
-  // Surgical Cache Invalidation
-  revalidateTag(`dashboard-${user.id}`, 'default')
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) revalidateTag(`dashboard-${partnerId}`, 'default')
-    }
-  }
-
-  revalidatePath('/dashboard', 'layout')
-  return { success: true }
 }
-
-export async function logSexDrive(level: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
+export async function toggleLunaraSharing(enabled: boolean) {
+  const user = await requireUser();
   if (!user) return { error: 'Not authenticated' }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('couple_id, display_name')
-    .eq('id', user.id)
-    .single()
+  const userDoc = await adminDb.collection('users').doc(user.uid).get();
+  const coupleId = userDoc.data()?.couple_id;
 
-  const today = getTodayIST()
+  try {
+    await adminDb.collection('couples').doc(coupleId || 'none').collection('cycle_profiles').doc(user.uid).update({
+      sharing_enabled: enabled,
+      updated_at: FieldValue.serverTimestamp()
+    });
 
-  console.log('[logSexDrive] Saving:', {
-    user_id: user.id,
-    couple_id: profile?.couple_id,
-    log_date: today,
-    sex_drive: level
-  })
-
-  const { data, error } = await supabase
-    .from('cycle_logs')
-    .upsert({
-      user_id: user.id,
-      couple_id: profile?.couple_id,
-      log_date: today,
-      sex_drive: level,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id, log_date' })
-    .select()
-
-  console.log('[logSexDrive] Result:', { data, error })
-
-  // Revalidate Caches (Surgical)
-  // 1. My dashboard needs fresh data
-  revalidateTag(`dashboard-${user.id}`, 'default')
-
-  // 2. Partner's dashboard needs fresh data (to see my update)
-  if (profile?.couple_id) {
-    const { data: couple } = await supabase
-      .from('couples')
-      .select('user1_id, user2_id')
-      .eq('id', profile.couple_id)
-      .single()
-
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) {
-        revalidateTag(`dashboard-${partnerId}`, 'default')
-
-        await sendNotification({
-          recipientId: partnerId,
-          actorId: user.id,
-          type: 'mood',
-          title: 'Intimacy Status Updated',
-          message: `${profile.display_name || 'Your partner'} updated their intimacy status.`,
-          actionUrl: '/dashboard',
-          metadata: { log_date: today }
-        })
-      }
-    }
+    revalidatePath('/dashboard', 'layout')
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message }
   }
-
-  // Fallback path revalidation just in case
-  revalidatePath('/dashboard')
-  return { success: true }
-}
-
-export async function updateLocation(data: { latitude?: number, longitude?: number }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return { error: 'Not authenticated' }
-
-  // Get IP for fallback from headers
-  const headersList = await headers()
-  const ip = headersList.get('x-forwarded-for')?.split(',')[0] ||
-    headersList.get('x-real-ip') ||
-    headersList.get('cf-connecting-ip'); // Cloudflare support
-
-  console.log(`[updateLocation] Received: lat=${data.latitude}, lng=${data.longitude}, ip=${ip}`)
-
-  // Resolve location with IP-Based Fallback and Offline Timezone support
-  const geo = await resolveLocation(data.latitude, data.longitude, ip)
-
-  if (!geo) {
-    console.warn('[updateLocation] Could not resolve location for user:', user.id)
-    return { error: 'Could not resolve location' }
-  }
-
-  // Update timezone and location in database
-  const { error } = await supabase
-    .from('profiles')
-    .update({
-      city: geo.city,
-      timezone: geo.timezone,
-      latitude: geo.latitude,
-      longitude: geo.longitude,
-      updated_at: new Date().toISOString(),
-      location_source: geo.isIp ? 'ip' : 'gps'
-    })
-    .eq('id', user.id)
-
-  if (error) return { error: error.message }
-
-  // Tag validation
-  revalidateTag(`dashboard-${user.id}`, 'default')
-
-  // Also invalidate partner
-  const { data: profileWithCouple } = await supabase.from('profiles').select('couple_id').eq('id', user.id).single()
-
-  if (profileWithCouple?.couple_id) {
-    const { data: couple } = await supabase.from('couples').select('user1_id, user2_id').eq('id', profileWithCouple.couple_id).single()
-    if (couple) {
-      const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-      if (partnerId) revalidateTag(`dashboard-${partnerId}`, 'default')
-    }
-  }
-
-  // Surgical revalidation only - DO NOT use revalidatePath('/dashboard') here
-  // which causes an expensive full-tree re-render.
-  return { success: true }
 }

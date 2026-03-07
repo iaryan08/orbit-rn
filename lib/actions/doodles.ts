@@ -1,60 +1,50 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { adminDb } from "@/lib/firebase/admin";
 import { revalidatePath } from "next/cache";
+import { requireUser } from "@/lib/firebase/auth-server";
+import { FieldValue } from "firebase-admin/firestore";
 
 export async function saveDoodle(path: string) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await requireUser();
     if (!user) return { error: "Unauthorized" };
 
-    const { data: profile } = await supabase
-        .from("profiles")
-        .select("couple_id")
-        .eq("id", user.id)
-        .single();
+    const userDoc = await adminDb.collection('users').doc(user.uid).get();
+    const coupleId = userDoc.data()?.couple_id;
+    if (!coupleId) return { error: "No couple linked" };
 
-    if (!profile?.couple_id) return { error: "No couple linked" };
-
-    const { error } = await supabase
-        .from("doodles")
-        .upsert({
-            couple_id: profile.couple_id,
-            user_id: user.id,
+    try {
+        // Upsert doodle into the 'doodles' subcollection OR a root doodles with doc=coupleId
+        // The original used a root 'doodles' table with onConflict couple_id.
+        // We'll use a specific doc in a root 'doodles' collection for simplicity.
+        await adminDb.collection('doodles').doc(coupleId).set({
+            couple_id: coupleId,
+            user_id: user.uid,
             path_data: path,
-            updated_at: new Date().toISOString()
-        }, {
-            onConflict: 'couple_id'
-        });
+            updated_at: FieldValue.serverTimestamp()
+        }, { merge: true });
 
-    if (error) return { error: error.message };
-
-    revalidatePath("/dashboard");
-    return { success: true };
+        revalidatePath("/dashboard");
+        return { success: true };
+    } catch (err: any) {
+        return { error: err.message };
+    }
 }
 
 export async function getDoodle(providedCoupleId?: string) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await requireUser();
     if (!user) return null;
 
     let coupleId = providedCoupleId;
     if (!coupleId) {
-        const { data: profile } = await supabase
-            .from("profiles")
-            .select("couple_id")
-            .eq("id", user.id)
-            .single();
-        coupleId = profile?.couple_id;
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        coupleId = userDoc.data()?.couple_id;
     }
 
     if (!coupleId) return null;
 
-    const { data: doodle } = await supabase
-        .from("doodles")
-        .select("*")
-        .eq("couple_id", coupleId)
-        .single();
+    const doodleDoc = await adminDb.collection('doodles').doc(coupleId).get();
+    if (!doodleDoc.exists) return null;
 
-    return doodle;
+    return { id: doodleDoc.id, ...doodleDoc.data() };
 }

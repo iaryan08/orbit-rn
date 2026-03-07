@@ -139,33 +139,6 @@ export function SyncEngine() {
     useEffect(() => {
         if (!coupleId || !userId) return;
 
-        // 1. Presence (RTDB)
-        const presenceRef = ref(rtdb, `presence/${coupleId}/${userId}`);
-        const userStatusRef = ref(rtdb, `presence/${coupleId}/${userId}/status`);
-
-        onValue(ref(rtdb, '.info/connected'), (snap) => {
-            if (snap.val() === false) return;
-            onDisconnect(presenceRef).remove().then(() => {
-                set(presenceRef, {
-                    status: 'online',
-                    last_changed: rtdbTimestamp(),
-                });
-            });
-        });
-
-        // Listen to partner presence
-        const partnerId = partnerProfile?.id;
-        let unsubscribePartnerPresence: any = null;
-        if (partnerId) {
-            const partnerPresenceRef = ref(rtdb, `presence/${coupleId}/${partnerId}`);
-            unsubscribePartnerPresence = onValue(partnerPresenceRef, (snap) => {
-                const status = snap.val();
-                window.dispatchEvent(new CustomEvent('orbit:presence-sync', {
-                    detail: { [partnerId]: [status ? { ...status, user_id: partnerId } : null] }
-                }));
-            });
-        }
-
         // 2. Ephemeral Broadcasts (RTDB)
         const broadcastRef = ref(rtdb, `broadcasts/${coupleId}`);
         const unsubscribeBroadcasts = onValue(broadcastRef, (snap) => {
@@ -279,6 +252,15 @@ export function SyncEngine() {
             snap.docChanges().forEach(c => c.type !== 'removed' && upsertSupportLog({ id: c.doc.id, ...c.doc.data() }));
         }));
 
+        // Bucket List
+        unsubscribers.push(onSnapshot(collection(db, 'couples', coupleId, 'bucket_list'), (snap) => {
+            snap.docChanges().forEach((change) => {
+                const data = normalizeFirestoreData(change.doc.data());
+                if (change.type === 'removed') deleteBucketItem(change.doc.id);
+                else upsertBucketItem({ id: change.doc.id, ...data });
+            });
+        }));
+
         // Moods
         unsubscribers.push(onSnapshot(collection(db, 'couples', coupleId, 'moods'), (snap) => {
             snap.docChanges().forEach(c => {
@@ -330,7 +312,6 @@ export function SyncEngine() {
         if (Capacitor.isNativePlatform()) OutboxSyncManager.init(coupleId);
 
         return () => {
-            if (unsubscribePartnerPresence) unsubscribePartnerPresence();
             unsubscribeBroadcasts();
             unsubscribers.forEach(u => u());
         };

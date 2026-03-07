@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Heart, Check, X, Trophy, Loader2, Sparkles } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { db, auth } from "@/lib/firebase/client";
+import { doc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { useOrbitStore } from "@/lib/store/global-store";
 
 interface LoveQuizProps {
   onBack: () => void;
@@ -53,79 +54,32 @@ export function LoveQuiz({ onBack }: LoveQuizProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [currentInput, setCurrentInput] = useState("");
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
-  const [coupleId, setCoupleId] = useState<string | null>(null);
   const [isMyTurn, setIsMyTurn] = useState(false);
 
-  const supabase = createClient();
   const { toast } = useToast();
+  const orbitStore = useOrbitStore();
+  const user = auth.currentUser;
+  const coupleId = orbitStore.couple?.id || orbitStore.profile?.couple_id;
 
   useEffect(() => {
-    async function init() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setUser(user);
+    if (!coupleId || !user) {
+      setLoading(false);
+      return;
+    }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("couple_id")
-        .eq("id", user.id)
-        .single();
-
-      if (profile?.couple_id) {
-        setCoupleId(profile.couple_id);
-        /* DEACTIVATED: Games Realtime is not needed 
-        fetchGameState(profile.couple_id);
-        subscribeToGame(profile.couple_id);
-        */
-      } else {
-        setLoading(false);
+    const gameRef = doc(db, "couples", coupleId, "game_sessions", "love-quiz");
+    const unsubscribe = onSnapshot(gameRef, (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        const state = data.state as GameState;
+        setGameState(state);
+        updateTurnStatus(state, user.uid);
       }
-    }
-    init();
-  }, []);
+      setLoading(false);
+    });
 
-  const fetchGameState = async (cid: string) => {
-    const { data, error } = await supabase
-      .from("game_sessions")
-      .select("state")
-      .eq("couple_id", cid)
-      .eq("game_type", "love-quiz")
-      .single();
-
-    if (data && data.state) {
-      const state = data.state as GameState;
-      setGameState(state);
-      updateTurnStatus(state, user?.id);
-    }
-    setLoading(false);
-  };
-
-  const subscribeToGame = (cid: string) => {
-    const channel = supabase
-      .channel(`game-love-quiz-${cid}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "game_sessions",
-          filter: `couple_id=eq.${cid}`,
-        },
-        (payload: any) => {
-          if (payload.new && payload.new.game_type === "love-quiz") {
-            const newState = payload.new.state as GameState;
-            setGameState(newState);
-            updateTurnStatus(newState, user?.id.toLowerCase());
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  };
+    return () => unsubscribe();
+  }, [coupleId, user]);
 
   const updateTurnStatus = (state: GameState, userId: string) => {
     if (!userId) return;
@@ -146,21 +100,15 @@ export function LoveQuiz({ onBack }: LoveQuizProps) {
 
   const updateRemoteState = async (newState: GameState) => {
     if (!coupleId) return;
-
-    const { error } = await supabase
-      .from("game_sessions")
-      .upsert({
-        couple_id: coupleId,
+    const gameRef = doc(db, "couples", coupleId, "game_sessions", "love-quiz");
+    try {
+      await setDoc(gameRef, {
         game_type: "love-quiz",
         state: newState,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "couple_id, game_type" });
-
-    if (error) {
-      toast({
-        title: "Sync failed",
-        variant: "destructive",
-      });
+        updated_at: serverTimestamp(),
+      }, { merge: true });
+    } catch (e) {
+      console.error("Failed to update game state:", e);
     }
   };
 
@@ -173,7 +121,7 @@ export function LoveQuiz({ onBack }: LoveQuizProps) {
       answers: [],
       selectedQuestions: shuffled.slice(0, 5),
       score: 0,
-      initiatorId: user.id.toLowerCase(),
+      initiatorId: user.uid.toLowerCase(),
       roundStep: "answering",
     };
     setGameState(newState);
@@ -183,31 +131,22 @@ export function LoveQuiz({ onBack }: LoveQuizProps) {
   const submitAnswer = async () => {
     if (!currentInput.trim() || !gameState || !coupleId) return;
 
-    // Fetch latest state to avoid race conditions
-    const { data } = await supabase
-      .from("game_sessions")
-      .select("state")
-      .eq("couple_id", coupleId)
-      .eq("game_type", "love-quiz")
-      .single();
+    let newState = { ...gameState };
 
-    const latestState = data?.state ? (data.state as GameState) : gameState;
-    let newState = { ...latestState };
-
-    if (latestState.roundStep === "answering") {
+    if (gameState.roundStep === "answering") {
       newState.answers = [
-        ...latestState.answers,
+        ...gameState.answers,
         {
-          question: latestState.selectedQuestions[latestState.currentQuestionIndex],
+          question: gameState.selectedQuestions[gameState.currentQuestionIndex],
           playerAnswer: currentInput.trim(),
           partnerAnswer: "",
         },
       ];
       newState.roundStep = "guessing";
-    } else if (latestState.roundStep === "guessing") {
-      const updatedAnswers = [...latestState.answers];
-      updatedAnswers[latestState.currentQuestionIndex] = {
-        ...updatedAnswers[latestState.currentQuestionIndex],
+    } else if (gameState.roundStep === "guessing") {
+      const updatedAnswers = [...gameState.answers];
+      updatedAnswers[gameState.currentQuestionIndex] = {
+        ...updatedAnswers[gameState.currentQuestionIndex],
         partnerAnswer: currentInput.trim(),
       };
       newState.answers = updatedAnswers;
@@ -308,9 +247,8 @@ export function LoveQuiz({ onBack }: LoveQuizProps) {
   }
 
   if (gameState.phase === "playing") {
-    const isSubject = gameState.initiatorId?.toLowerCase() === user?.id.toLowerCase();
+    const isSubject = gameState.initiatorId?.toLowerCase() === user?.uid.toLowerCase();
     const isAnswering = gameState.roundStep === "answering";
-    const isGuessing = gameState.roundStep === "guessing";
 
     return (
       <div className="space-y-6">
@@ -386,7 +324,7 @@ export function LoveQuiz({ onBack }: LoveQuizProps) {
 
   if (gameState.phase === "reveal") {
     const currentAnswer = gameState.answers[gameState.currentQuestionIndex];
-    const isSubject = gameState.initiatorId?.toLowerCase() === user?.id.toLowerCase();
+    const isSubject = gameState.initiatorId?.toLowerCase() === user?.uid.toLowerCase();
 
     return (
       <div className="space-y-6">
@@ -406,7 +344,7 @@ export function LoveQuiz({ onBack }: LoveQuizProps) {
         <div className="glass-card p-6 md:p-10 min-h-[400px] flex flex-col justify-center relative overflow-hidden">
           <div className="relative z-10 max-w-xl mx-auto w-full space-y-8">
             <h2 className="text-xl font-bold text-white/90 text-center uppercase tracking-widest">
-              {isSubject ? "Did they get it right?" : "Waiting for partner to reveal..."}
+              {isSubject ? "Did them get it right?" : "Waiting for partner to reveal..."}
             </h2>
 
             <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 text-center border border-white/10">

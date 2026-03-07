@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { LayoutGrid, BookOpen, Heart, Loader2, Flame } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
-import { getDashboardData } from '@/lib/client/consolidated'
+import { getCoreDashboardData } from '@/lib/client/consolidated'
 
 import { LunaraTabDashboard } from './lunara-tab-dashboard'
 import { LunaraTabPartner } from './lunara-tab-partner'
@@ -58,7 +57,7 @@ export function LunaraLayout({ initialData }: { initialData?: any }) {
             const custom = event as CustomEvent<{ force?: boolean; done?: () => void }>
             // const force = !!custom.detail?.force // force is not used directly here, but the refresh implies force
 
-            const result = await getDashboardData()
+            const result = await getCoreDashboardData()
             if (result.success && result.data) {
                 setCoreData(result.data)
             } else {

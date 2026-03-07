@@ -12,7 +12,6 @@ import dynamic from 'next/dynamic'
 const LunaraOnboarding = dynamic(() => import('./lunara-onboarding').then(m => m.LunaraOnboarding), {
     loading: () => <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-purple-400" /></div>
 })
-import { createClient } from '@/lib/supabase/client'
 import { saveLunaraOnboarding, toggleLunaraSharing, logPeriodStart, logSymptoms } from '@/lib/actions/auth'
 import { getDashboardData } from '@/lib/actions/consolidated'
 import { getTodayIST } from '@/lib/utils'
@@ -20,6 +19,8 @@ import { Loader2, Share2, Shield, UserCheck, Flame } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/hooks/use-toast'
 import { useRouter } from 'next/navigation'
+import { db, auth } from '@/lib/firebase/client'
+import { doc, onSnapshot, collection, query, orderBy, limit as firestoreLimit, getDocs, where } from 'firebase/firestore'
 const LunaraSettings = dynamic(() => import('./lunara-settings').then(m => m.LunaraSettings))
 const SupportModal = dynamic(() => import('./support-modal').then(m => m.SupportModal))
 import { differenceInDays, addDays, format, startOfDay } from 'date-fns'
@@ -40,7 +41,7 @@ export function LunaraDashboard({ initialData }: { initialData: any }) {
     const [isSyncing, setIsSyncing] = React.useState(false)
     const [isLogging, setIsLogging] = React.useState(false)
     const [sharedSymptoms, setSharedSymptoms] = React.useState<string[]>([])
-    const supabase = createClient()
+    const user = auth.currentUser
     const { toast } = useToast()
     const router = useRouter()
 
@@ -57,31 +58,49 @@ export function LunaraDashboard({ initialData }: { initialData: any }) {
     }, [initialData])
 
     React.useEffect(() => {
-        if (!profile?.couple_id) return
+        if (!profile?.couple_id || !user) return
 
-        const channel = supabase
-            .channel('lunara-dashboard-updates')
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'cycle_profiles', filter: `user_id=eq.${profile.partner_id}` },
-                () => router.refresh()
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'cycle_logs', filter: `user_id=eq.${profile.partner_id}` },
-                () => router.refresh()
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'support_logs', filter: `couple_id=eq.${profile.couple_id}` },
-                () => router.refresh()
-            )
-            .subscribe()
+        const coupleId = profile.couple_id
+        const pid = profile.partner_id
+        const today = getTodayIST()
+
+        // 1. Listen for partner's cycle profile
+        const cycleProfileRef = doc(db, 'couples', coupleId, 'cycle_profiles', pid || 'none')
+        const unsubProfile = onSnapshot(cycleProfileRef, (snapshot) => {
+            if (snapshot.exists()) {
+                setCycleProfile(snapshot.data())
+            }
+        })
+
+        // 2. Listen for partner's logs today
+        const partnerLogRef = doc(db, 'couples', coupleId, 'cycle_logs', `${pid}_${today}`)
+        const unsubLogs = onSnapshot(partnerLogRef, (snapshot) => {
+            if (snapshot.exists()) {
+                const data = snapshot.data()
+                setCycleLogs(prev => {
+                    const filtered = prev.filter(l => !(l.user_id === pid && l.log_date === today))
+                    return [data, ...filtered]
+                })
+            }
+        })
+
+        // 3. Listen for support logs
+        const supportQuery = query(
+            collection(db, 'couples', coupleId, 'support_logs'),
+            orderBy('created_at', 'desc'),
+            firestoreLimit(6)
+        )
+        const unsubSupport = onSnapshot(supportQuery, (snapshot) => {
+            const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+            setSupportLogs(logs)
+        })
 
         return () => {
-            supabase.removeChannel(channel)
+            unsubProfile()
+            unsubLogs()
+            unsubSupport()
         }
-    }, [router, profile?.couple_id, profile?.partner_id])
+    }, [profile?.couple_id, profile?.partner_id, user])
 
     const getCycleDay = () => {
         if (!cycleProfile?.last_period_start) return null
@@ -137,11 +156,14 @@ export function LunaraDashboard({ initialData }: { initialData: any }) {
         try {
             const result = await saveLunaraOnboarding(onboardingData)
             if (result.success) {
-                const { data: { user } } = await supabase.auth.getUser()
-                if (user) {
-                    const { data } = await supabase.from('cycle_profiles').select('*').eq('user_id', user.id).single()
-                    console.log('LunaraDashboard refetched cycle:', data)
-                    setCycleProfile(data)
+                const user = auth.currentUser;
+                if (user && profile?.couple_id) {
+                    const snap = await getDocs(query(collection(db, 'couples', profile.couple_id, 'cycle_profiles'), where('user_id', '==', user.uid)));
+                    if (!snap.empty) {
+                        const data = snap.docs[0].data();
+                        console.log('LunaraDashboard refetched cycle:', data)
+                        setCycleProfile(data)
+                    }
                     toast({
                         title: "Sync Complete",
                         description: "Lunara cycle is now synchronized.",
@@ -531,13 +553,15 @@ export function LunaraDashboard({ initialData }: { initialData: any }) {
                 onClose={async () => {
                     setShowSupportModal(false)
                     // Refresh logs - Use couple_id for consistency with initial fetch
-                    const { data: logs } = await supabase
-                        .from('support_logs')
-                        .select('*')
-                        .eq('couple_id', profile?.couple_id)
-                        .order('created_at', { ascending: false })
-                        .limit(6)
-                    setSupportLogs(logs || [])
+                    if (profile?.couple_id) {
+                        const q = query(
+                            collection(db, 'couples', profile.couple_id, 'support_logs'),
+                            orderBy('created_at', 'desc'),
+                            firestoreLimit(6)
+                        )
+                        const snap = await getDocs(q)
+                        setSupportLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+                    }
                 }}
                 phase={phase?.name || "Support"}
                 day={currentDay || 1}

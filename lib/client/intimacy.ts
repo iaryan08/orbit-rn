@@ -1,4 +1,5 @@
-import { createClient } from '@/lib/supabase/client'
+import { db, auth } from '@/lib/firebase/client'
+import { doc, getDoc, collection, setDoc, serverTimestamp } from 'firebase/firestore'
 import { sendNotification } from '@/lib/client/notifications'
 import { enqueueMutation, isLikelyNetworkError, isOffline } from '@/lib/client/offline-mutation-queue'
 import { readOfflineCache, writeOfflineCache } from '@/lib/client/offline-cache'
@@ -15,29 +16,19 @@ export async function logIntimacyMilestone(payload: {
         return { success: true, queued: true }
     }
 
-    const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()
-    const user = session?.user
-
+    const user = auth.currentUser;
     if (!user) return { error: "Unauthorized" }
+
     try {
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('couple_id, display_name')
-            .eq('id', user.id)
-            .single()
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const profile = userDoc.data();
+        if (!profile?.couple_id) return { error: "No couple found" }
 
-        if (!profile?.couple_id || profile.couple_id === 'undefined') return { error: "No couple found" }
-
-        const { data: couple } = await supabase
-            .from('couples')
-            .select('user1_id, user2_id')
-            .eq('id', profile.couple_id)
-            .single()
-
+        const coupleDoc = await getDoc(doc(db, 'couples', profile.couple_id));
+        const couple = coupleDoc.data();
         if (!couple) return { error: "Couple error" }
 
-        const isUser1 = couple.user1_id === user.id
+        const isUser1 = couple.user1_id === user.uid
         const showDualDates = ['first_kiss', 'first_surprise', 'first_memory'].includes(payload.category)
         const contentField = isUser1 ? "content_user1" : "content_user2"
         const dateField = isUser1 ? "date_user1" : "date_user2"
@@ -47,15 +38,13 @@ export async function logIntimacyMilestone(payload: {
             couple_id: profile.couple_id,
             category: payload.category,
             [contentField]: payload.content,
-            updated_at: new Date().toISOString()
+            updated_at: serverTimestamp()
         }
 
         if (payload.date) {
+            updateData.milestone_date = payload.date
             if (showDualDates) {
                 updateData[dateField] = payload.date
-                updateData.milestone_date = payload.date
-            } else {
-                updateData.milestone_date = payload.date
             }
         }
         if (payload.time) {
@@ -65,35 +54,17 @@ export async function logIntimacyMilestone(payload: {
             }
         }
 
-        let { error } = await supabase
-            .from('milestones')
-            .upsert(updateData, { onConflict: 'couple_id, category' })
+        const milestoneRef = doc(db, 'couples', profile.couple_id, 'milestones', payload.category);
+        await setDoc(milestoneRef, updateData, { merge: true });
 
-        if (error) {
-            const msg = String(error.message || '').toLowerCase()
-            const timeColumnMissing = msg.includes('milestone_time') && (msg.includes('column') || msg.includes('schema'))
-            if (timeColumnMissing) {
-                const fallbackData = { ...updateData }
-                delete fallbackData.milestone_time
-                const retry = await supabase
-                    .from('milestones')
-                    .upsert(fallbackData, { onConflict: 'couple_id, category' })
-                error = retry.error
-            }
-        }
-
-        if (error) return { error: error.message }
-
-        // Keep quick local mirror for offline rendering.
+        // Offline Cache
         const cacheKey = `intimacy:${profile.couple_id}`
         const current = readOfflineCache<any[]>(cacheKey) || []
-        const next = [...current.filter((x: any) => x?.category !== payload.category), updateData]
+        const next = [...current.filter((x: any) => x?.category !== payload.category), { ...updateData, id: payload.category }]
         writeOfflineCache(cacheKey, next)
 
         try {
-            if (updateData) {
-                await LocalDB.upsertFromSync('milestones', { ...updateData, pending_sync: 0 })
-            }
+            await LocalDB.upsertFromSync('milestones', { ...updateData, id: payload.category, pending_sync: 0 })
         } catch (dbErr) {
             console.warn('[logIntimacyMilestone] SQLite sync failed:', dbErr)
         }
@@ -121,7 +92,7 @@ export async function logIntimacyMilestone(payload: {
 
             await sendNotification({
                 recipientId: partnerId,
-                actorId: user.id,
+                actorId: user.uid,
                 type: 'intimacy',
                 title: 'Intimacy Memory Added',
                 message: `${profile.display_name || 'Your partner'} added a memory for: ${label}`,

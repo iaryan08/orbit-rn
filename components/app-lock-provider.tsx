@@ -5,8 +5,8 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Lock, Delete, Loader2, ArrowRight, Fingerprint, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import { auth } from '@/lib/firebase/client';
 import { NativeBiometric } from 'capacitor-native-biometric';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Dialog } from '@capacitor/dialog';
@@ -37,7 +37,6 @@ export function AppLockProvider({ children, userProfile }: AppLockProviderProps)
     const isLockedRef = useRef(false);
 
     const router = useRouter();
-    const supabase = createClient();
     const isNative = Capacitor.isNativePlatform();
     const backgroundTimeRef = useRef<number | null>(null);
     const touchStartRef = useRef<number | null>(null);
@@ -255,7 +254,7 @@ export function AppLockProvider({ children, userProfile }: AppLockProviderProps)
     };
 
     const handleActualSignOut = async () => {
-        await supabase.auth.signOut();
+        await auth.signOut();
         localStorage.removeItem('orbit_app_pin');
         localStorage.removeItem('orbit_last_backgrounded');
         localStorage.removeItem('orbit_app_locked_state');

@@ -43,21 +43,6 @@ export function extractFilePathFromStorageUrl(value: string | null | undefined, 
         if (payload?.path) return payload.path
     }
 
-    if (value.includes('/storage/v1/object/')) {
-        const parts = value.split(`/storage/v1/object/public/${bucket}/`)
-        if (parts.length > 1) return parts[1].split('?')[0]
-    }
-
-    const rx = new RegExp(`/storage/v1/object/(?:public|sign)/${bucket}/([^?]+)`, 'i')
-    const match = value.match(rx)
-    if (match?.[1]) {
-        try {
-            return decodeURIComponent(match[1])
-        } catch {
-            return match[1]
-        }
-    }
-
     if (!value.includes('://') && !value.startsWith('/') && !value.startsWith('data:') && !value.startsWith('blob:')) {
         return value.split('?')[0]
     }

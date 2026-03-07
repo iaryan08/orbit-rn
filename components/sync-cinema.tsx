@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Film, Plus, X, Sparkles } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Capacitor } from '@capacitor/core'
 import { App } from '@capacitor/app'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
@@ -10,7 +11,8 @@ import { useOrbitStore } from '@/lib/store/global-store'
 import { DecryptedImage } from './e2ee/decrypted-image'
 import { useAuth } from '@/contexts/auth-context'
 import { rtdb } from '@/lib/firebase/client'
-import { ref, set, onValue, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database'
+import { ref, set, onValue, onDisconnect, serverTimestamp as rtdbTimestamp, update } from 'firebase/database'
+import { useCoupleChannel } from '@/hooks/use-couple-channel'
 // import { useOrbitStore } from '@/lib/orbit/store'
 // import { OrbitProvider } from '@/lib/orbit/provider'
 
@@ -144,29 +146,29 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
 
     // Handle scroll lock and cinema mode flag
     // Presence tracking for cinema
+    useCoupleChannel({
+        coupleId: coupleId || '',
+        userId: currentUserId || '',
+        onPresenceChange: (_onlineIds: string[], rawData: Record<string, any>) => {
+            if (partnerId && rawData[partnerId]) {
+                setPartnerInCinema(!!rawData[partnerId].in_cinema)
+            }
+        }
+    })
+
     useEffect(() => {
         if (!isActive || !coupleId || !currentUserId) return
 
-        const presenceRef = ref(rtdb, `presence/${coupleId}/${currentUserId}/in_cinema`)
+        const presenceRef = ref(rtdb, `presence/${coupleId}/${currentUserId}`)
 
-        // Mark as entering cinema
-        set(presenceRef, true)
-        onDisconnect(presenceRef).remove()
-
-        // Listen for partner's cinema presence
-        let unsubPartner: any = null
-        if (partnerId) {
-            const partnerCinemaRef = ref(rtdb, `presence/${coupleId}/${partnerId}/in_cinema`)
-            unsubPartner = onValue(partnerCinemaRef, (snap) => {
-                setPartnerInCinema(!!snap.val())
-            })
-        }
+        // Mark as entering cinema (Merge with existing global presence)
+        update(presenceRef, { in_cinema: true })
+        onDisconnect(presenceRef).update({ in_cinema: null })
 
         return () => {
-            set(presenceRef, null)
-            if (unsubPartner) unsubPartner()
+            update(presenceRef, { in_cinema: null }).catch(() => { })
         }
-    }, [isActive, coupleId, currentUserId, partnerId])
+    }, [isActive, coupleId, currentUserId])
 
     useEffect(() => {
         if (isActive) {
@@ -282,6 +284,9 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
     const sendReaction = async (type: 'tap' | 'laugh' | 'heartbeat', emojiOverride?: string) => {
         if (!currentUserId || !coupleId) return
 
+        // Only allow local feedback if partner isn't here, skip broadcast to save bandwidth
+        const skipBroadcast = !partnerInCinema
+
         if (isNative) {
             try {
                 if (type === 'heartbeat') {
@@ -302,6 +307,8 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
             senderId: currentUserId
         }, 1200)
 
+        if (skipBroadcast) return
+
         try {
             if ((window as any).orbitSend) {
                 (window as any).orbitSend('cinema_event', {
@@ -318,6 +325,9 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
     const sendNavigation = async (event: 'double_tap' | 'swipe', direction?: 'up' | 'down' | 'forward' | 'backward') => {
         if (!currentUserId || !coupleId) return
 
+        // Skip broadcast if partner isn't in cinema
+        const skipBroadcast = !partnerInCinema
+
         // Throttle to prevent double-broadcasts on sensitive gestures
         const now = Date.now()
         if (now - lastNavAt.current < 400) return
@@ -328,6 +338,8 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
         // Feedback locally
         const navEmoji = event === 'double_tap' ? '✨' : (direction === 'up' ? '😂' : '😢')
         safeSetIncomingReaction({ type: 'tap', emoji: navEmoji, senderName: myName, senderId: currentUserId }, 1200)
+
+        if (skipBroadcast) return
 
         try {
             if ((window as any).orbitSend) {
@@ -410,10 +422,10 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
                     exit={{ opacity: 0 }}
                     className="fixed inset-0 z-[999999] bg-black touch-none select-none overflow-hidden"
                     onContextMenu={(e) => e.preventDefault()}
-                    onTouchStart={handleTouchStart}
-                    onTouchEnd={handleTouchEnd}
-                    onMouseDown={handleTouchStart}
-                    onMouseUp={handleTouchEnd}
+                    onTouchStart={(e) => partnerInCinema && handleTouchStart(e)}
+                    onTouchEnd={(e) => partnerInCinema && handleTouchEnd(e)}
+                    onMouseDown={(e) => partnerInCinema && handleTouchStart(e)}
+                    onMouseUp={(e) => partnerInCinema && handleTouchEnd(e)}
                 >
                     <button
                         onClick={(e) => { e.stopPropagation(); onClose(); }}
@@ -458,10 +470,15 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
                         )}
                     </div>
 
-                    <div className="absolute inset-0 z-0" onDoubleClick={handleDoubleTap} />
+                    <div className="absolute inset-0 z-0" onDoubleClick={(e) => partnerInCinema && handleDoubleTap(e)} />
 
                     <div
-                        className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-2 fake-blur px-3 sm:px-4 py-2 rounded-full z-50 border border-white/10"
+                        className={cn(
+                            "absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-2 fake-blur px-3 sm:px-4 py-2 rounded-full z-50 border border-white/10 transition-all duration-500",
+                            partnerInCinema
+                                ? "opacity-100 translate-y-0"
+                                : "opacity-30 translate-y-2 pointer-events-none grayscale scale-95"
+                        )}
                         onClick={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
@@ -469,18 +486,23 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
                         {emojis.map(emoji => (
                             <button
                                 key={emoji}
+                                disabled={!partnerInCinema}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     setSelectedEmoji(emoji)
                                     sendReaction('tap', emoji)
                                 }}
-                                className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-lg sm:text-xl transition-all ${selectedEmoji === emoji ? 'bg-white/20 scale-110' : 'opacity-50 hover:opacity-100 hover:scale-105'}`}
+                                className={cn(
+                                    "w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-lg sm:text-xl transition-all",
+                                    selectedEmoji === emoji ? 'bg-white/20 scale-110' : 'opacity-50 hover:opacity-100 hover:scale-105'
+                                )}
                             >
                                 {emoji}
                             </button>
                         ))}
 
                         <button
+                            disabled={!partnerInCinema}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 handleAddCustomEmoji()
@@ -492,6 +514,14 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
                             <Plus className="w-4 h-4" />
                         </button>
                     </div>
+
+                    {!partnerInCinema && (
+                        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 animate-pulse">
+                            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/20">
+                                Watching Alone
+                            </span>
+                        </div>
+                    )}
 
                     <AnimatePresence>
                         {incomingReaction && (

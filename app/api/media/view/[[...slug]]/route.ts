@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/server'
 import { decodeMediaToken } from '@/lib/media-tokens'
 import { requireUser } from '@/lib/firebase/auth-server'
 import { adminDb, adminAuth } from '@/lib/firebase/admin'
@@ -187,13 +186,6 @@ export async function GET(request: NextRequest) {
                         break;
                     }
                 }
-            } else if (cachedWinner.source === 'supa') {
-                const admin = await createAdminClient();
-                const { data: sd } = await admin.storage.from(bucket).createSignedUrl(cachedWinner.winnerPath, 60);
-                if (sd?.signedUrl) {
-                    const res = await fetch(sd.signedUrl, { cache: 'no-store' });
-                    if (res.ok) blob = await res.blob();
-                }
             }
             if (blob) {
                 return new NextResponse(blob, {
@@ -260,29 +252,7 @@ export async function GET(request: NextRequest) {
         }
     }
 
-    // TIER 2: Supabase Fallback (Resilience for Jio/IITR)
-    // Only attempt if R2 failed and we have keys.
-    if (!blob && tryPaths.length > 0 && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-        try {
-            const admin = await createAdminClient();
-            for (const p of tryPaths) {
-                try {
-                    const { data: sd, error: se } = await admin.storage.from(bucket).createSignedUrl(p, 60);
-                    if (!se && sd?.signedUrl) {
-                        const res = await fetch(sd.signedUrl, { cache: 'no-store' });
-                        if (res.ok) {
-                            blob = await res.blob();
-                            finalSource = 'supa';
-                            finalPath = p;
-                            break;
-                        }
-                    }
-                } catch (e) { }
-            }
-        } catch (e) {
-            // Suppress Supabase init errors to keep logs clean
-        }
-    }
+    // TIER 2: Not used anymore (Supabase removed)
 
     if (!blob) {
         // Cache this 404 for 5 minutes server-side so we don't spam CF Workers again
@@ -298,7 +268,7 @@ export async function GET(request: NextRequest) {
     }
 
     mediaWinnerCache.set(CACHE_KEY, {
-        source: (finalSource || 'r2') as 'r2' | 'supa',
+        source: 'r2',
         winnerPath: finalPath
     });
 

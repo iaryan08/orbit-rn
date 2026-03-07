@@ -159,6 +159,16 @@ export async function deletePolaroid(id: string) {
             return { error: "Permission denied or not found" };
         }
 
+        // 1. Cleanup comments first
+        const { getPolaroidComments, deletePolaroidComment } = await import("./reactions-comments");
+        const commentsRes = await getPolaroidComments(id);
+        if (commentsRes.data) {
+            for (const comment of commentsRes.data) {
+                await deletePolaroidComment(comment.id);
+            }
+        }
+
+        // 2. Delete main doc
         await deleteDoc(polaroidRef);
 
         if (polaroidData.image_url) {
@@ -193,5 +203,19 @@ export async function savePolaroidToMemories(polaroid: any, saverProfile: any, u
     };
 
     const { createMemory } = await import("./memories");
-    return createMemory(memoryPayload);
+    const { getPolaroidComments, addMemoryComment } = await import("./reactions-comments");
+
+    const memoryRes = await createMemory(memoryPayload);
+
+    if (memoryRes.success && memoryRes.data?.id) {
+        // Migrate comments
+        const commentsRes = await getPolaroidComments(polaroid.id);
+        if (commentsRes.data && commentsRes.data.length > 0) {
+            for (const comment of commentsRes.data) {
+                await addMemoryComment(memoryRes.data.id, `[Migrated] ${comment.content}`);
+            }
+        }
+    }
+
+    return memoryRes;
 }

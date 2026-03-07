@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, MessageCircle, RefreshCw, Loader2, Sparkles } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { db, auth } from "@/lib/firebase/client";
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { useOrbitStore } from "@/lib/store/global-store";
 
 interface WouldYouRatherProps {
   onBack: () => void;
@@ -47,71 +48,41 @@ interface GameState {
 export function WouldYouRather({ onBack }: WouldYouRatherProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
-  const [coupleId, setCoupleId] = useState<string | null>(null);
-  const [partnerId, setPartnerId] = useState<string | null>(null);
-  const [user1Id, setUser1Id] = useState<string | null>(null);
-  const [user2Id, setUser2Id] = useState<string | null>(null);
-
-  const supabase = createClient();
   const { toast } = useToast();
 
+  const user = auth.currentUser;
+  const orbitStore = useOrbitStore();
+  const coupleId = orbitStore.couple?.id || orbitStore.profile?.couple_id;
+  const partnerId = orbitStore.couple ? (orbitStore.couple.user1_id === user?.uid ? orbitStore.couple.user2_id : orbitStore.couple.user1_id) : null;
+
   useEffect(() => {
-    async function init() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setUser(user);
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("couple_id")
-        .eq("id", user.id)
-        .single();
-
-      if (profile?.couple_id) {
-        setCoupleId(profile.couple_id);
-
-        // Find partner ID
-        const { data: couple } = await supabase
-          .from("couples")
-          .select("user1_id, user2_id")
-          .eq("id", profile.couple_id)
-          .single();
-
-        if (couple) {
-          const u1 = couple.user1_id.toLowerCase();
-          const u2 = couple.user2_id?.toLowerCase();
-          setUser1Id(u1);
-          setUser2Id(u2);
-          setPartnerId(u1 === user.id.toLowerCase() ? u2 : u1);
-        }
-
-        /* DEACTIVATED: Games Realtime is not needed 
-        fetchGameState(profile.couple_id);
-        subscribeToGame(profile.couple_id);
-        */
-      } else {
-        setLoading(false);
-      }
+    if (!coupleId || !user) {
+      setLoading(false);
+      return;
     }
-    init();
-  }, []);
+
+    const gameRef = doc(db, "couples", coupleId, "game_sessions", "would-you-rather");
+
+    const unsubscribe = onSnapshot(gameRef, (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        setGameState(data.game_data as GameState);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [coupleId, user]);
 
   // Automatic State Repair / Self-Healing for WYR
   useEffect(() => {
-    if (!gameState || !user) return;
+    if (!gameState || !user || !partnerId) return;
 
-    // Detect deadlock: Both waiting for partner
-    // In WYR, deadlock means revealed=false but I have made a choice, and partner has NOT made a choice?
-    // No, "Waiting for partner" appears when !revealed && myChoice.
-    // Use case: I chose. Partner chose. But state didn't update to revealed=true?
-    // OR: I chose. Partner hasn't chose.
+    const myId = user.uid.toLowerCase();
+    const pId = partnerId.toLowerCase();
 
     // If both have chosen in the `choices` object but `revealed` is false, fix it.
-    const myId = user.id.toLowerCase();
-    const pId = partnerId?.toLowerCase();
-
-    if (myId && pId && gameState.choices[myId] && gameState.choices[pId] && !gameState.revealed) {
+    if (gameState.choices[myId] && gameState.choices[pId] && !gameState.revealed) {
       console.log("Deadlock detected (Both answered but not revealed), repairing...");
       const repairedState = { ...gameState, revealed: true };
       setGameState(repairedState);
@@ -119,42 +90,18 @@ export function WouldYouRather({ onBack }: WouldYouRatherProps) {
     }
   }, [gameState, user, partnerId]);
 
-  const fetchGameState = async (cid: string) => {
-    const { data } = await supabase
-      .from("game_sessions")
-      .select("game_data")
-      .eq("couple_id", cid)
-      .eq("game_type", "would-you-rather")
-      .single();
-
-    if (data && data.game_data) {
-      setGameState(data.game_data as GameState);
-    }
-    setLoading(false);
-  };
-
-  const subscribeToGame = (cid: string) => {
-    const onRefresh = (e: any) => {
-      const gameData = e.detail?.game_data || e.detail;
-      if (gameData && gameData.game_type === "would-you-rather") {
-        setGameState(gameData.game_data || gameData);
-      } else if (e.detail?.game_type === "would-you-rather") {
-        setGameState(e.detail.game_data as GameState);
-      }
-    }
-
-    window.addEventListener('orbit:game-refresh', onRefresh);
-    return () => window.removeEventListener('orbit:game-refresh', onRefresh);
-  };
-
   const updateRemoteState = async (newState: GameState) => {
     if (!coupleId) return;
-    await supabase.from("game_sessions").upsert({
-      couple_id: coupleId,
-      game_type: "would-you-rather",
-      game_data: newState,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "couple_id, game_type" });
+    const gameRef = doc(db, "couples", coupleId, "game_sessions", "would-you-rather");
+    try {
+      await setDoc(gameRef, {
+        game_type: "would-you-rather",
+        game_data: newState,
+        updated_at: serverTimestamp(),
+      }, { merge: true });
+    } catch (e) {
+      console.error("Failed to update game state:", e);
+    }
   };
 
   const initGame = () => {
@@ -163,7 +110,7 @@ export function WouldYouRather({ onBack }: WouldYouRatherProps) {
       currentIndex: 0,
       choices: {},
       revealed: false,
-      initiatorId: user.id.toLowerCase(),
+      initiatorId: user.uid.toLowerCase(),
     };
     setGameState(newState);
     updateRemoteState(newState);
@@ -172,43 +119,31 @@ export function WouldYouRather({ onBack }: WouldYouRatherProps) {
   const handleSelect = async (option: "a" | "b") => {
     if (!gameState || !user || gameState.revealed || !coupleId) return;
 
-    // Optimistic UI update
-    const myId = user.id.toLowerCase();
+    const myId = user.uid.toLowerCase();
+    const pId = partnerId?.toLowerCase();
+
     const optimisticChoices = { ...gameState.choices, [myId]: option };
-    const optimisticState = { ...gameState, choices: optimisticChoices };
+
+    // Check if both have answered
+    const bothAnswered = !!(pId && optimisticChoices[pId]);
+
+    const optimisticState = {
+      ...gameState,
+      choices: optimisticChoices,
+      revealed: bothAnswered
+    };
+
     setGameState(optimisticState);
-
-    try {
-      // Call atomic RPC function
-      const { data: newState, error } = await supabase.rpc('submit_wyr_answer', {
-        p_couple_id: coupleId,
-        p_user_id: user.id,
-        p_choice: option
-      });
-
-      if (error) throw error;
-
-      if (newState) {
-        setGameState(newState as GameState);
-      }
-    } catch (err: any) {
-      console.error("Error submitting answer:", err);
-      toast({
-        title: "Failed to submit answer",
-        variant: "destructive",
-      });
-      // Revert optimistic update (optional, or just re-fetch)
-      fetchGameState(coupleId);
-    }
+    await updateRemoteState(optimisticState);
   };
 
   const nextQuestion = () => {
-    if (!gameState) return;
+    if (!gameState || !user) return;
     const newState: GameState = {
       currentIndex: (gameState.currentIndex + 1) % questions.length,
       choices: {},
       revealed: false,
-      initiatorId: user?.id.toLowerCase() || gameState.initiatorId.toLowerCase(),
+      initiatorId: user.uid.toLowerCase(),
     };
     setGameState(newState);
     updateRemoteState(newState);
@@ -249,8 +184,10 @@ export function WouldYouRather({ onBack }: WouldYouRatherProps) {
     );
   }
 
-  const myChoice = user ? (gameState.choices[user.id.toLowerCase()] || null) : null;
-  const partnersChoice = partnerId ? (gameState.choices[partnerId.toLowerCase()] || null) : null;
+  const myId = user?.uid.toLowerCase();
+  const pId = partnerId?.toLowerCase();
+  const myChoice = myId ? (gameState.choices[myId] || null) : null;
+  const partnersChoice = pId ? (gameState.choices[pId] || null) : null;
   const isMatch = myChoice && partnersChoice && myChoice === partnersChoice;
 
   return (

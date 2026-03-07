@@ -1,14 +1,15 @@
 'use server'
 
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { adminDb } from '@/lib/firebase/admin'
 import { getTodayIST } from '@/lib/utils'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import staticContent from '@/lib/content/insights-static.json'
+import { requireUser } from '@/lib/firebase/auth-server'
+import { FieldValue } from 'firebase-admin/firestore'
 
 // --- Configuration ---
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
 const INSIGHT_API_KEY = process.env.INSIGHT_API_KEY
-const GLOBAL_ID = '00000000-0000-0000-0000-000000000000'
 
 interface FeedCard {
     id?: string
@@ -36,33 +37,22 @@ const WIKI_TOPICS: Record<string, string[]> = {
  * Designed to be called by a CRON job or manually.
  */
 export async function syncDailyFeed(force: boolean = false) {
-    const supabase = await createAdminClient() // Use Admin Client
     const today = getTodayIST()
 
     console.log(`[Cron] Checking sync for ${today}`)
 
     // 1. Check if we already synced today
-    const { data: existing } = await supabase
-        .from('global_insights_cache')
-        .select('insight_date')
-        .eq('insight_date', today)
-        .single()
+    const existingDoc = await adminDb.collection('global_insights_cache').doc(today).get();
 
-    if (existing && !force) {
+    if (existingDoc.exists && !force) {
         console.log(`[Cron] Already synced for ${today}. Skipping.`)
         return { success: true, message: "Already synced" }
     }
 
     // 2. Randomization Logic (for Cron window 3:00 - 4:00 AM)
-    // If called via Cron (not force), roll dice.
-    // We want it to run ONCE between 3:00 and 4:00.
-    // If current time is nearing 4:00 AM (e.g. > 3:45), run definitely.
-    // Otherwise, 30% chance.
     if (!force) {
         const istHours = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })).getHours()
         const istMinutes = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })).getMinutes()
-
-        // Critical window check (e.g. after 3:40 AM, just do it to ensure it happens)
         const isLateWindow = istHours === 3 && istMinutes >= 40
 
         if (!isLateWindow && Math.random() > 0.3) {
@@ -75,48 +65,37 @@ export async function syncDailyFeed(force: boolean = false) {
 
     const allItems: FeedCard[] = []
 
-    // 3. Wikipedia Content (Education/Evergreen)
+    // 3. Wikipedia Content
     const wikiPromises = Object.entries(WIKI_TOPICS).map(async ([category, topics]) => {
-        // Rotate weekly based on date
         const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24))
         const topic = topics[dayOfYear % topics.length]
-
         return await fetchWikipediaSummary(category, topic)
     })
 
     const wikiResults = await Promise.all(wikiPromises)
-    wikiResults.forEach(item => {
-        if (item) allItems.push(item)
-    })
+    wikiResults.forEach(item => { if (item) allItems.push(item) })
 
-    // 4. NewsAPI Content (Freshness)
+    // 4. NewsAPI Content
     const newsItems = await fetchNewsAPIContent()
     allItems.push(...newsItems)
 
-    // 5. Static Fallback (Stability)
-    // Add 1 static item per category to ensure variety
+    // 5. Static Fallback
     for (const [category, items] of Object.entries(staticContent)) {
-        const item = items[0] // Taking the first one as basic fallback
+        const item = items[0]
         allItems.push({
             ...item,
             category,
-            content: item.summary, // Mapping summary to content
+            content: item.summary,
             image_url: item.imageUrl
         } as FeedCard)
     }
 
     // Save/Upsert to Global Cache Table
-    const { error } = await supabase
-        .from('global_insights_cache')
-        .upsert({
-            insight_date: today,
-            content: allItems
-        }, { onConflict: 'insight_date' })
-
-    if (error) {
-        console.error("Error caching global feed:", error)
-        return { success: false, error }
-    }
+    await adminDb.collection('global_insights_cache').doc(today).set({
+        insight_date: today,
+        content: allItems,
+        updated_at: FieldValue.serverTimestamp()
+    });
 
     return { success: true, count: allItems.length }
 }
@@ -125,45 +104,28 @@ export async function syncDailyFeed(force: boolean = false) {
  * Main function used by the UI.
  */
 export async function getDailyInsights(coupleId: string, forceRefresh: boolean = false) {
-    const supabase = await createClient()
-    const supabaseAdmin = await createAdminClient() // Use Admin for Global Reads
     const today = getTodayIST()
 
-    // 1. Check if couple already has personalized content cached (SKIP if forceRefresh is true)
+    // 1. Check if couple already has personalized content cached
     if (!forceRefresh) {
-        const { data: existingCouple } = await supabase
-            .from('couple_insights')
-            .select('content')
-            .eq('couple_id', coupleId)
-            .eq('insight_date', today)
-            .single()
+        const coupleInsightDoc = await adminDb.collection('couple_insights').doc(`${coupleId}_${today}`).get();
+        const data = coupleInsightDoc.data();
 
-        // Only return if we have a "healthy" amount of content (e.g. > 4 items)
-        if (existingCouple && existingCouple.content && (existingCouple.content as FeedCard[]).length > 4) {
-            return { success: true, data: existingCouple.content }
+        if (coupleInsightDoc.exists && data?.content && (data.content as FeedCard[]).length > 4) {
+            return { success: true, data: data.content }
         }
     }
 
-    // 2. Fetch Global Feed from Cache Table (Using Admin/Regular client works now if policy applies)
-    // We use Admin just to be safe with RLS initial setup
-    const { data: globalData } = await supabaseAdmin
-        .from('global_insights_cache')
-        .select('content')
-        .eq('insight_date', today)
-        .single()
+    // 2. Fetch Global Feed
+    const globalDoc = await adminDb.collection('global_insights_cache').doc(today).get();
+    let feed = (globalDoc.data()?.content || []) as FeedCard[]
 
-    let feed = (globalData?.content || []) as FeedCard[]
-
-    // Fallback if global feed is empty (trigger sync)
+    // Fallback if global feed is empty
     if (feed.length === 0) {
         const syncResult = await syncDailyFeed()
         if (syncResult.success) {
-            const { data: reFetchedGlobal } = await supabaseAdmin
-                .from('global_insights_cache')
-                .select('content')
-                .eq('insight_date', today)
-                .single()
-            feed = (reFetchedGlobal?.content || []) as FeedCard[]
+            const reFetchedGlobal = await adminDb.collection('global_insights_cache').doc(today).get();
+            feed = (reFetchedGlobal.data()?.content || []) as FeedCard[]
         }
     }
 
@@ -171,14 +133,13 @@ export async function getDailyInsights(coupleId: string, forceRefresh: boolean =
     const justForYou = await generateJustForYouTips(coupleId)
     const combined = [...justForYou, ...feed]
 
-    // 4. Cache for this couple (using regular client as it's their own data)
-    await supabase
-        .from('couple_insights')
-        .upsert({
-            couple_id: coupleId,
-            insight_date: today,
-            content: combined
-        }, { onConflict: 'couple_id, insight_date' })
+    // 4. Cache for this couple
+    await adminDb.collection('couple_insights').doc(`${coupleId}_${today}`).set({
+        couple_id: coupleId,
+        insight_date: today,
+        content: combined,
+        updated_at: FieldValue.serverTimestamp()
+    });
 
     return { success: true, data: combined }
 }
@@ -265,4 +226,3 @@ async function generateJustForYouTips(coupleId: string) {
         return fallbackTips
     }
 }
-

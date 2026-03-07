@@ -1,4 +1,5 @@
-import { createClient } from '@/lib/supabase/client'
+import { db } from '@/lib/firebase/client'
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { getTodayIST } from '@/lib/utils'
 import staticContent from '@/lib/content/insights-static.json'
 
@@ -21,62 +22,34 @@ const WIKI_TOPICS: Record<string, string[]> = {
 }
 
 export async function syncDailyFeed(force: boolean = false) {
-    // In a fully standalone app without a custom backend, syncing global feeds 
-    // requires either everyone having write access to a global cache or 
-    // simply relying on client-side fetching every time if not cached locally.
-    // To preserve functionality, we will fetch directly and rely on local storage or individual caching if needed, 
-    // but here we interact with Supabase as if the user has auth to read globals.
-
-    // NOTE: This usually requires a secure backend (Admin client). 
-    // We will attempt with the standard client. RLS must allow SELECT on global_insights_cache.
-
-    const supabase = createClient()
+    // Client-side standalone sync logic migrated to Firestore pattern.
     const today = getTodayIST()
 
-    console.log(`[Standalone Sync] Checking sync for ${today}`)
+    try {
+        const globalRef = doc(db, 'global_insights_cache', today);
+        const globalSnap = await getDoc(globalRef);
 
-    const { data: existing, error: cacheReadError } = await supabase
-        .from('global_insights_cache')
-        .select('insight_date, content')
-        .eq('insight_date', today)
-        .single()
-
-    if (existing && !force) {
-        return { success: true, message: "Already synced", data: existing.content }
-    }
-
-    console.log(`[Standalone Sync] Executing local sync...`)
-
-    const allItems: FeedCard[] = []
-
-    const wikiPromises = Object.entries(WIKI_TOPICS).map(async ([category, topics]) => {
-        const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24))
-        const topic = topics[dayOfYear % topics.length]
-        return await fetchWikipediaSummary(category, topic)
-    })
-
-    const wikiResults = await Promise.allSettled(wikiPromises)
-    wikiResults.forEach((result) => {
-        if (result.status === 'fulfilled' && result.value) {
-            allItems.push(result.value)
+        if (globalSnap.exists() && !force) {
+            return { success: true, message: "Already synced", data: globalSnap.data().content }
         }
-    })
 
-    // News API omitted from standalone client-side calls to prevent API key leakage, unless proxy is used.
-    // Using static fallback instead.
+        console.log(`[Standalone Sync] Executing local sync...`)
+        const allItems: FeedCard[] = []
 
-    for (const [category, items] of Object.entries(staticContent)) {
-        const item = items[0]
-        allItems.push({
-            ...item,
-            category,
-            content: item.summary,
-            image_url: item.imageUrl
-        } as FeedCard)
-    }
+        const wikiPromises = Object.entries(WIKI_TOPICS).map(async ([category, topics]) => {
+            const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24))
+            const topic = topics[dayOfYear % topics.length]
+            return await fetchWikipediaSummary(category, topic)
+        })
 
-    // Absolute safety net: never return an empty/broken feed
-    if (allItems.length === 0) {
+        const wikiResults = await Promise.allSettled(wikiPromises)
+        wikiResults.forEach((result) => {
+            if (result.status === 'fulfilled' && result.value) {
+                allItems.push(result.value)
+            }
+        })
+
+        // Use static fallback for categories
         for (const [category, items] of Object.entries(staticContent)) {
             const item = items[0]
             allItems.push({
@@ -86,36 +59,30 @@ export async function syncDailyFeed(force: boolean = false) {
                 image_url: item.imageUrl
             } as FeedCard)
         }
-    }
 
-    return { success: true, data: allItems }
+        return { success: true, data: allItems }
+    } catch (error: any) {
+        console.error("Local sync failed:", error)
+        return { success: false, error: error.message }
+    }
 }
 
-
 export async function getDailyInsights(coupleId: string, forceRefresh: boolean = false) {
-    const supabase = createClient()
     const today = getTodayIST()
 
     if (!forceRefresh) {
-        const { data: existingCouple } = await supabase
-            .from('couple_insights')
-            .select('content')
-            .eq('couple_id', coupleId)
-            .eq('insight_date', today)
-            .single()
+        const coupleRef = doc(db, 'couple_insights', `${coupleId}_${today}`);
+        const coupleSnap = await getDoc(coupleRef);
+        const data = coupleSnap.data();
 
-        if (existingCouple && existingCouple.content && (existingCouple.content as FeedCard[]).length > 4) {
-            return { success: true, data: existingCouple.content }
+        if (coupleSnap.exists() && data?.content && (data.content as FeedCard[]).length > 4) {
+            return { success: true, data: data.content }
         }
     }
 
-    const { data: globalData } = await supabase
-        .from('global_insights_cache')
-        .select('content')
-        .eq('insight_date', today)
-        .single()
-
-    let feed = (globalData?.content || []) as FeedCard[]
+    const globalRef = doc(db, 'global_insights_cache', today);
+    const globalSnap = await getDoc(globalRef);
+    let feed = (globalSnap.data()?.content || []) as FeedCard[]
 
     if (feed.length === 0) {
         const syncResult = await syncDailyFeed(true)
@@ -127,13 +94,16 @@ export async function getDailyInsights(coupleId: string, forceRefresh: boolean =
     const justForYou = await generateJustForYouTips(coupleId)
     const combined = [...justForYou, ...feed]
 
-    await supabase
-        .from('couple_insights')
-        .upsert({
+    try {
+        await setDoc(doc(db, 'couple_insights', `${coupleId}_${today}`), {
             couple_id: coupleId,
             insight_date: today,
-            content: combined
-        }, { onConflict: 'couple_id, insight_date' })
+            content: combined,
+            updated_at: serverTimestamp()
+        });
+    } catch (e) {
+        console.warn("Failed to cache couple insights locally:", e);
+    }
 
     return { success: true, data: combined }
 }
@@ -147,10 +117,8 @@ async function fetchWikipediaSummary(category: string, topic: string): Promise<F
         const data = await response.json()
         const pages = data.query?.pages
         if (!pages) return null
-
         const pageId = Object.keys(pages)[0]
         if (pageId === "-1") return null
-
         const page = pages[pageId]
 
         return {

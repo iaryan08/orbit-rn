@@ -55,16 +55,17 @@ export function RomanticBackground({ initialImage }: RomanticBackgroundProps) {
 
         const updateAtmosphere = async () => {
             const isExplicitlyDeleted = localStorage.getItem('orbit_deleted_wallpaper') === 'true';
-            const grayscale = localStorage.getItem('orbit_global_monochrome') === 'true';
-            setIsGrayscale(grayscale);
+            const localGrayscale = localStorage.getItem('orbit_global_monochrome') === 'true';
+            setIsGrayscale(profile?.wallpaper_grayscale !== undefined ? !!profile.wallpaper_grayscale : localGrayscale);
 
             const localMode = localStorage.getItem('orbit_wallpaper_mode') as any;
             const storeMode = profile?.wallpaper_mode;
 
+            // Prioritize storeMode if it exists, otherwise use localMode
             const mode: 'black' | 'custom' | 'shared' | 'theme' =
-                (localMode === 'black' || localMode === 'custom' || localMode === 'shared') ? localMode
-                    : (storeMode === 'black' || storeMode === 'custom' || storeMode === 'shared') ? storeMode
-                        : 'black';
+                (storeMode === 'black' || storeMode === 'custom' || storeMode === 'shared') ? storeMode :
+                    (localMode === 'black' || localMode === 'custom' || localMode === 'shared') ? localMode :
+                        'black';
 
             const finalMode = mode === 'theme' ? 'black' : mode;
             document.documentElement.setAttribute('data-wallpaper-mode', finalMode);

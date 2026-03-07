@@ -726,22 +726,7 @@ function ChangePasswordPanel() {
                 <Button type="submit" disabled={saving} className="bg-neutral-900 border border-neutral-700 text-white rounded-full px-8 py-6 uppercase text-[10px] font-black">{saving ? <Loader2 className="animate-spin" /> : "Update Protocol"}</Button>
             </form>
 
-            <div className="pt-8 border-t border-white/5 space-y-6">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                        <span className="text-sm font-serif text-white">End-to-End Encryption</span>
-                    </div>
-                    <button onClick={() => { const n = !e2eeEnabled; setE2EEEnabled(n); setE2EEEnabledState(n); }} className={cn("w-12 h-6 rounded-full relative transition-all", e2eeEnabled ? "bg-emerald-500/50" : "bg-neutral-800")}>
-                        <div className={cn("absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all", e2eeEnabled && "translate-x-6")} />
-                    </button>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                    <Button onClick={exportKit} variant="outline" className="rounded-2xl border-white/10 bg-white/5 text-[10px] uppercase font-bold tracking-widest py-6"><Download className="w-3 h-3 mr-2" /> Backup</Button>
-                    <Button onClick={() => document.getElementById('kit-import')?.click()} variant="outline" className="rounded-2xl border-white/10 bg-white/5 text-[10px] uppercase font-bold tracking-widest py-6"><Upload className="w-3 h-3 mr-2" /> Restore</Button>
-                    <input id="kit-import" type="file" className="hidden" onChange={importKit} />
-                </div>
-            </div>
+            {/* Removed E2EE & Recovery Kit sections as they are currently dead code */}
         </div>
     );
 }

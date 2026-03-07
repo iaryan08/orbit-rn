@@ -15,6 +15,7 @@ import { AppModeProvider } from '@/components/app-mode-context'
 import { DeferredDashboardHeader } from '@/components/deferred-dashboard-header'
 import { DeferredConnectionSync } from '@/components/deferred-connection-sync'
 import { SyncEngine } from '@/components/sync-engine'
+import { PresenceTracker } from '@/components/presence-tracker'
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
     const { user, loading: authLoading } = useAuth()
@@ -61,6 +62,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     return (
         <AppModeProvider initialProfile={profile} initialCoupleId={couple?.id}>
             <SyncEngine />
+            <PresenceTracker coupleId={couple.id} userId={user.uid} />
             <DeferredConnectionSync coupleId={couple.id} userId={user.uid} partnerId={partnerProfile?.id} />
             <div className="relative min-h-screen">
                 {/* 1. Header (Floating Dock + Breadcrumbs) */}

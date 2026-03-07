@@ -2,10 +2,16 @@
     "rules": {
         "presence": {
             "$couple_id": {
+                ".read": "auth != null",
                 "$user_id": {
-                    ".read": "auth != null",
                     ".write": "auth != null && auth.uid == $user_id"
                 }
+            }
+        },
+        "vibrations": {
+            "$couple_id": {
+                ".read": "auth != null",
+                ".write": "auth != null"
             }
         },
         "broadcasts": {

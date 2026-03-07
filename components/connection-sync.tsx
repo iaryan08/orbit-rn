@@ -61,13 +61,8 @@ export function ConnectionSync({ coupleId, userId, partnerId }: { coupleId: stri
 
     const handlePresence = useCallback((onlineIds: string[]) => {
         const partnerIsOnline = !!partnerId && onlineIds.includes(partnerId)
-        // Baseline the very first snapshot to avoid false animation on mount/remount.
-        if (!presenceInitializedRef.current) {
-            wasOnlineRef.current = partnerIsOnline
-            presenceInitializedRef.current = true
-            return
-        }
-        // Only flash when partner first comes online
+
+        // Only flash when partner state changes to online
         if (partnerIsOnline && !wasOnlineRef.current) {
             setShowFlash(true)
             if (hideTimerRef.current) clearTimeout(hideTimerRef.current)

@@ -1,45 +1,43 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { adminDb } from '@/lib/firebase/admin'
 import { sendNotification } from '@/lib/actions/notifications'
 import { revalidatePath } from 'next/cache'
+import { FieldValue } from 'firebase-admin/firestore'
+import { requireUser } from '@/lib/firebase/auth-server'
 
 export async function openLetter(letterId: string) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
+    const user = await requireUser();
     if (!user) return { error: "Unauthorized" }
 
     try {
-        // 1. Mark as read
-        const now = new Date().toISOString()
-        const { data: letter, error } = await supabase
-            .from('love_letters')
-            .update({
-                is_read: true,
-                read_at: now
-            })
-            .eq('id', letterId)
-            .eq('receiver_id', user.id) // Security check
-            .select()
-            .single()
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        const profile = userDoc.data();
+        if (!profile?.couple_id) return { error: "No couple found" }
 
-        if (error) throw error
-        if (!letter) return { error: "Letter not found" }
+        const now = new Date().toISOString()
+        const letterRef = adminDb.collection('couples').doc(profile.couple_id).collection('letters').doc(letterId);
+        const letterSnap = await letterRef.get();
+
+        if (!letterSnap.exists) return { error: "Letter not found" }
+        const letter = letterSnap.data();
+
+        if (letter?.receiver_id !== user.uid) return { error: "Unauthorized" }
 
         if (letter.unlock_type === 'one_time') {
-            await supabase
-                .from('love_letters')
-                .delete()
-                .eq('id', letterId)
+            await letterRef.delete();
+        } else {
+            await letterRef.update({
+                is_read: true,
+                read_at: now,
+                updated_at: FieldValue.serverTimestamp()
+            });
         }
 
         // 2. Notify Sender
-        // Fetch sender name? We have sender_id. Notification system handles recipient.
-
         await sendNotification({
             recipientId: letter.sender_id,
-            actorId: user.id,
+            actorId: user.uid,
             type: 'letter',
             title: 'Letter Opened',
             message: letter.unlock_type === 'one_time'
@@ -63,67 +61,55 @@ export async function sendLetter(payload: {
     unlock_date: string | null;
     isOneTime?: boolean;
 }) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
+    const user = await requireUser();
     if (!user) return { error: "Unauthorized" }
 
-    // Get profile to find couple
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('couple_id, display_name')
-        .eq('id', user.id)
-        .single()
+    try {
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        const profile = userDoc.data();
+        if (!profile?.couple_id) return { error: "No couple found" }
 
-    if (!profile?.couple_id) return { error: "No couple found" }
+        const coupleDoc = await adminDb.collection('couples').doc(profile.couple_id).get();
+        const coupleData = coupleDoc.data();
+        if (!coupleData) return { error: "Couple data error" }
 
-    // Get partner ID
-    const { data: couple } = await supabase
-        .from('couples')
-        .select('user1_id, user2_id')
-        .eq('id', profile.couple_id)
-        .single()
+        const partnerId = coupleData.user1_id === user.uid ? coupleData.user2_id : coupleData.user1_id
+        if (!partnerId) return { error: "Partner not found" }
 
-    if (!couple) return { error: "Couple data error" }
+        let unlockType = 'immediate';
+        if (payload.isOneTime) unlockType = 'one_time';
+        else if (payload.unlock_date) unlockType = 'custom';
 
-    const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-
-    if (!partnerId) return { error: "Partner not found" }
-
-    let unlockType = 'immediate';
-    if (payload.isOneTime) unlockType = 'one_time';
-    else if (payload.unlock_date) unlockType = 'custom';
-
-    // Insert Letter
-    const { data: letter, error } = await supabase
-        .from('love_letters')
-        .insert({
+        const letterData = {
             couple_id: profile.couple_id,
-            sender_id: user.id,
+            sender_id: user.uid,
             receiver_id: partnerId,
             title: payload.title,
             content: payload.content,
             unlock_date: payload.unlock_date || null,
-            unlock_type: unlockType
+            unlock_type: unlockType,
+            created_at: FieldValue.serverTimestamp()
+        };
+
+        const docRef = await adminDb.collection('couples').doc(profile.couple_id).collection('letters').add(letterData);
+
+        // Notify Partner
+        await sendNotification({
+            recipientId: partnerId,
+            actorId: user.uid,
+            type: 'letter',
+            title: 'New Love Letter',
+            message: `${profile.display_name || 'Your partner'} sent you a love letter.`,
+            actionUrl: `/letters?open=${encodeURIComponent(docRef.id)}`,
+            metadata: { letter_id: docRef.id }
         })
-        .select()
-        .single()
 
-    if (error) return { error: error.message }
-
-    // Notify Partner
-    await sendNotification({
-        recipientId: partnerId,
-        actorId: user.id,
-        type: 'letter',
-        title: 'New Love Letter',
-        message: `${profile.display_name || 'Your partner'} sent you a love letter.`,
-        actionUrl: `/letters?open=${encodeURIComponent(letter.id)}`,
-        metadata: { letter_id: letter.id }
-    })
-
-    revalidatePath('/letters')
-    return { success: true }
+        revalidatePath('/letters')
+        return { success: true, id: docRef.id }
+    } catch (err: any) {
+        console.error('[sendLetter] Error:', err);
+        return { error: err.message || 'Failed to send letter' }
+    }
 }
 
 export async function updateLetter(letterId: string, payload: {
@@ -131,43 +117,36 @@ export async function updateLetter(letterId: string, payload: {
     content: string;
     unlock_date: string | null;
 }) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
+    const user = await requireUser();
     if (!user) return { error: "Unauthorized" }
 
-    const { error } = await supabase
-        .from('love_letters')
-        .update({
+    try {
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        const profile = userDoc.data();
+        if (!profile?.couple_id) return { error: "No couple found" }
+
+        const letterRef = adminDb.collection('couples').doc(profile.couple_id).collection('letters').doc(letterId);
+        const letterSnap = await letterRef.get();
+
+        if (!letterSnap.exists) return { error: "Letter not found" };
+        if (letterSnap.data()?.sender_id !== user.uid) return { error: "Unauthorized" };
+
+        await letterRef.update({
             title: payload.title,
             content: payload.content,
             unlock_date: payload.unlock_date || null,
-            unlock_type: payload.unlock_date ? 'custom' : 'immediate'
-        })
-        .eq('id', letterId)
-        .eq('sender_id', user.id) // Security check
+            unlock_type: payload.unlock_date ? 'custom' : 'immediate',
+            updated_at: FieldValue.serverTimestamp()
+        });
 
-    if (error) return { error: error.message }
-
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('couple_id, display_name')
-        .eq('id', user.id)
-        .single();
-
-    if (profile?.couple_id) {
-        const { data: couple } = await supabase
-            .from('couples')
-            .select('user1_id, user2_id')
-            .eq('id', profile.couple_id)
-            .single();
-
-        if (couple) {
-            const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id;
+        const coupleDoc = await adminDb.collection('couples').doc(profile.couple_id).get();
+        const coupleData = coupleDoc.data();
+        if (coupleData) {
+            const partnerId = coupleData.user1_id === user.uid ? coupleData.user2_id : coupleData.user1_id;
             if (partnerId) {
                 await sendNotification({
                     recipientId: partnerId,
-                    actorId: user.id,
+                    actorId: user.uid,
                     type: 'letter',
                     title: 'Letter Updated',
                     message: `${profile.display_name || 'Your partner'} updated a letter.`,
@@ -176,8 +155,11 @@ export async function updateLetter(letterId: string, payload: {
                 });
             }
         }
-    }
 
-    revalidatePath('/letters')
-    return { success: true }
+        revalidatePath('/letters')
+        return { success: true }
+    } catch (err: any) {
+        console.error('[updateLetter] Error:', err);
+        return { error: err.message || 'Failed to update letter' }
+    }
 }

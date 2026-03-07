@@ -1,19 +1,18 @@
 'use client'
 
 import { useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { Capacitor } from '@capacitor/core'
-import { useAuth } from '@/components/auth-provider'
+import { auth, db } from '@/lib/firebase/client'
+import { collection, query, where, onSnapshot, limit, orderBy } from 'firebase/firestore'
 
 export function NativeNotificationListener() {
-    const { user } = useAuth()
-    const supabase = createClient()
+    const user = auth.currentUser
 
     useEffect(() => {
         if (!user || !Capacitor.isNativePlatform()) return
 
-        // 1. Request channel permissions once (good practice)
+        // 1. Request channel permissions once
         const initNotifs = async () => {
             const perm = await LocalNotifications.checkPermissions()
             if (perm.display !== 'granted') {
@@ -22,19 +21,28 @@ export function NativeNotificationListener() {
         }
         initNotifs()
 
-        // 2. Subscribe to realtime notifications
-        const channel = supabase
-            .channel(`notifs-${user.uid}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'notifications',
-                    filter: `recipient_id=eq.${user.uid}`,
-                },
-                async (payload: any) => {
-                    const { title, message, id } = payload.new
+        // 2. Subscribe to firestore notifications
+        // We only care about new ones, but Firestore onSnapshot will give us existing ones too if not careful.
+        // We filter by recipient_id and order by created_at desc.
+        // For a true "monitor", we might just listen to the collection.
+        const q = query(
+            collection(db, 'notifications'),
+            where('recipient_id', '==', user.uid),
+            orderBy('created_at', 'desc'),
+            limit(1)
+        )
+
+        let initialLoad = true
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            if (initialLoad) {
+                initialLoad = false
+                return
+            }
+
+            snapshot.docChanges().forEach(async (change) => {
+                if (change.type === 'added') {
+                    const data = change.doc.data()
+                    const { title, message } = data
 
                     await LocalNotifications.schedule({
                         notifications: [
@@ -45,23 +53,23 @@ export function NativeNotificationListener() {
                                 schedule: { at: new Date(Date.now() + 100) },
                                 sound: 'default',
                                 actionTypeId: '',
-                                extra: payload.new
+                                extra: data
                             }
                         ]
                     })
 
                     // Dispatch to frontend to trigger silent Delta-Fetches 
                     if (typeof window !== 'undefined') {
-                        window.dispatchEvent(new CustomEvent('orbit-push-sync', { detail: payload.new }))
+                        window.dispatchEvent(new CustomEvent('orbit-push-sync', { detail: data }))
                     }
                 }
-            )
-            .subscribe()
+            })
+        })
 
         return () => {
-            supabase.removeChannel(channel)
+            unsubscribe()
         }
-    }, [user, supabase])
+    }, [user])
 
     return null
 }

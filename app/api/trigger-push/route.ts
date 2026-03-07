@@ -1,5 +1,5 @@
 import { sendPushNotification } from '@/lib/push-server';
-import { createAdminClient } from '@/lib/supabase/server';
+import { adminDb } from '@/lib/firebase/admin';
 import { isNativePushConfigured, sendFcmToToken } from '@/lib/fcm-server';
 import { NextResponse } from 'next/server';
 
@@ -19,15 +19,11 @@ export async function POST(req: Request) {
         let nativeError: string | null = null;
 
         if (isNativePushConfigured()) {
-            const supabase = await createAdminClient();
-            const { data: profile, error: profileError } = await supabase
-                .from('profiles')
-                .select('fcm_token')
-                .eq('id', recipientId)
-                .maybeSingle();
+            const userDoc = await adminDb.collection('users').doc(recipientId).get();
+            const profile = userDoc.data();
 
-            if (profileError) {
-                nativeError = `Failed to fetch fcm_token: ${profileError.message}`;
+            if (!userDoc.exists) {
+                nativeError = `User doc not found for id: ${recipientId}`;
             } else if (profile?.fcm_token) {
                 const result = await sendFcmToToken({
                     token: profile.fcm_token,
@@ -42,12 +38,9 @@ export async function POST(req: Request) {
                 } else {
                     nativeError = result.error;
 
-                    // Remove invalid/expired tokens to avoid repeated failures.
+                    // Remove invalid/expired tokens
                     if (result.status === 404 || result.status === 400) {
-                        await supabase
-                            .from('profiles')
-                            .update({ fcm_token: null })
-                            .eq('id', recipientId);
+                        await adminDb.collection('users').doc(recipientId).update({ fcm_token: null });
                     }
                 }
             }

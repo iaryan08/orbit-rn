@@ -1,5 +1,5 @@
 import 'server-only';
-import { createAdminClient } from '@/lib/supabase/server';
+import { adminDb } from '@/lib/firebase/admin';
 import webPush from 'web-push';
 
 const VAPID_SUBJECT = 'mailto:jhariyaaryan08@gmail.com';
@@ -9,19 +9,18 @@ if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY)
 }
 
 type SubscriptionRow = {
-    endpoint: string | null;
-    p256dh: string | null;
-    auth: string | null;
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+    user_id: string;
 };
 
-function isValidSub(row: SubscriptionRow) {
+function isValidSub(row: any) {
     return (
         typeof row.endpoint === 'string' &&
         row.endpoint.length > 0 &&
-        typeof row.p256dh === 'string' &&
-        row.p256dh.length > 0 &&
-        typeof row.auth === 'string' &&
-        row.auth.length > 0
+        typeof row.keys?.p256dh === 'string' &&
+        typeof row.keys?.auth === 'string'
     );
 }
 
@@ -32,21 +31,10 @@ export async function sendPushNotification(userId: string, title: string, messag
             return { success: false, error: 'Configuration missing' };
         }
 
-        const supabase = await createAdminClient();
+        // Fetch subscriptions from Firestore
+        const subSnap = await adminDb.collection('push_subscriptions').where('user_id', '==', userId).get();
 
-        // Fetch subscriptions for this specific user
-        const { data: subscriptions, error } = await supabase
-            .from('push_subscriptions')
-            .select('*')
-            .eq('user_id', userId);
-
-        if (error) {
-            console.error('Error fetching subscriptions:', error);
-            if (error.code === '22P02') return { success: true, sent: 0, message: 'Push skipped: UUID error' };
-            return { success: false, error: 'Database error' };
-        }
-
-        if (!subscriptions || subscriptions.length === 0) {
+        if (subSnap.empty) {
             return { success: true, sent: 0, message: 'No subscriptions found for user' };
         }
 
@@ -57,15 +45,9 @@ export async function sendPushNotification(userId: string, title: string, messag
             metadata
         });
 
-        const promises = subscriptions.map(async (sub) => {
+        const promises = subSnap.docs.map(async (doc) => {
+            const sub = doc.data();
             try {
-                if (!isValidSub(sub)) {
-                    if (sub?.endpoint) {
-                        await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
-                    }
-                    return { success: false, reason: 'invalid-subscription' as const };
-                }
-
                 await webPush.sendNotification({
                     endpoint: sub.endpoint,
                     keys: {
@@ -83,12 +65,8 @@ export async function sendPushNotification(userId: string, title: string, messag
             } catch (error: any) {
                 if (error.statusCode === 410 || error.statusCode === 404) {
                     // Subscription has expired
-                    await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+                    await doc.ref.delete();
                     return { success: false, reason: 'expired' };
-                }
-                if (error?.code === 'ERR_INVALID_ARG_TYPE') {
-                    await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
-                    return { success: false, reason: 'invalid-subscription' as const };
                 }
                 console.error('Error sending push to ' + sub.endpoint, error);
                 return { success: false, reason: 'error' };

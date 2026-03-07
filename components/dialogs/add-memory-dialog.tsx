@@ -257,30 +257,11 @@ export function AddMemoryDialog({ open, onOpenChange, editingMemory, onSuccess, 
 
             if (hasKey) {
                 const encrypted = await encryptMediaFile(file, fileName);
-                let uploadedToAny = false;
-
                 if (process.env.NEXT_PUBLIC_UPLOAD_URL && process.env.NEXT_PUBLIC_UPLOAD_SECRET) {
-                    try {
-                        await uploadToR2(encrypted.blob, 'memories', fileName, "application/octet-stream");
-                        uploadedToAny = true;
-                    } catch (r2Error) {
-                        console.warn("[AddMemory] R2 Upload failed:", r2Error);
-                    }
+                    await uploadToR2(encrypted.blob, 'memories', fileName, "application/octet-stream");
+                } else {
+                    throw new Error("R2 Configuration missing for E2EE upload");
                 }
-
-                if (!uploadedToAny && process.env.NEXT_PUBLIC_SUPABASE_URL) {
-                    try {
-                        const { createClient } = await import("@/lib/supabase/client");
-                        const supabase = createClient();
-                        const { error } = await supabase.storage.from('memories').upload(fileName, encrypted.blob, { contentType: "application/octet-stream" });
-                        if (error) throw error;
-                        uploadedToAny = true;
-                    } catch (supaError) {
-                        console.error("[AddMemory] Supabase fallback failed:", supaError);
-                    }
-                }
-
-                if (!uploadedToAny) throw new Error("Upload failed on all tiers");
 
                 urls.push(buildPrivateMediaUrl('memories', fileName, {
                     enc: '1',
@@ -288,29 +269,11 @@ export function AddMemoryDialog({ open, onOpenChange, editingMemory, onSuccess, 
                     mime: encrypted.mime
                 }));
             } else {
-                let uploadedToAny = false;
                 if (process.env.NEXT_PUBLIC_UPLOAD_URL && process.env.NEXT_PUBLIC_UPLOAD_SECRET) {
-                    try {
-                        await uploadToR2(file, 'memories', fileName, file.type);
-                        uploadedToAny = true;
-                    } catch (e) {
-                        console.warn("[AddMemory] R2 Upload failed:", e);
-                    }
+                    await uploadToR2(file, 'memories', fileName, file.type);
+                } else {
+                    throw new Error("R2 Configuration missing for upload");
                 }
-
-                if (!uploadedToAny && process.env.NEXT_PUBLIC_SUPABASE_URL) {
-                    try {
-                        const { createClient } = await import("@/lib/supabase/client");
-                        const supabase = createClient();
-                        const { error } = await supabase.storage.from('memories').upload(fileName, file, { contentType: file.type });
-                        if (error) throw error;
-                        uploadedToAny = true;
-                    } catch (e) {
-                        console.error("[AddMemory] Supabase fallback failed:", e);
-                    }
-                }
-
-                if (!uploadedToAny) throw new Error("Upload failed on all tiers");
                 urls.push(fileName);
             }
         }

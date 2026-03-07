@@ -1,8 +1,12 @@
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import type { User } from '@supabase/supabase-js'
+import { adminAuth } from '@/lib/firebase/admin'
 import type { NextRequest } from 'next/server'
-import { createClient as createServerClient } from '@/lib/supabase/server'
-import { getResolvedSupabasePublishableKey, getResolvedSupabaseUrl } from '@/lib/supabase/env'
+import { requireUser } from '@/lib/firebase/auth-server'
+
+export type ApiUser = {
+  uid: string
+  email?: string
+  display_name?: string
+}
 
 function getBearerToken(request: NextRequest): string | null {
   const authHeader = request.headers.get('authorization')
@@ -14,41 +18,44 @@ function getBearerToken(request: NextRequest): string | null {
   return token
 }
 
-async function getUserFromBearer(request: NextRequest): Promise<User | null> {
+async function getUserFromBearer(request: NextRequest): Promise<ApiUser | null> {
   const token = getBearerToken(request)
   if (!token) return null
 
-  const supabase = createSupabaseClient(
-    getResolvedSupabaseUrl(),
-    getResolvedSupabasePublishableKey(),
-  )
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(token)
-
-  if (error) return null
-  return user
+  try {
+    const decodedToken = await adminAuth.verifyIdToken(token)
+    return {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      display_name: decodedToken.name,
+    }
+  } catch (error) {
+    console.warn('[ApiAuth] Bearer token verification failed:', error)
+    return null
+  }
 }
 
-async function getUserFromCookies(): Promise<User | null> {
+async function getUserFromCookies(): Promise<ApiUser | null> {
   try {
-    const supabase = await createServerClient()
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser()
-
-    if (error) return null
-    return user
+    const user = await requireUser()
+    if (!user) return null
+    return {
+      uid: user.uid,
+      email: user.email,
+      display_name: user.displayName || undefined,
+    }
   } catch {
     return null
   }
 }
 
-export async function requireApiUser(request: NextRequest): Promise<User | null> {
+/**
+ * Validates the user from either a Bearer Token (mobile app) or Session Cookie (web).
+ * Returns a simplified User object or null if unauthorized.
+ */
+export async function requireApiUser(request: NextRequest): Promise<ApiUser | null> {
   const bearerUser = await getUserFromBearer(request)
   if (bearerUser) return bearerUser
+
   return getUserFromCookies()
 }

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Bell, MapPin, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createClient } from '@/lib/supabase/client';
+import { auth } from '@/lib/firebase/client';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Geolocation } from '@capacitor/geolocation';
 import { Capacitor } from '@capacitor/core';
@@ -23,20 +23,13 @@ export default function PushNotificationManager() {
     const [isVisible, setIsVisible] = useState(false);
     const [dismissed, setDismissed] = useState(false);
     const [hasUser, setHasUser] = useState(false);
-    const supabase = createClient();
 
     // Check user auth
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-        (async () => {
-            try {
-                const { data } = await supabase.auth.getUser();
-                setHasUser(!!data?.user);
-            } catch (err) {
-                console.warn('[PushManager] Auth check failed:', err);
-                setHasUser(false);
-            }
-        })();
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+            setHasUser(!!user);
+        });
+        return () => unsubscribe();
     }, []);
 
     // Check push support + subscription + notification permission
@@ -217,9 +210,13 @@ export default function PushNotificationManager() {
     }
 
     async function saveSubscription(sub: PushSubscription) {
+        const idToken = await auth.currentUser?.getIdToken();
         const res = await fetch('/api/subscribe', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+            },
             body: JSON.stringify(sub.toJSON()),
         });
         if (!res.ok) throw new Error('Failed to save subscription');

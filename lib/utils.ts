@@ -58,10 +58,6 @@ export function getLunarPhase() {
   return phase / lp; // Returns 0.0 to 1.0
 }
 
-/**
- * Rewrites a Supabase Storage URL to use the Cloudflare R2 Gateway if configured.
- * This enables zero-cost egress and edge caching.
- */
 export function getProxiedImageUrl(url: string | null | undefined) {
   if (!url) return '';
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
@@ -69,27 +65,36 @@ export function getProxiedImageUrl(url: string | null | undefined) {
   const cdnUrl = process.env.NEXT_PUBLIC_CDN_URL;
   if (!cdnUrl) return url;
 
-  // If the URL contains 'storage/v1/object/public/', extract the path after it
-  // and append it to our R2 Gateway URL.
-  const supabaseMarker = 'storage/v1/object/public/';
-  if (url.includes(supabaseMarker)) {
-    const parts = url.split(supabaseMarker);
-    const path = parts[1];
-    // Remove the bucket name (e.g. 'memories/') if the R2 worker handles it
-    // Our provided r2-gateway/worker.js expects the remaining path.
-    return `${cdnUrl.replace(/\/$/, '')}/${path}`;
-  }
-
+  // We no longer proxy specific legacy Supabase markers. 
+  // If we have a CDN URL and it's a relative path or matches our R2 patterns, 
+  // we could handle it here, but mostly buildPrivateMediaUrl handles this now.
   return url;
 }
 
 export function normalizeDate(date: any): Date {
-  if (!date) return new Date();
-  if (date instanceof Date) return date;
-  if (typeof date === 'number') return new Date(date);
-  if (typeof date === 'string') return new Date(date);
-  if (date && typeof date === 'object' && 'seconds' in date) {
-    return new Date(date.seconds * 1000 + (date.nanoseconds || 0) / 1000000);
+  try {
+    if (!date) return new Date();
+    if (date instanceof Date) return isNaN(date.getTime()) ? new Date() : date;
+
+    let result: Date;
+    if (typeof date === 'number') {
+      result = new Date(date);
+    } else if (typeof date === 'string') {
+      result = new Date(date);
+    } else if (date && typeof date === 'object' && 'seconds' in date) {
+      // Firestore Timestamp
+      result = new Date(date.seconds * 1000 + (date.nanoseconds || 0) / 1000000);
+    } else {
+      result = new Date(date);
+    }
+
+    if (isNaN(result.getTime())) {
+      console.warn('[normalizeDate] Invalid date input:', date);
+      return new Date();
+    }
+    return result;
+  } catch (e) {
+    console.warn('[normalizeDate] Error normalizing date:', e, date);
+    return new Date();
   }
-  return new Date(date);
 }

@@ -1,125 +1,100 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { adminDb } from '@/lib/firebase/admin'
 import { getTodayIST } from '@/lib/utils'
 import { getDashboardPolaroids } from '@/lib/actions/polaroids'
 import { getDoodle } from '@/lib/actions/doodles'
 import { cache } from 'react'
+import { requireUser } from '@/lib/firebase/auth-server'
 
 /**
- * CONSOLIDATED DATA FETCHERS v3
+ * CONSOLIDATED DATA FETCHERS v3 (Firestore Migrated)
  * High-performance, streaming-compatible server actions.
- * Optimized to eliminate layout shifts by fetching all core UI data in a single parallel batch.
  */
 
-// Memoize core data fetching to prevent double-hits in the same request life-cycle
 export const getCoreDashboardData = cache(async () => {
     try {
-        console.log('[Orbit-Dashboard] Fetching core data (v3)...')
-        const supabase = await createClient()
-        const { data: { user } } = await supabase.auth.getUser()
+        const user = await requireUser();
         if (!user) return { success: false, error: 'Not authenticated' }
 
-        const selectFields = 'id, partner_id, couple_id, gender, display_name, avatar_url, city, timezone, latitude, longitude, location_source, updated_at'
+        // 1. Fetch user profile
+        const userDoc = await adminDb.collection('users').doc(user.uid).get();
+        if (!userDoc.exists) return { success: false, error: 'Profile not found' }
+        const profile = { id: user.uid, ...userDoc.data() } as any;
 
-        // 1. Fetch authenticated user's profile
-        const { data: profile, error: pError } = await supabase
-            .from('profiles')
-            .select(selectFields)
-            .eq('id', user.id)
-            .single()
+        const coupleId = profile.couple_id;
+        let partnerId = null;
+        let coupleData = null;
 
-        if (pError || !profile) {
-            console.error('[getCoreDashboardData] User profile error:', pError)
-            return { success: false, error: 'Profile not found' }
-        }
-
-        let partnerId = profile.partner_id
-        const coupleId = profile.couple_id
-
-        // 2. Partner Discovery Logic (Crucial for image/data loading)
-        if (!partnerId && coupleId) {
-            const { data: coupleData } = await supabase
-                .from('couples')
-                .select('user1_id, user2_id')
-                .eq('id', coupleId)
-                .single()
-
-            if (coupleData) {
-                partnerId = (coupleData.user1_id === user.id) ? coupleData.user2_id : coupleData.user1_id
+        if (coupleId) {
+            const cDoc = await adminDb.collection('couples').doc(coupleId).get();
+            if (cDoc.exists) {
+                coupleData = { id: cDoc.id, ...cDoc.data() } as any;
+                partnerId = (coupleData.user1_id === user.uid) ? coupleData.user2_id : coupleData.user1_id;
             }
         }
 
-        const rolling24hStart = new Date(Date.now() - 24 * 60 * 60 * 1000)
+        const rolling24hStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-        // 3. Parallel fetching of all related dashboard data
-        // Fetching everything in one batch ensures No Layout Shifts (no "popping" components)
+        // 2. Parallel fetching of dashboard components
         const [
-            pProfileRes,
-            coupleRes,
-            pMoodsRes,
-            uMoodsRes,
-            countsRes,
-            userCycleRes,
-            partnerCycleRes,
-            cycleLogsRes,
-            supportLogsRes,
+            partnerProfile,
+            partnerMoodsSnap,
+            userMoodsSnap,
+            memoriesSnap,
+            lettersSnap,
+            userCycleSnap,
+            partnerCycleSnap,
+            cycleLogsSnap,
+            supportLogsSnap,
             polaroids,
             doodle
         ] = await Promise.all([
-            partnerId ? supabase.from('profiles').select(selectFields).eq('id', partnerId).single() : Promise.resolve({ data: null, error: null }),
-            coupleId ? supabase.from('couples').select('id, user1_id, user2_id, anniversary_date, paired_at, couple_code').eq('id', coupleId).single() : Promise.resolve({ data: null, error: null }),
-            partnerId ? supabase.from('moods').select('id, created_at, emoji, mood_text, mood:emoji, note:mood_text').eq('user_id', partnerId).gte('created_at', rolling24hStart.toISOString()).order('created_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),
-            supabase.from('moods').select('id, created_at, emoji, mood_text, mood:emoji, note:mood_text').eq('user_id', user.id).gte('created_at', rolling24hStart.toISOString()).order('created_at', { ascending: false }),
-            coupleId ? Promise.all([
-                supabase.from('memories').select('*', { count: 'exact', head: true }).eq('couple_id', coupleId),
-                supabase.from('love_letters').select('*', { count: 'exact', head: true }).eq('couple_id', coupleId)
-            ]) : Promise.resolve([{ count: 0 }, { count: 0 }]),
-            supabase.from('cycle_profiles').select('*').eq('user_id', user.id).maybeSingle(),
-            partnerId ? supabase.from('cycle_profiles').select('*').eq('user_id', partnerId).maybeSingle() : Promise.resolve({ data: null, error: null }),
-            coupleId ? supabase.from('cycle_logs').select('*').eq('couple_id', coupleId).limit(30) : Promise.resolve({ data: [], error: null }),
-            coupleId ? supabase.from('support_logs').select('*').eq('couple_id', coupleId).limit(30) : Promise.resolve({ data: [], error: null }),
-            getDashboardPolaroids(coupleId ?? undefined),
-            getDoodle(coupleId ?? undefined)
-        ])
+            partnerId ? adminDb.collection('users').doc(partnerId).get().then(d => d.exists ? { id: d.id, ...d.data() } : null) : Promise.resolve(null),
+            coupleId ? adminDb.collection('couples').doc(coupleId).collection('moods')
+                .where('user_id', '==', partnerId)
+                .where('created_at', '>=', rolling24hStart)
+                .orderBy('created_at', 'desc').get() : Promise.resolve({ docs: [] }),
+            coupleId ? adminDb.collection('couples').doc(coupleId).collection('moods')
+                .where('user_id', '==', user.uid)
+                .where('created_at', '>=', rolling24hStart)
+                .orderBy('created_at', 'desc').get() : Promise.resolve({ docs: [] }),
+            coupleId ? adminDb.collection('couples').doc(coupleId).collection('memories').get() : Promise.resolve({ size: 0 }),
+            coupleId ? adminDb.collection('couples').doc(coupleId).collection('letters').get() : Promise.resolve({ size: 0 }),
+            coupleId ? adminDb.collection('couples').doc(coupleId).collection('cycle_profiles').doc(user.uid).get() : Promise.resolve({ exists: false, data: () => null }),
+            (coupleId && partnerId) ? adminDb.collection('couples').doc(coupleId).collection('cycle_profiles').doc(partnerId).get() : Promise.resolve({ exists: false, data: () => null }),
+            coupleId ? adminDb.collection('couples').doc(coupleId).collection('cycle_logs').limit(30).get() : Promise.resolve({ docs: [] }),
+            coupleId ? adminDb.collection('couples').doc(coupleId).collection('support_logs').limit(30).get() : Promise.resolve({ docs: [] }),
+            getDashboardPolaroids(coupleId),
+            getDoodle(coupleId)
+        ]);
 
-        const memoriesCount = (countsRes as any)[0]?.count || 0
-        const lettersCount = (countsRes as any)[1]?.count || 0
-
-        const normalizedCycleLogs = (cycleLogsRes?.data || []).map((l: any) => ({
-            ...l,
-            log_date: l.log_date || l.date || l.created_at
-        })).sort((a: any, b: any) => new Date(b.log_date).getTime() - new Date(a.log_date).getTime())
-
-        const normalizedSupportLogs = (supportLogsRes?.data || []).map((l: any) => ({
-            ...l,
-            log_date: l.log_date || l.date || l.created_at
-        })).sort((a: any, b: any) => new Date(b.log_date).getTime() - new Date(a.log_date).getTime())
+        const normalizeSnap = (snap: any) => snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 
         return {
             success: true,
             data: {
                 profile: { ...profile, partner_id: partnerId },
-                partnerProfile: pProfileRes?.data,
-                couple: coupleRes?.data,
-                partnerTodayMoods: pMoodsRes?.data || [],
-                userTodayMoods: uMoodsRes?.data || [],
-                memoriesCount,
-                lettersCount,
-                userCycle: userCycleRes?.data,
-                partnerCycle: partnerCycleRes?.data,
-                cycleLogs: normalizedCycleLogs,
-                supportLogs: normalizedSupportLogs,
+                partnerProfile,
+                couple: coupleData,
+                partnerTodayMoods: normalizeSnap(partnerMoodsSnap),
+                userTodayMoods: normalizeSnap(userMoodsSnap),
+                memoriesCount: memoriesSnap.size,
+                lettersCount: lettersSnap.size,
+                userCycle: userCycleSnap.data(),
+                partnerCycle: partnerCycleSnap.data(),
+                cycleLogs: normalizeSnap(cycleLogsSnap),
+                supportLogs: normalizeSnap(supportLogsSnap),
                 currentDateIST: getTodayIST(),
                 polaroids,
                 doodle
             }
         }
     } catch (e: any) {
-        console.error('[getCoreDashboardData] Critical Exception:', e)
+        console.error('[Orbit-Dashboard] Critical Error:', e);
         return { success: false, error: e.message }
     }
-})
+});
 
 export async function getDashboardData() {
     return await getCoreDashboardData()
@@ -127,121 +102,52 @@ export async function getDashboardData() {
 
 export async function fetchBucketListData(coupleId: string) {
     try {
-        const supabase = await createClient()
-        const { data, error } = await supabase
-            .from('bucket_list')
-            .select('*')
-            .eq('couple_id', coupleId)
+        const snap = await adminDb.collection('couples').doc(coupleId).collection('bucket_list')
+            .orderBy('created_at', 'desc')
+            .get();
 
-        if (error) {
-            console.error('[fetchBucketListData] DB Error:', error)
-            return []
-        }
-
-        return (data || []).map((item: any) => ({
-            ...item,
-            is_completed: item.is_completed ?? item.is_done ?? false
-        })).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        return snap.docs.map(doc => {
+            const item = doc.data();
+            return {
+                id: doc.id,
+                ...item,
+                is_completed: item.is_completed ?? item.is_done ?? false
+            };
+        });
     } catch (e) {
-        console.error('[fetchBucketListData] Exception:', e)
+        console.error('[fetchBucketListData] Error:', e);
         return []
     }
 }
 
 export async function fetchOnThisDayData(coupleId: string) {
+    // In Firestore, there's no native 'month'/'day' extraction inside query without custom index or computed fields.
+    // For now, we fetch all (or recent) and filter in JS if the set is small.
+    // Optimization: Store 'month' and 'day' as separate fields on every document.
     try {
-        const supabase = await createClient()
         const todayIST = getTodayIST() // YYYY-MM-DD
-        const [y, m, d] = todayIST.split('-').map(Number)
-        const month = m
-        const day = d
+        const [, m, d] = todayIST.split('-').map(Number)
 
-        const [memoriesRes, milestonesRes] = await Promise.all([
-            supabase.rpc('get_on_this_day_memories', {
-                target_couple_id: coupleId,
-                target_month: month,
-                target_day: day
-            }),
-            supabase.rpc('get_on_this_day_milestones', {
-                target_couple_id: coupleId,
-                target_month: month,
-                target_day: day
-            })
-        ])
+        const [memsSnap, milesSnap] = await Promise.all([
+            adminDb.collection('couples').doc(coupleId).collection('memories').get(),
+            adminDb.collection('couples').doc(coupleId).collection('milestones').get()
+        ]);
 
-        const rpcMemories = memoriesRes.data || []
-        const rpcMilestones = milestonesRes.data || []
-        if (rpcMemories.length > 0 || rpcMilestones.length > 0) {
-            return {
-                memories: rpcMemories,
-                milestones: rpcMilestones
-            }
-        }
+        const filterOnThisDay = (items: any[], dateField: string) => {
+            return items.filter(item => {
+                const dateStr = item[dateField] || item.created_at;
+                if (!dateStr) return false;
+                const dt = new Date(dateStr);
+                return (dt.getMonth() + 1) === m && dt.getDate() === d;
+            });
+        };
 
-        // Fallback path: handle schema/date variations when RPC returns empty.
-        const [memoryFallbackRes, milestoneFallbackRes] = await Promise.all([
-            supabase
-                .from('memories')
-                .select('id, title, description, image_urls, location, memory_date, created_at, is_encrypted, iv')
-                .eq('couple_id', coupleId),
-            supabase
-                .from('milestones')
-                .select('id, couple_id, category, milestone_date, date_user1, date_user2, content_user1, content_user2, time_user1, time_user2, created_at')
-                .eq('couple_id', coupleId)
-        ])
+        const memories = filterOnThisDay(memsSnap.docs.map(d => ({ id: d.id, ...d.data() })), 'memory_date');
+        const milestones = filterOnThisDay(milesSnap.docs.map(d => ({ id: d.id, ...d.data() })), 'milestone_date');
 
-        const normalizeDate = (v: any) => {
-            if (!v) return null
-            const s = String(v)
-            const iso = s.includes('T') ? s : `${s}T12:00:00`
-            const dt = new Date(iso)
-            if (Number.isNaN(dt.getTime())) return null
-            return dt
-        }
-
-        const sameMonthDay = (dt: Date | null) => !!dt && (dt.getMonth() + 1) === month && dt.getDate() === day
-
-        const fallbackMemories = (memoryFallbackRes.data || [])
-            .filter((row: any) => sameMonthDay(normalizeDate(row.memory_date || row.created_at)))
-
-        const fallbackMilestonesRaw = (milestoneFallbackRes.data || [])
-        const fallbackMilestones: any[] = []
-
-        for (const row of fallbackMilestonesRaw) {
-            const primaryDate = normalizeDate(row.milestone_date)
-            if (sameMonthDay(primaryDate)) {
-                fallbackMilestones.push({
-                    ...row,
-                    milestone_date: row.milestone_date || row.created_at
-                })
-                continue
-            }
-
-            const date1 = normalizeDate(row.date_user1)
-            if (sameMonthDay(date1)) {
-                fallbackMilestones.push({
-                    ...row,
-                    milestone_date: row.date_user1,
-                    isOwnDate: true
-                })
-            }
-
-            const date2 = normalizeDate(row.date_user2)
-            if (sameMonthDay(date2)) {
-                fallbackMilestones.push({
-                    ...row,
-                    milestone_date: row.date_user2,
-                    isOwnDate: false
-                })
-            }
-        }
-
-        return {
-            memories: fallbackMemories,
-            milestones: fallbackMilestones
-        }
+        return { memories, milestones }
     } catch (e) {
-        console.error('[fetchOnThisDayData] Exception:', e)
+        console.error('[fetchOnThisDayData] Error:', e);
         return { memories: [], milestones: [] }
     }
 }

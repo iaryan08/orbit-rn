@@ -1,10 +1,12 @@
+"use client";
+
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Flame, RefreshCw, Sparkles, Heart, Zap, Loader2, User } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { ArrowLeft, Flame, RefreshCw, Sparkles, Heart, Zap, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { db, auth } from "@/lib/firebase/client";
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { useOrbitStore } from "@/lib/store/global-store";
 
 interface TruthOrDareProps {
   onBack: () => void;
@@ -74,7 +76,7 @@ const dares: Record<Category, string[]> = {
     "Do a silly dance for 30 seconds",
     "Talk in an accent for the next 3 rounds",
     "Let me style your hair however I want",
-    "Post a silly selfie of us on social media",
+    "Let me tickle you for 30 seconds",
   ],
   deep: [
     "Share your biggest dream for our future",
@@ -103,138 +105,44 @@ interface GameState {
 export function TruthOrDare({ onBack }: TruthOrDareProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
-  const [coupleId, setCoupleId] = useState<string | null>(null);
-  const [partnerId, setPartnerId] = useState<string | null>(null);
-  const [user1Id, setUser1Id] = useState<string | null>(null);
-  const [user2Id, setUser2Id] = useState<string | null>(null);
-
-  const supabase = createClient();
   const { toast } = useToast();
 
+  const orbitStore = useOrbitStore();
+  const user = auth.currentUser;
+  const coupleId = orbitStore.couple?.id || orbitStore.profile?.couple_id;
+  const user1Id = orbitStore.couple?.user1_id;
+  const user2Id = orbitStore.couple?.user2_id;
+
   useEffect(() => {
-    async function init() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setUser(user);
+    if (!coupleId || !user) {
+      setLoading(false);
+      return;
+    }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("couple_id")
-        .eq("id", user.id)
-        .single();
-
-      if (profile?.couple_id) {
-        setCoupleId(profile.couple_id);
-
-        // Find partner ID
-        const { data: couple } = await supabase
-          .from("couples")
-          .select("user1_id, user2_id")
-          .eq("id", profile.couple_id)
-          .single();
-
-        if (couple) {
-          const u1 = couple.user1_id.toLowerCase();
-          const u2 = couple.user2_id?.toLowerCase();
-          setUser1Id(u1);
-          setUser2Id(u2);
-          setPartnerId(u1 === user.id.toLowerCase() ? u2 : u1);
-        }
-
-        /* DEACTIVATED: Games Realtime is not needed 
-        fetchGameState(profile.couple_id);
-        subscribeToGame(profile.couple_id);
-        */
-      } else {
-        setLoading(false);
+    const gameRef = doc(db, "couples", coupleId, "game_sessions", "truth-or-dare");
+    const unsubscribe = onSnapshot(gameRef, (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        setGameState(data.state as GameState);
       }
-    }
-    init();
-  }, []);
+      setLoading(false);
+    });
 
-  // Automatic State Repair / Self-Healing
-  useEffect(() => {
-    if (!gameState || !user) return;
-
-    // Detect deadlock: Nobody's turn or turn is missing
-    const currentTurn = gameState.turnUserId?.toLowerCase();
-    const myId = user.id.toLowerCase();
-
-    // Define valid turn holders
-    const validIds = new Set<string>();
-    validIds.add(myId);
-    if (partnerId) validIds.add(partnerId.toLowerCase());
-    if (user1Id) validIds.add(user1Id);
-    if (user2Id) validIds.add(user2Id);
-
-    const isInvalidTurn = !currentTurn || !validIds.has(currentTurn);
-
-    if (isInvalidTurn) {
-      console.log("Deadlock detected, repairing turn state...");
-
-      // Determine who should take the turn
-      // Default: Initiator takes it. If initiator is invalid/missing, I take it.
-      const currentInitiator = gameState.initiatorId?.toLowerCase();
-      const initiatorIsMember = currentInitiator && validIds.has(currentInitiator);
-
-      // Only one person should perform the repair to avoid write conflicts
-      // We prioritize the initiator (if valid member), otherwise we prioritize user1, otherwise alphabet sort
-      const shouldIRepair =
-        (initiatorIsMember && currentInitiator === myId) ||
-        (!initiatorIsMember && (!partnerId || myId < partnerId.toLowerCase()));
-
-      if (shouldIRepair) {
-        toast({
-          title: "Syncing game...",
-        });
-        const repairedState = {
-          ...gameState,
-          turnUserId: myId,
-          initiatorId: myId // Reset initiator if needed to ensure future stability
-        };
-        setGameState(repairedState);
-        updateRemoteState(repairedState);
-      }
-    }
-  }, [gameState, user, user1Id, user2Id, partnerId]);
-
-  const fetchGameState = async (cid: string) => {
-    const { data } = await supabase
-      .from("game_sessions")
-      .select("state")
-      .eq("couple_id", cid)
-      .eq("game_type", "truth-or-dare")
-      .single();
-
-    if (data && data.state) {
-      setGameState(data.state as GameState);
-    }
-    setLoading(false);
-  };
-
-  const subscribeToGame = (cid: string) => {
-    const onRefresh = (e: any) => {
-      const gameData = e.detail?.game_data || e.detail;
-      const dataState = e.detail?.state || gameData?.state || (gameData?.game_type === 'truth-or-dare' ? gameData : null);
-
-      if (dataState && (e.detail?.game_type === "truth-or-dare" || gameData?.game_type === "truth-or-dare")) {
-        setGameState(dataState as GameState);
-      }
-    }
-
-    window.addEventListener('orbit:game-refresh', onRefresh);
-    return () => window.removeEventListener('orbit:game-refresh', onRefresh);
-  };
+    return () => unsubscribe();
+  }, [coupleId, user]);
 
   const updateRemoteState = async (newState: GameState) => {
     if (!coupleId) return;
-    await supabase.from("game_sessions").upsert({
-      couple_id: coupleId,
-      game_type: "truth-or-dare",
-      state: newState,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "couple_id, game_type" });
+    const gameRef = doc(db, "couples", coupleId, "game_sessions", "truth-or-dare");
+    try {
+      await setDoc(gameRef, {
+        game_type: "truth-or-dare",
+        state: newState,
+        updated_at: serverTimestamp(),
+      }, { merge: true });
+    } catch (e) {
+      console.error("Failed to update game state:", e);
+    }
   };
 
   const initGame = () => {
@@ -243,31 +151,21 @@ export function TruthOrDare({ onBack }: TruthOrDareProps) {
       category: "romantic",
       mode: null,
       currentPrompt: null,
-      turnUserId: user.id.toLowerCase(),
-      initiatorId: user.id.toLowerCase(),
+      turnUserId: user.uid.toLowerCase(),
+      initiatorId: user.uid.toLowerCase(),
     };
     setGameState(newState);
     updateRemoteState(newState);
   };
 
   const handleChoice = async (selectedMode: Mode) => {
-    if (!gameState || user?.id.toLowerCase() !== gameState.turnUserId?.toLowerCase() || !coupleId) return;
+    if (!gameState || user?.uid.toLowerCase() !== gameState.turnUserId?.toLowerCase() || !coupleId) return;
 
-    // Fetch latest state to prevent race conditions
-    const { data } = await supabase
-      .from("game_sessions")
-      .select("state")
-      .eq("couple_id", coupleId)
-      .eq("game_type", "truth-or-dare")
-      .single();
-
-    const latestState = data?.state ? (data.state as GameState) : gameState;
-
-    const prompts = selectedMode === "truth" ? truths[latestState.category] : dares[latestState.category];
+    const prompts = selectedMode === "truth" ? truths[gameState.category] : dares[gameState.category];
     const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
 
     const newState: GameState = {
-      ...latestState,
+      ...gameState,
       mode: selectedMode,
       currentPrompt: randomPrompt,
     };
@@ -276,24 +174,13 @@ export function TruthOrDare({ onBack }: TruthOrDareProps) {
   };
 
   const handleNextRound = async () => {
-    if (!gameState || !user1Id || !coupleId) return;
+    if (!gameState || !user1Id || !coupleId || !user2Id) return;
 
-    // Fetch latest state
-    const { data } = await supabase
-      .from("game_sessions")
-      .select("state")
-      .eq("couple_id", coupleId)
-      .eq("game_type", "truth-or-dare")
-      .single();
-
-    const latestState = data?.state ? (data.state as GameState) : gameState;
-
-    // Deterministic Turn Toggling
-    const currentTurn = latestState.turnUserId?.toLowerCase();
-    const nextTurnUserId = currentTurn === user1Id ? (user2Id || user1Id) : user1Id;
+    const currentTurn = gameState.turnUserId?.toLowerCase();
+    const nextTurnUserId = currentTurn === user1Id.toLowerCase() ? user2Id.toLowerCase() : user1Id.toLowerCase();
 
     const newState: GameState = {
-      ...latestState,
+      ...gameState,
       mode: null,
       currentPrompt: null,
       turnUserId: nextTurnUserId,
@@ -303,20 +190,10 @@ export function TruthOrDare({ onBack }: TruthOrDareProps) {
   };
 
   const changeCategory = async (cat: Category) => {
-    if (!gameState || user?.id !== gameState.turnUserId || !coupleId) return;
-
-    // Fetch latest state
-    const { data } = await supabase
-      .from("game_sessions")
-      .select("state")
-      .eq("couple_id", coupleId)
-      .eq("game_type", "truth-or-dare")
-      .single();
-
-    const latestState = data?.state ? (data.state as GameState) : gameState;
+    if (!gameState || user?.uid.toLowerCase() !== gameState.turnUserId.toLowerCase() || !coupleId) return;
 
     const newState: GameState = {
-      ...latestState,
+      ...gameState,
       category: cat,
       mode: null,
       currentPrompt: null,
@@ -325,7 +202,7 @@ export function TruthOrDare({ onBack }: TruthOrDareProps) {
     await updateRemoteState(newState);
   };
 
-  const isMyTurn = user?.id.toLowerCase() === gameState?.turnUserId?.toLowerCase();
+  const isMyTurn = user?.uid.toLowerCase() === gameState?.turnUserId?.toLowerCase();
 
   if (loading) {
     return (

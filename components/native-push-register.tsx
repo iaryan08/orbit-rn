@@ -3,12 +3,11 @@
 import { useEffect } from 'react'
 import { PushNotifications } from '@capacitor/push-notifications'
 import { Capacitor } from '@capacitor/core'
-import { createClient } from '@/lib/supabase/client'
-import { useAuth } from '@/components/auth-provider'
+import { db, auth } from '@/lib/firebase/client'
+import { doc, updateDoc } from 'firebase/firestore'
 
 export function NativePushRegister() {
-    const { user } = useAuth()
-    const supabase = createClient()
+    const user = auth.currentUser
 
     useEffect(() => {
         if (!Capacitor.isNativePlatform() || !user) return
@@ -33,15 +32,12 @@ export function NativePushRegister() {
             await PushNotifications.addListener('registration', async (token) => {
                 console.log('Push registration success, token:', token.value)
 
-                // Store token in Supabase for this user
-                // We'll upsert into a fcm_tokens table
-                const { error } = await supabase
-                    .from('profiles')
-                    .update({ fcm_token: token.value })
-                    .eq('id', user.id)
-
-                if (error) {
-                    console.error('Error saving FCM token to profile:', error)
+                // Store token in Firestore for this user
+                try {
+                    const userRef = doc(db, 'users', user.uid)
+                    await updateDoc(userRef, { fcm_token: token.value })
+                } catch (error) {
+                    console.error('Error saving FCM token to user profile:', error)
                 }
             })
 
@@ -66,7 +62,7 @@ export function NativePushRegister() {
         return () => {
             PushNotifications.removeAllListeners()
         }
-    }, [user, supabase])
+    }, [user])
 
     return null
 }

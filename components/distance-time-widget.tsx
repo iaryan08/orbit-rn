@@ -247,12 +247,27 @@ export function DistanceTimeWidget({ uProfile, partnerProfile }: DistanceWidgetP
                     setIsBlocked(true)
                 }
             }
-        } catch {
-            const cached = typeof window !== 'undefined' ? localStorage.getItem(LOCATION_CACHE_KEY) : null
-            if (cached) {
-                try {
-                    setUserOverride(JSON.parse(cached))
-                } catch { }
+        } catch (err) {
+            console.error('[LocationWidget] Update failed:', err)
+            // Final fallback: try IP-based location one last time without cached coordinates
+            try {
+                const ipResult = await updateLocation({})
+                if ((ipResult as any)?.success) {
+                    const next = {
+                        latitude: (ipResult as any)?.latitude,
+                        longitude: (ipResult as any)?.longitude,
+                        city: (ipResult as any)?.city,
+                        timezone: (ipResult as any)?.timezone,
+                        location_source: (ipResult as any)?.location_source || 'ip',
+                        updated_at: (ipResult as any)?.updated_at || new Date().toISOString()
+                    }
+                    setUserOverride((prev: any) => ({ ...(prev || {}), ...next }))
+                    setIsBlocked(false)
+                } else {
+                    setIsBlocked(true)
+                }
+            } catch {
+                setIsBlocked(true)
             }
         } finally {
             setUpdating(false)

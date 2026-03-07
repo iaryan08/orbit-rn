@@ -89,17 +89,15 @@ export async function addMemoryComment(memoryId: string, content: string) {
     if (!content.trim()) return { error: "Comment cannot be empty" };
 
     try {
-        // Fetch user profile to get couple_id
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const coupleId = userDoc.data()?.couple_id;
-        if (!coupleId) return { error: "No couple found" };
-
-        // Fetch memory metadata from correct nested path
-        const memorySnap = await getDoc(doc(db, 'couples', coupleId, 'memories', memoryId));
+        const memorySnap = await getDoc(doc(db, "memories", memoryId));
         if (!memorySnap.exists()) return { error: "Memory not found" };
         const memoryData = memorySnap.data();
+        const coupleId = memoryData.couple_id;
 
-        const newCommentRef = doc(collection(db, "memory_comments"));
+        if (!coupleId) return { error: "No couple ID associated with memory" };
+
+        const subCollection = "memory_comments";
+        const newCommentRef = doc(collection(db, "couples", coupleId, subCollection));
         const now = new Date().toISOString();
 
         const commentPayload: any = {
@@ -109,33 +107,30 @@ export async function addMemoryComment(memoryId: string, content: string) {
             content: content.trim(),
             created_at: now,
             updated_at: now,
-            couple_id: memoryData.couple_id || null
+            couple_id: coupleId
         };
 
         await setDoc(newCommentRef, commentPayload);
 
         // SQLite Cache
-        if (memoryData.couple_id) {
-            writeCommentToSQLite('memory_comments', {
-                ...commentPayload,
-                couple_id: memoryData.couple_id
-            });
+        if (Capacitor.isNativePlatform()) {
+            writeCommentToSQLite(subCollection, commentPayload);
+        }
 
-            // Send Notification
-            const coupleSnap = await getDoc(doc(db, 'couples', memoryData.couple_id));
-            if (coupleSnap.exists()) {
-                const couple = coupleSnap.data();
-                const partnerId = couple.user1_id === user.uid ? couple.user2_id : couple.user1_id;
-                if (partnerId) {
-                    await sendNotification({
-                        recipientId: partnerId,
-                        actorId: user.uid,
-                        type: 'comment',
-                        title: 'New Memory Comment 💬',
-                        message: `"${memoryData.title || 'Untitled'}": ${content.substring(0, 40)}${content.length > 40 ? '...' : ''}`,
-                        actionUrl: `/memories?open=${memoryId}`
-                    });
-                }
+        // Send Notification
+        const coupleSnap = await getDoc(doc(db, 'couples', coupleId));
+        if (coupleSnap.exists()) {
+            const coupleData = coupleSnap.data();
+            const partnerId = coupleData.user1_id === user.uid ? coupleData.user2_id : coupleData.user1_id;
+            if (partnerId) {
+                await sendNotification({
+                    recipientId: partnerId,
+                    actorId: user.uid,
+                    type: 'comment',
+                    title: 'New Memory Comment 💬',
+                    message: `"${memoryData.title || 'Untitled'}": ${content.substring(0, 40)}${content.length > 40 ? '...' : ''}`,
+                    actionUrl: `/memories?open=${memoryId}`
+                });
             }
         }
 
@@ -148,17 +143,32 @@ export async function addMemoryComment(memoryId: string, content: string) {
 
 export async function getMemoryComments(memoryId: string) {
     try {
+        const user = auth.currentUser;
+        if (!user) return { error: "Unauthorized" };
+
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const coupleId = userSnap.data()?.couple_id;
+        if (!coupleId) return { error: "No couple found" };
+
+        const collectionName = "memory_comments";
         const q = query(
-            collection(db, "memory_comments"),
-            where("memory_id", "==", memoryId),
-            orderBy("created_at", "asc")
+            collection(db, 'couples', coupleId, collectionName),
+            where('memory_id', '==', memoryId)
         );
-        const querySnapshot = await getDocs(q);
-        const comments = querySnapshot.docs.map(doc => doc.data());
 
-        if (comments.length === 0) return { data: [] };
+        const snap = await getDocs(q);
+        const rawData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
 
-        const userIds = [...new Set(comments.map((c: any) => c.user_id))];
+        if (rawData.length === 0) return { data: [] };
+
+        // Client-side sort: latest on top
+        const sortedRaw = rawData.sort((a, b) => {
+            const dateA = a.created_at ? (typeof a.created_at === 'string' ? new Date(a.created_at).getTime() : (a.created_at as any).seconds * 1000) : 0;
+            const dateB = b.created_at ? (typeof b.created_at === 'string' ? new Date(b.created_at).getTime() : (b.created_at as any).seconds * 1000) : 0;
+            return dateB - dateA;
+        });
+
+        const userIds = [...new Set(sortedRaw.map((c: any) => c.user_id))];
         const profilePromises = userIds.map(uid => getDoc(doc(db, 'users', uid)));
         const profileSnaps = await Promise.all(profilePromises);
 
@@ -169,31 +179,26 @@ export async function getMemoryComments(memoryId: string) {
             }
         });
 
-        const data = comments.map((c: any) => ({
+        const dataWithProfiles = sortedRaw.map((c: any) => ({
             ...c,
             profiles: profileMap[c.user_id] || { display_name: 'User', avatar_url: null }
         }));
 
         // Native SQLite background cache
-        if (Capacitor.isNativePlatform() && auth.currentUser) {
-            const userSnap = await getDoc(doc(db, 'users', auth.currentUser.uid));
-            const coupleId = userSnap.data()?.couple_id;
-            if (coupleId) {
-                comments.forEach((c: any) => {
-                    writeCommentToSQLite('memory_comments', {
-                        id: c.id,
-                        memory_id: memoryId,
-                        couple_id: coupleId,
-                        user_id: c.user_id,
-                        content: c.content,
-                        created_at: c.created_at,
-                        updated_at: c.updated_at || c.created_at,
+        if (Capacitor.isNativePlatform()) {
+            try {
+                sortedRaw.forEach((c: any) => {
+                    writeCommentToSQLite(collectionName, {
+                        ...c,
+                        couple_id: coupleId
                     });
                 });
+            } catch (e) {
+                console.warn('[getMemoryComments] SQLite cache write failed:', e);
             }
         }
 
-        return { data };
+        return { data: dataWithProfiles };
     } catch (err: any) {
         console.error('[getMemoryComments] Error:', err);
         // SQLite Fallback
@@ -219,7 +224,11 @@ export async function updateMemoryComment(commentId: string, content: string) {
 
     try {
         const now = new Date().toISOString();
-        const commentRef = doc(db, "memory_comments", commentId);
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const coupleId = userSnap.data()?.couple_id;
+        if (!coupleId) return { error: "No couple found" };
+
+        const commentRef = doc(db, "couples", coupleId, "memory_comments", commentId);
         const commentSnap = await getDoc(commentRef);
 
         if (!commentSnap.exists()) return { error: "Comment not found" };
@@ -255,13 +264,16 @@ export async function deleteMemoryComment(commentId: string) {
     if (!user) return { error: "Unauthorized" };
 
     try {
-        const commentRef = doc(db, "memory_comments", commentId);
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const coupleId = userSnap.data()?.couple_id;
+        if (!coupleId) return { error: "No couple found" };
+
+        const commentRef = doc(db, "couples", coupleId, "memory_comments", commentId);
         const commentSnap = await getDoc(commentRef);
 
         if (!commentSnap.exists()) return { error: "Comment not found" };
         if (commentSnap.data().user_id !== user.uid) return { error: "Forbidden" };
 
-        const coupleId = commentSnap.data().couple_id;
         await deleteDoc(commentRef);
 
         if (coupleId && Capacitor.isNativePlatform()) {
@@ -290,7 +302,7 @@ export async function addPolaroidComment(polaroidId: string, content: string) {
         if (!polaroidSnap.exists()) return { error: "Polaroid not found" };
         const polaroidData = polaroidSnap.data();
 
-        const newCommentRef = doc(collection(db, "polaroid_comments"));
+        const newCommentRef = doc(collection(db, "couples", coupleId, "polaroid_comments"));
         const now = new Date().toISOString();
 
         const commentPayload: any = {
@@ -300,7 +312,7 @@ export async function addPolaroidComment(polaroidId: string, content: string) {
             content: content.trim(),
             created_at: now,
             updated_at: now,
-            couple_id: polaroidData.couple_id || null
+            couple_id: coupleId
         };
 
         await setDoc(newCommentRef, commentPayload);
@@ -341,7 +353,11 @@ export async function updatePolaroidComment(commentId: string, content: string) 
 
     try {
         const now = new Date().toISOString();
-        const commentRef = doc(db, "polaroid_comments", commentId);
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const coupleId = userSnap.data()?.couple_id;
+        if (!coupleId) return { error: "No couple found" };
+
+        const commentRef = doc(db, "couples", coupleId, "polaroid_comments", commentId);
         const commentSnap = await getDoc(commentRef);
 
         if (!commentSnap.exists()) return { error: "Comment not found" };
@@ -376,13 +392,16 @@ export async function deletePolaroidComment(commentId: string) {
     if (!user) return { error: "Unauthorized" };
 
     try {
-        const commentRef = doc(db, "polaroid_comments", commentId);
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const coupleId = userSnap.data()?.couple_id;
+        if (!coupleId) return { error: "No couple found" };
+
+        const commentRef = doc(db, "couples", coupleId, "polaroid_comments", commentId);
         const commentSnap = await getDoc(commentRef);
 
         if (!commentSnap.exists()) return { error: "Comment not found" };
         if (commentSnap.data().user_id !== user.uid) return { error: "Forbidden" };
 
-        const coupleId = commentSnap.data().couple_id;
         await deleteDoc(commentRef);
 
         if (coupleId && Capacitor.isNativePlatform()) {
@@ -402,10 +421,17 @@ export async function getPolaroidComments(polaroidId: string) {
     }
 
     try {
+        const user = auth.currentUser;
+        if (!user) return { error: "Unauthorized" };
+
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const coupleId = userSnap.data()?.couple_id;
+        if (!coupleId) return { error: "No couple found" };
+
         const q = query(
-            collection(db, "polaroid_comments"),
+            collection(db, "couples", coupleId, "polaroid_comments"),
             where("polaroid_id", "==", polaroidId),
-            orderBy("created_at", "asc")
+            orderBy("created_at", "desc") // Latest on top
         );
         const querySnapshot = await getDocs(q);
         const comments = querySnapshot.docs.map(doc => doc.data());

@@ -1,4 +1,5 @@
-import { createClient } from '@/lib/supabase/client'
+import { db, auth } from '@/lib/firebase/client'
+import { collection, getDocs, query, where, orderBy, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { sendNotification } from '@/lib/client/notifications'
 import { enqueueMutation, isLikelyNetworkError, isOffline } from '@/lib/client/offline-mutation-queue'
 import { readOfflineCache, writeOfflineCache } from '@/lib/client/offline-cache'
@@ -6,71 +7,42 @@ import { Capacitor } from '@capacitor/core'
 import { LocalDB } from '@/lib/client/local-db'
 
 export async function getBucketList() {
-    const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()
-    const user = session?.user
-
+    const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' }
 
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('couple_id')
-        .eq('id', user.id)
-        .single()
-
-    if (!profile?.couple_id) return { items: [] }
-
-    const cacheKey = `bucket:${profile.couple_id}`
-
-    // SQLite Fast-Load
-    if (Capacitor.isNativePlatform()) {
-        try {
-            const localItems = await LocalDB.query<any>('bucket_list', profile.couple_id);
-            if (localItems && localItems.length > 0) {
-                // Return locally immediately, sync in background
-                ; (async () => {
-                    try {
-                        const { data } = await supabase
-                            .from('bucket_list')
-                            .select('*')
-                            .eq('couple_id', profile.couple_id)
-                            .order('created_at', { ascending: false })
-                        if (data) {
-                            writeOfflineCache(cacheKey, data)
-                            data.forEach((item: any) => {
-                                void LocalDB.upsertFromSync('bucket_list', { ...item, pending_sync: 0 })
-                            })
-                        }
-                    } catch (err) {
-                        console.error(err)
-                    }
-                })()
-                return { items: localItems }
-            }
-        } catch (e) {
-            console.warn('[BucketList] SQLite load failed', e)
-        }
-    }
-
     try {
-        const { data: items, error } = await supabase
-            .from('bucket_list')
-            .select('*')
-            .eq('couple_id', profile.couple_id)
-            .order('created_at', { ascending: false })
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const coupleId = userDoc.data()?.couple_id;
+        if (!coupleId) return { items: [] }
 
-        if (error) throw error
-        writeOfflineCache(cacheKey, items || [])
-        // Hydrate SQLite
-        if (Capacitor.isNativePlatform() && items) {
+        const cacheKey = `bucket:${coupleId}`
+
+        // SQLite Fast-Load
+        if (Capacitor.isNativePlatform()) {
+            try {
+                const localItems = await LocalDB.query<any>('bucket_list', coupleId);
+                if (localItems && localItems.length > 0) {
+                    return { items: localItems }
+                }
+            } catch (e) {
+                console.warn('[BucketList] SQLite load failed', e)
+            }
+        }
+
+        const q = query(collection(db, 'couples', coupleId, 'bucket_list'), orderBy('created_at', 'desc'));
+        const snap = await getDocs(q);
+        const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        writeOfflineCache(cacheKey, items)
+
+        if (Capacitor.isNativePlatform()) {
             items.forEach((item: any) => {
                 void LocalDB.upsertFromSync('bucket_list', { ...item, pending_sync: 0 });
             });
         }
-        return { items: items || [] }
+
+        return { items }
     } catch (error: any) {
-        const cached = readOfflineCache<any[]>(cacheKey) || []
-        if (cached.length > 0) return { items: cached, cached: true }
         console.error('Error fetching bucket list:', error)
         return { error: error?.message || 'Failed to fetch bucket list' }
     }
@@ -82,62 +54,52 @@ export async function addBucketItem(title: string, description: string = '', isP
         return { success: true, queued: true }
     }
 
-    const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()
-    const user = session?.user
-
+    const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' }
-    try {
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('couple_id, display_name')
-            .eq('id', user.id)
-            .single()
 
+    try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const profile = userDoc.data();
         if (!profile?.couple_id) return { error: 'No couple found' }
 
-        const { data: item, error } = await supabase
-            .from('bucket_list')
-            .insert({
-                couple_id: profile.couple_id,
-                created_by: user.id,
-                title,
-                description,
-                is_private: isPrivate,
-            })
-            .select('id')
-            .single()
+        const itemData = {
+            couple_id: profile.couple_id,
+            created_by: user.uid,
+            title,
+            description,
+            is_completed: false,
+            is_private: isPrivate,
+            created_at: serverTimestamp()
+        };
 
-        if (error) return { error: error.message }
+        const docRef = await doc(collection(db, 'couples', profile.couple_id, 'bucket_list'));
+        await setDoc(docRef, itemData);
 
-        const { data: couple } = await supabase
-            .from('couples')
-            .select('user1_id, user2_id')
-            .eq('id', profile.couple_id)
-            .single()
-
+        // Notify Partner
+        const coupleDoc = await getDoc(doc(db, 'couples', profile.couple_id));
+        const couple = coupleDoc.data();
         if (couple && !isPrivate) {
-            const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
+            const partnerId = couple.user1_id === user.uid ? couple.user2_id : couple.user1_id
             if (partnerId) {
                 await sendNotification({
                     recipientId: partnerId,
-                    actorId: user.id,
+                    actorId: user.uid,
                     type: 'bucket_list',
                     title: 'New Bucket List Item',
                     message: `${profile.display_name || 'Your partner'} added "${title}" to your bucket list.`,
-                    actionUrl: item?.id ? `/dashboard?bucketItemId=${encodeURIComponent(item.id)}` : '/dashboard',
-                    metadata: item?.id ? { bucket_item_id: item.id } : undefined,
+                    actionUrl: `/dashboard?bucketItemId=${encodeURIComponent(docRef.id)}`,
+                    metadata: { bucket_item_id: docRef.id }
                 })
             }
         }
 
-        if (Capacitor.isNativePlatform() && profile?.couple_id) {
+        if (Capacitor.isNativePlatform()) {
             void LocalDB.insert('bucket_list', {
-                id: item?.id || crypto.randomUUID(),
+                id: docRef.id,
                 couple_id: profile.couple_id,
-                created_by: user.id,
+                created_by: user.uid,
                 title,
-                description: description || '',
+                description,
                 is_completed: false,
                 is_private: isPrivate,
                 created_at: new Date().toISOString()
@@ -160,47 +122,37 @@ export async function toggleBucketItem(id: string, isCompleted: boolean) {
         return { success: true, queued: true }
     }
 
-    const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()
-    const user = session?.user
-
+    const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' }
+
     try {
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('couple_id, display_name')
-            .eq('id', user.id)
-            .single()
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const profile = userDoc.data();
+        if (!profile?.couple_id) return { error: 'No couple found' }
 
-        const { error } = await supabase
-            .from('bucket_list')
-            .update({
-                is_completed: isCompleted,
-                completed_at: isCompleted ? new Date().toISOString() : null,
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', id)
+        const itemRef = doc(db, 'couples', profile.couple_id, 'bucket_list', id);
+        const itemSnap = await getDoc(itemRef);
+        if (!itemSnap.exists()) return { error: 'Item not found' };
 
-        if (error) return { error: error.message }
+        await updateDoc(itemRef, {
+            is_completed: isCompleted,
+            completed_at: isCompleted ? serverTimestamp() : null,
+            updated_at: serverTimestamp()
+        });
 
-        if (isCompleted && profile?.couple_id) {
-            const { data: couple } = await supabase
-                .from('couples')
-                .select('user1_id, user2_id')
-                .eq('id', profile.couple_id)
-                .single()
-
+        if (isCompleted) {
+            const coupleDoc = await getDoc(doc(db, 'couples', profile.couple_id));
+            const couple = coupleDoc.data();
             if (couple) {
-                const partnerId = couple.user1_id === user.id ? couple.user2_id : couple.user1_id
-                const { data: item } = await supabase.from('bucket_list').select('title').eq('id', id).single()
-
-                if (partnerId && item) {
+                const partnerId = couple.user1_id === user.uid ? couple.user2_id : couple.user1_id
+                const itemData = itemSnap.data();
+                if (partnerId && itemData) {
                     await sendNotification({
                         recipientId: partnerId,
-                        actorId: user.id,
+                        actorId: user.uid,
                         type: 'bucket_list',
                         title: 'Bucket List Item Completed! 🎉',
-                        message: `${profile.display_name || 'Your partner'} marked "${item.title}" as completed!`,
+                        message: `${profile.display_name || 'Your partner'} marked "${itemData.title}" as completed!`,
                         actionUrl: `/dashboard?bucketItemId=${encodeURIComponent(id)}`,
                         metadata: { bucket_item_id: id },
                     })
@@ -208,7 +160,7 @@ export async function toggleBucketItem(id: string, isCompleted: boolean) {
             }
         }
 
-        if (Capacitor.isNativePlatform() && profile?.couple_id) {
+        if (Capacitor.isNativePlatform()) {
             void LocalDB.update('bucket_list', id, profile.couple_id, {
                 is_completed: isCompleted,
                 completed_at: isCompleted ? new Date().toISOString() : null,
@@ -231,26 +183,18 @@ export async function deleteBucketItem(id: string) {
         return { success: true, queued: true }
     }
 
-    const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()
-    const user = session?.user
-
+    const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' }
+
     try {
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('couple_id')
-            .eq('id', user.id)
-            .single()
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const coupleId = userDoc.data()?.couple_id;
+        if (!coupleId) return { error: 'No couple found' }
 
-        const { error } = await supabase
-            .from('bucket_list')
-            .delete()
-            .eq('id', id)
+        await deleteDoc(doc(db, 'couples', coupleId, 'bucket_list', id));
 
-        if (error) return { error: error.message }
-        if (Capacitor.isNativePlatform() && profile?.couple_id) {
-            void LocalDB.delete('bucket_list', id, profile.couple_id)
+        if (Capacitor.isNativePlatform()) {
+            void LocalDB.delete('bucket_list', id, coupleId)
         }
         return { success: true }
     } catch (e: any) {

@@ -1,0 +1,80 @@
+# Orbit V2: Zero-Cost Architecture Strategy
+
+This document outlines the optimal architecture for Orbit V2 to run entirely on free tiers without ever spending a single penny, specifically tailored for the upcoming React Native migration.
+
+## 1. The Core Stack (The "Free Forever" Trio)
+
+To achieve zero cost at scale, we must strictly divide responsibilities among three services:
+
+1.  **Firebase (Google):** Authentication, Database, Realtime Presence, Push Notifications.
+2.  **Cloudflare:** CDN, Media Storage (R2), Workers (API Proxy).
+3.  **Local Device (React Native):** Heavy data caching and offline persistence (SQLite/AsyncStorage).
+
+By distributing the load, you never hit the billing limits of any single platform.
+
+---
+
+## 2. Firebase: Your Backend Engine (Spark Plan - Free)
+
+Firebase gives you massive free quotas, but only if you use the right tool for the right job.
+
+### A. Authentication (Firebase Auth)
+*   **Limit:** 50,000 Monthly Active Users free.
+*   **Strategy:** Native phone authentication or Google Sign-In is completely free up to this massive limit. Keep standard email/password or social logins.
+
+### B. Persistent Data (Firestore)
+*   **Limit:** 50,000 Reads / 20,000 Writes / 20,000 Deletes *per day*. 1 GiB total storage.
+*   **What goes here:** Only structural, text-based data.
+    *   User Profiles (`users` collection)
+    *   Couple Links (`couples` collection)
+    *   Memory Metadata (Titles, Dates, Location, R2 Image URLs)
+    *   Letters and Intimacy Milestones
+*   **The Golden Rule:** NEVER store base64 images or large chunks of data in Firestore. Store the R2 URL string (which is only a few bytes).
+*   **The Secret to Zero Reads:** In React Native, fetch the memories *once* and save them to a local SQLite database on the user's phone. When the app opens, read from SQLite (0 cost), and only ask Firestore "What changed since my last sync?" (1 Read).
+
+### C. Ephemeral Data (Realtime Database - RTDB)
+*   **Limit:** 100 simultaneous connections, 1 GB storage, 10 GB downloaded per month.
+*   **What goes here:** Things that matter *right now* and are instantly deleted or overwritten.
+    *   **Presence:** "Aryan is online", "Aryan is viewing the gallery". (Constantly overwritten, takes bytes of space).
+    *   **Haptics / Live Canvas:** When you tap "Send Vibe", it writes to RTDB, the partner's phone reacts, and the data is wiped.
+*   **Why RTDB over Firestore for this?** Because RTDB charges by bandwidth, not by write operations. Sending 10,000 "vibes" in RTDB is practically free. Doing that in Firestore would eat half your daily free write limit.
+
+### D. Push Notifications (Firebase Cloud Messaging - FCM)
+*   **Limit:** Practically unlimited and free.
+*   **Strategy:** Abandon the custom web-push VAPID key setup. In React Native, FCM is deeply integrated. You send payloads via a Cloudflare Worker directly to the FCM API, which wakes up the partner's phone for free.
+
+---
+
+## 3. Cloudflare: The Media Powerhouse (Free Tier)
+
+Media (Photos/Videos) will bankrupt you on Firebase/AWS if you aren't careful. Cloudflare is the answer.
+
+### A. Media Storage (Cloudflare R2)
+*   **Limit:** 10 GB Storage Free / 1 Million Write Operations / 10 Million Read Operations per month. Zero Egress Fees.
+*   **Strategy:** R2 is an S3 clone but doesn't charge you when users download photos. This is the holy grail. All Polaroids, Memory photos, and Avatars must go directly to R2.
+
+### B. API Proxy (Cloudflare Workers)
+*   **Limit:** 100,000 requests per day free.
+*   **Strategy:** Use a simple Worker script to handle the image uploads and serve the `api/media/view/` routes. It protects your R2 bucket from public listing and handles the auth token verification without hitting your Next.js/Expo server.
+
+---
+
+## 4. The "Garbage Collection" Strategy (Auto-Deletions)
+
+To ensure your databases (Firestore) never grow beyond the free 1 GiB limit, you must implement strict Time-To-Live (TTL) policies.
+
+1.  **Feed / Notifications Collection:** Set a TTL policy in Google Cloud Console on the `notifications` collection so documents automatically delete after 14 or 30 days.
+2.  **Pairing Codes:** Delete immediately after a successful connection (already doing this!).
+3.  **Realtime Database Paths:** Ensure `onDisconnect()` hooks are set up so that if a user hard-closes the app, their presence node is instantly wiped, freeing up the bytes.
+
+---
+
+## 5. Next Steps for React Native Transition
+
+To get ready for this, we should make the following structural changes to Orbit V2 now:
+
+1.  **Kill Supabase Entirely:** We are currently using it for web-push subscriptions and presence. These are redundant.
+2.  **Migrate Presence to RTDB:** Rewrite `useCoupleChannel.ts` to use Firebase Realtime Database.
+3.  **Clean up API Routes:** Prepare the API to expect React Native/Mobile client requests instead of web browser requests.
+
+**Conclusion:** By utilizing Firebase for auth/metadata, Cloudflare for heavy media/bandwidth, and the user's phone for caching, you can easily scale to thousands of couples without paying a cent.

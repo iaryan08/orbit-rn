@@ -1,62 +1,50 @@
-import { createClient } from '@/lib/supabase/client'
-import { sendNotification } from '@/lib/client/notifications'
+import { db, auth } from '@/lib/firebase/client'
+import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore'
 
 export async function broadcastUpdateNotification() {
-    // In standalone mode, broadcasting to everyone is only possible if the client
-    // has the admin role or an RPC function is used.
-    // For now, this function is mostly a placeholder as clients shouldn't broadcast to everyone directly
-    // unless authenticated as an admin.
+    // Note: Client-side broadcasts are usually restricted. 
+    // This is a legacy placeholder migrated to Firestore pattern.
 
-    const supabase = createClient()
+    try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('id, display_name')
+        const title = "Zen & Cohesion Update is Live! 🌿"
+        const message = "We've refined the Orbit experience to be even more beautiful:\n\n" +
+            "• 🖼️ Cleaner Canvas: Modals and cards now have tighter, distraction-free spacing.\n" +
+            "• ✍️ Typography Tune-up: Metadata is now cleaner and easier to read without italics.\n" +
+            "• ⚡ Performance Boost: Smoother animations and faster interactions across the board.\n" +
+            "• 🔔 Smart Notifications: You'll now be notified when memories, letters, or polaroids are updated.\n\n" +
+            "Enjoy a calmer, more polished space for your memories."
 
-    if (error) {
-        console.error("Failed to fetch profiles for broadcast:", error)
-        return { success: false, error: "Database error. Note: Client-side broadcasts require specific RLS policies." }
-    }
+        let sentCount = 0
 
-    const title = "Zen & Cohesion Update is Live! 🌿"
-    const message = "We've refined the Orbit experience to be even more beautiful:\n\n" +
-        "• 🖼️ Cleaner Canvas: Modals and cards now have tighter, distraction-free spacing.\n" +
-        "• ✍️ Typography Tune-up: Metadata is now cleaner and easier to read without italics.\n" +
-        "• ⚡ Performance Boost: Smoother animations and faster interactions across the board.\n" +
-        "• 🔔 Smart Notifications: You'll now be notified when memories, letters, or polaroids are updated.\n\n" +
-        "Enjoy a calmer, more polished space for your memories."
-
-    let sentCount = 0
-
-    if (profiles) {
-        for (const profile of profiles) {
+        for (const user of users) {
             try {
-                const { error: notifyError } = await supabase
-                    .from('notifications')
-                    .insert({
-                        recipient_id: profile.id,
-                        type: 'announcement',
-                        title,
-                        message,
-                        action_url: '/dashboard',
-                        metadata: { type: 'announcement' }
-                    })
-
-                if (!notifyError) sentCount++
-
-                // Standalone Push Notification logic will go here eventually if a backend is paired
-                // or local notifications if broadcasting locally (not applicable here).
-
+                await addDoc(collection(db, 'notifications'), {
+                    recipient_id: user.id,
+                    type: 'announcement',
+                    title,
+                    message,
+                    action_url: '/dashboard',
+                    metadata: { type: 'announcement' },
+                    is_read: false,
+                    created_at: serverTimestamp()
+                });
+                sentCount++
             } catch (e) {
-                console.warn(`Failed to notify user ${profile.id}:`, e)
+                console.warn(`Failed to notify user ${user.id}:`, e)
             }
         }
-    }
 
-    return {
-        success: true,
-        totalUsers: profiles?.length || 0,
-        dbNotificationsSent: sentCount,
-        pushNotificationsSent: 0
+        return {
+            success: true,
+            totalUsers: users.length,
+            dbNotificationsSent: sentCount,
+            pushNotificationsSent: 0
+        }
+    } catch (error: any) {
+        console.error("Failed to fetch users for broadcast:", error)
+        return { success: false, error: error.message }
     }
 }

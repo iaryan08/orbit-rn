@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { m, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import { PolaroidDetailModal } from "./polaroid-detail-modal";
-import { createClient } from "@/lib/supabase/client";
+import { db } from "@/lib/firebase/client";
+import { collection, query, onSnapshot } from "firebase/firestore";
 import { UploadPolaroidDialog } from "./dialogs/upload-polaroid-dialog";
+
 import { getDashboardPolaroids } from "@/lib/client/polaroids";
 import { hasStoredMediaPassphrase, isEncryptedMediaUrl } from "@/lib/client/crypto-e2ee";
 import { DecryptedImage } from "./e2ee/decrypted-image";
@@ -84,24 +86,35 @@ export function StackedPolaroids({
         }
     }, [searchParams, userPolaroid, partnerPolaroid, partnerName]);
 
-    // Real-time broadcast listener
+    // Real-time Firestore listener
     useEffect(() => {
         if (!coupleId || !currentUserId) return;
 
-        const onBroadcast = (e: any) => {
-            const payload = e.detail;
-            if (payload?.payload?.by !== currentUserId) {
-                // Trigger a refresh of the global dashboard data
-                window.dispatchEvent(new CustomEvent('orbit:dashboard-refresh', {
-                    detail: { force: true, reason: 'polaroid-broadcast' }
-                }));
+        const q = query(collection(db, 'couples', coupleId, 'polaroids'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PolaroidData));
+
+            // Client-side sort to avoid requiring composite indexes
+            const sortedData = data.sort((a, b) => {
+                const da = a.created_at ? (typeof a.created_at === 'string' ? new Date(a.created_at).getTime() : (a.created_at as any).seconds * 1000) : 0;
+                const db = b.created_at ? (typeof b.created_at === 'string' ? new Date(b.created_at).getTime() : (b.created_at as any).seconds * 1000) : 0;
+                return db - da; // Descending
+            });
+
+            const mine = sortedData.find((p: any) => p.user_id === currentUserId) || null;
+            const theirs = sortedData.find((p: any) => p.user_id !== currentUserId) || null;
+
+            setLocalUserPolaroid(mine);
+            setLocalPartnerPolaroid(theirs);
+
+            // Trigger haptic if a new polaroid is received (briefly)
+            if (theirs?.id !== localPartnerPolaroid?.id) {
                 triggerHaptic();
             }
-        };
+        });
 
-        window.addEventListener('orbit:polaroid-broadcast', onBroadcast);
-        return () => window.removeEventListener('orbit:polaroid-broadcast', onBroadcast);
-    }, [coupleId, currentUserId]);
+        return () => unsubscribe();
+    }, [coupleId, currentUserId, localPartnerPolaroid?.id]);
 
     const triggerHaptic = () => {
         if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
@@ -111,6 +124,20 @@ export function StackedPolaroids({
 
     const didDragRef = useRef(false);
     const hasAny = localUserPolaroid || localPartnerPolaroid;
+
+    const handleCardClick = (item: any) => {
+        if (didDragRef.current) {
+            didDragRef.current = false;
+            return;
+        }
+        triggerHaptic();
+        if (item.data) {
+            setSelectedPolaroid(item.data);
+            setSelectedTitle(item.label);
+        } else if (item.id === "user") {
+            setIsUploadOpen(true);
+        }
+    };
 
     if (!hasAny) {
         return (
@@ -153,58 +180,47 @@ export function StackedPolaroids({
     return (
         <>
             <div className="relative w-[280px] h-[360px] mx-auto xl:scale-105 group select-none touch-none perspective-[1000px]">
-                <AnimatePresence mode="popLayout">
+                <AnimatePresence mode="popLayout" initial={false}>
                     {items.map((item, index) => {
                         const isActive = index === activeIndex;
 
                         return (
                             <m.div
                                 key={item.id}
-                                style={{ zIndex: isActive ? 20 : 10 }}
+                                style={{
+                                    zIndex: isActive ? 20 : 10,
+                                }}
                                 className="absolute inset-0 cursor-grab active:cursor-grabbing origin-bottom"
-                                initial={false}
                                 animate={{
-                                    x: isActive ? 0 : (index === 0 ? -25 : 25),
-                                    y: isActive ? 0 : 12,
-                                    rotateZ: isActive ? (index === 0 ? -1.5 : 1.5) : (index === 0 ? 8 : -8),
-                                    rotateX: isActive ? 0 : -2,
-                                    scale: isActive ? 1 : 0.9,
-                                    opacity: isActive ? 1 : 0.6,
+                                    x: isActive ? 0 : (index === 0 ? -60 : 60),
+                                    y: isActive ? 0 : 25,
+                                    rotateZ: isActive ? 0 : (index === 0 ? -15 : 15),
+                                    scale: isActive ? 1 : 0.82,
+                                    opacity: isActive ? 1 : 0.45,
                                 }}
                                 transition={{
                                     type: "spring",
-                                    stiffness: 300,
-                                    damping: 30,
-                                    mass: 1.2
+                                    stiffness: 280,
+                                    damping: 18
                                 }}
-                                drag
-                                dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+                                drag="x"
+                                dragConstraints={{ left: 0, right: 0 }}
                                 dragElastic={0.6}
-                                onDragStart={() => {
-                                    didDragRef.current = false;
-                                    triggerHaptic();
-                                }}
-                                onDrag={(e, { offset }) => {
-                                    if (Math.abs(offset.x) > 4) {
-                                        didDragRef.current = true;
-                                    }
-                                }}
                                 onDragEnd={(e, { offset, velocity }) => {
-                                    const swipeTrigger = 20;
-                                    if (offset.x > swipeTrigger || velocity.x > 300) {
-                                        // Swipe Right -> Switch to partner (left card)
+                                    const swipeTrigger = 35;
+                                    if (offset.x > swipeTrigger || velocity.x > 350) {
                                         if (view !== "partner") {
                                             triggerHaptic();
                                             setView("partner");
                                         }
-                                    } else if (offset.x < -swipeTrigger || velocity.x < -300) {
-                                        // Swipe Left -> Switch to user (right card)
+                                    } else if (offset.x < -swipeTrigger || velocity.x < -400) {
                                         if (view !== "user") {
                                             triggerHaptic();
                                             setView("user");
                                         }
                                     }
                                 }}
+                                onClick={() => handleCardClick(item)}
                             >
                                 <PolaroidItem
                                     data={item.data}
@@ -217,19 +233,6 @@ export function StackedPolaroids({
                                     onDelete={item.canDelete && item.data ? () => {
                                         if (item.data) setPendingDeleteId(item.data.id);
                                     } : undefined}
-                                    onClick={() => {
-                                        if (didDragRef.current) {
-                                            didDragRef.current = false;
-                                            return;
-                                        }
-                                        triggerHaptic();
-                                        if (item.data) {
-                                            setSelectedPolaroid(item.data);
-                                            setSelectedTitle(item.label);
-                                        } else if (item.id === "user") {
-                                            setIsUploadOpen(true);
-                                        }
-                                    }}
                                 />
                             </m.div>
                         );

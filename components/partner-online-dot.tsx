@@ -13,7 +13,9 @@ export function PartnerOnlineDot({ coupleId, userId, partnerId }: PartnerOnlineD
     const [isOnline, setIsOnline] = useState(false)
 
     const handlePresence = useCallback((onlineIds: string[]) => {
-        setIsOnline(onlineIds.includes(partnerId))
+        const online = onlineIds.includes(partnerId)
+        console.log(`[PartnerOnlineDot] Online IDs:`, onlineIds, `Partner: ${partnerId}`, `IsOnline: ${online}`)
+        setIsOnline(online)
     }, [partnerId])
 
     // Shares the same channel as PartnerAvatarHeartbeat — no extra connection

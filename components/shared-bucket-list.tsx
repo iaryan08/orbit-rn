@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Plus, Trash2, Check, Sparkles, Target, Trophy, Lock, Unlock } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, normalizeDate } from '@/lib/utils'
 import { addBucketItem, toggleBucketItem, deleteBucketItem } from '@/lib/client/bucket'
 import { useToast } from '@/hooks/use-toast'
 import { useSearchParams } from 'next/navigation'
@@ -32,17 +32,23 @@ export function SharedBucketList({ initialItems = [] }: { initialItems: any[] })
 
     // Sync with server state
     useEffect(() => {
-        setItems(current => {
-            if (processingIds.current.size > 0) {
-                return initialItems.map(serverItem => {
-                    if (processingIds.current.has(serverItem.id)) {
-                        const local = current.find(i => i.id === serverItem.id)
-                        return local || null
-                    }
-                    return serverItem
-                }).filter(Boolean)
-            }
-            return initialItems
+        setItems(prev => {
+            // Keep optimistic items that aren't yet in the server list
+            const optimisticItems = prev.filter(item =>
+                item.id.startsWith('optimistic-') &&
+                !initialItems.some(i => i.title === item.title && !i.is_private === !item.is_private)
+            )
+
+            // Merge server items with any currently processing items to avoid UI jumps
+            const mergedItems = initialItems.map(serverItem => {
+                if (processingIds.current.has(serverItem.id)) {
+                    const local = prev.find(i => i.id === serverItem.id)
+                    return local || serverItem
+                }
+                return serverItem
+            })
+
+            return [...optimisticItems, ...mergedItems]
         })
     }, [initialItems])
 
@@ -111,7 +117,9 @@ export function SharedBucketList({ initialItems = [] }: { initialItems: any[] })
 
     const sortedItems = [...items].sort((a, b) => {
         if (a.is_completed === b.is_completed) {
-            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            const dateA = normalizeDate(a.created_at).getTime()
+            const dateB = normalizeDate(b.created_at).getTime()
+            return dateB - dateA
         }
         return a.is_completed ? 1 : -1
     })

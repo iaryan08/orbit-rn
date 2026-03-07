@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/server';
+import { adminDb } from '@/lib/firebase/admin';
 import { NextResponse } from 'next/server';
 import webPush from 'web-push';
 
@@ -8,22 +8,15 @@ export async function POST(request: Request) {
     try {
         if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
             console.error('VAPID keys are missing');
-            // Return 500 but don't crash, let the client know configuration is missing
             return NextResponse.json({ error: 'Server VAPID configuration missing' }, { status: 500 });
         }
 
         const body = await request.json();
         const { message, title, url } = body;
 
-        const supabase = await createAdminClient();
-        const { data: subscriptions, error } = await supabase.from('push_subscriptions').select('*');
+        const subSnap = await adminDb.collection('push_subscriptions').get();
 
-        if (error) {
-            console.error('Db error:', error);
-            return NextResponse.json({ error: 'Database error' }, { status: 500 });
-        }
-
-        if (!subscriptions || subscriptions.length === 0) {
+        if (subSnap.empty) {
             return NextResponse.json({ message: 'No subscriptions found' });
         }
 
@@ -33,7 +26,8 @@ export async function POST(request: Request) {
             url
         });
 
-        const promises = subscriptions.map(async (sub) => {
+        const promises = subSnap.docs.map(async (doc) => {
+            const sub = doc.data();
             try {
                 await webPush.sendNotification({
                     endpoint: sub.endpoint,
@@ -51,8 +45,7 @@ export async function POST(request: Request) {
                 return { success: true };
             } catch (error: any) {
                 if (error.statusCode === 410 || error.statusCode === 404) {
-                    // Subscription has expired
-                    await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+                    await doc.ref.delete();
                     return { success: false, reason: 'expired' };
                 }
                 console.error('Error sending to ' + sub.endpoint, error);
@@ -63,7 +56,7 @@ export async function POST(request: Request) {
         const results = await Promise.all(promises);
         const sentCount = results.filter(r => r.success).length;
 
-        return NextResponse.json({ success: true, sent: sentCount, total: subscriptions.length });
+        return NextResponse.json({ success: true, sent: sentCount, total: subSnap.size });
     } catch (error) {
         console.error('Error sending push:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

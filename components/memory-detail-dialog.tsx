@@ -10,6 +10,7 @@ import { Heart, Calendar, Trash2, ShieldCheck } from "lucide-react"
 import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
+import { deleteMemory } from "@/lib/actions/memories";
 // Removed legacy Supabase
 import { App } from '@capacitor/app'
 import { FullScreenImageModal } from "./full-screen-image-modal"
@@ -75,6 +76,7 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
     const [isExpanded, setIsExpanded] = useState(false)
     const [mediaAccessLocked, setMediaAccessLocked] = useState(false)
     const [isDownloading, setIsDownloading] = useState(false)
+    const [isDeleting, setIsDeleting] = useState(false)
     const isMediaEncrypted = useMemo(() => {
         if (!memory) return false;
         if (memory.is_encrypted) return true;
@@ -142,20 +144,25 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
 
     // Load comments and handle real-time updates via Firestore
     useEffect(() => {
-        if (!memory || !isOpen) return
+        if (!coupleId || !memory?.id || !isOpen) return
 
         const q = query(
-            collection(db, "memory_comments"),
+            collection(db, "couples", coupleId, "memory_comments"),
             where("memory_id", "==", memory.id),
-            orderBy("created_at", "asc")
+            orderBy("created_at", "desc")
         );
 
         const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const commentsData = snapshot.docs.map(doc => doc.data() as CommentData);
+            const commentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CommentData));
+
+            // Client-side sort by created_at - Removed as orderBy is now in query
+            const sorted = commentsData.sort((a: any, b: any) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )// );
 
             // Map profiles (this is slightly inefficient to do every time but works for now)
             // In a more complex app, we'd use a global user cache or join in a function
-            const userIds = [...new Set(commentsData.map(c => c.user_id))];
+            const userIds = [...new Set(commentsData.map(c => c.user_id))]; // Used commentsData directly
             const profiles: Record<string, any> = {};
 
             for (const uid of userIds) {
@@ -165,7 +172,7 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
                 }
             }
 
-            const formatted = commentsData.map(c => ({
+            const formatted = commentsData.map(c => ({ // Used commentsData directly
                 ...c,
                 profiles: profiles[c.user_id] || { display_name: 'User', avatar_url: null }
             }));
@@ -339,6 +346,30 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
         }
     };
 
+    const handleDelete = async () => {
+        if (!memory?.id) return
+        try {
+            setIsDeleting(true)
+            const res = await deleteMemory(memory.id)
+            if (res.error) throw new Error(res.error)
+
+            toast({
+                title: "Memory deleted",
+                description: "The memory has been removed from your gallery."
+            })
+            window.dispatchEvent(new CustomEvent('orbit:dashboard-refresh'))
+            onClose()
+        } catch (error: any) {
+            toast({
+                title: "Error deleting memory",
+                description: error.message || "Something went wrong",
+                variant: "destructive"
+            })
+        } finally {
+            setIsDeleting(false)
+        }
+    }
+
     if (!memory) return null
 
     return (
@@ -462,7 +493,7 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
                                         <span className="text-[9px] lg:text-[10px] text-rose-300/80 uppercase tracking-[0.1em] font-black">
                                             {(() => {
                                                 try {
-                                                    return format(normalizeDate(memory.memory_date + "T12:00:00"), "MMM d, yyyy");
+                                                    return format(normalizeDate(memory.memory_date), "MMM d, yyyy");
                                                 } catch {
                                                     return "Unknown Date";
                                                 }
@@ -529,7 +560,7 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
                                         <BlurredText rows={3} className="opacity-60" />
                                     ) : (
                                         <p className={cn(
-                                            "text-xs lg:text-sm text-white/80 leading-relaxed font-medium italic transition-colors group-hover/desc:text-white/100",
+                                            "text-xs lg:text-sm text-white/80 leading-relaxed font-medium",
                                             !isExpanded && "line-clamp-3"
                                         )}>
                                             {memory.is_encrypted ? (
@@ -586,8 +617,9 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
                                     className="text-[10px] uppercase font-black tracking-[0.2em] text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 rounded-full h-10 px-6 transition-all"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onDelete?.(memory.id);
+                                        handleDelete(); // Changed to call local handleDelete
                                     }}
+                                    disabled={isDeleting} // Added disabled state
                                 >
                                     <Trash2 className="w-3.5 h-3.5 mr-2" />
                                     Delete Memory

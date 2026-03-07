@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Camera, Upload, X, Loader2, RotateCw } from "lucide-react";
 import { optimizeImage } from "@/lib/image-optimization";
-import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -52,7 +51,6 @@ export function UploadPolaroidDialog({ open, onOpenChange, onSuccess }: UploadPo
     const [cameraError, setCameraError] = useState<string | null>(null);
     const { toast } = useToast();
     const router = useRouter();
-    const supabase = createClient();
     const { isKeyboardVisible: isTyping } = useViewport();
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {

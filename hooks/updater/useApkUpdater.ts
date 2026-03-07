@@ -42,10 +42,11 @@ function isNewerBuild(latestBuild?: number, currentBuild?: string): boolean | nu
   return latestBuild > current;
 }
 
+import { getPublicStorageUrl } from "@/lib/storage";
+
 function buildPublicApkUrl(bucket?: string, path?: string): string {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-  if (!supabaseUrl || !bucket || !path) return "";
-  return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
+  if (!bucket || !path) return "";
+  return getPublicStorageUrl(path, bucket as any) || "";
 }
 
 export function useApkUpdater() {

@@ -1,24 +1,22 @@
-import { createClient } from '@/lib/supabase/client'
-
-let activeChannel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null
+import { rtdb } from '@/lib/firebase/client'
+import { ref, onValue, off } from 'firebase/database'
 
 export const RealtimeManager = {
   subscribe(coupleId: string) {
     if (!coupleId) return
-    if (activeChannel) return
-    const supabase = createClient()
-    const channel = supabase.channel(`orbit_sync_provider_${coupleId}`)
-    channel.subscribe()
-    activeChannel = channel
+    const presenceRef = ref(rtdb, `presence/${coupleId}`)
+    // This is a minimal subscriber to keep the connection alive if needed
+    // or to trigger specific sync logic.
+    onValue(presenceRef, () => {
+      // Heartbeat or sync trigger
+    })
   },
-  unsubscribe() {
-    if (!activeChannel) return
+  unsubscribe(coupleId: string) {
+    if (!coupleId) return
     try {
-      activeChannel.unsubscribe()
+      off(ref(rtdb, `presence/${coupleId}`))
     } catch {
       //
     }
-    activeChannel = null
   },
 }
-
