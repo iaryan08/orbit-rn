@@ -1,0 +1,58 @@
+{
+    "Sex Tips": [
+        {
+            "title": "Communication is Key",
+            "summary": "Talking openly about your desires and boundaries is the foundation of a healthy sex life. Start with small, positive affirmations.",
+            "imageUrl": "https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=800&auto=format&fit=crop",
+            "source": "Curated"
+        }
+    ],
+    "Safe Sex": [
+        {
+            "title": "The Importance of Regular Testing",
+            "summary": "Regular STI screenings are a normal part of healthcare. It's an act of care for yourself and your partner.",
+            "imageUrl": "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800&auto=format&fit=crop",
+            "source": "Curated"
+        }
+    ],
+    "Reproductive Health": [
+        {
+            "title": "Understanding Your Cycle",
+            "summary": "Tracking your cycle can help you understand your energy levels, moods, and overall health beyond just fertility.",
+            "imageUrl": "https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800&auto=format&fit=crop",
+            "source": "Curated"
+        }
+    ],
+    "Orgasm & Pleasure": [
+        {
+            "title": "Exploring Sensate Focus",
+            "summary": "Sensate focus exercises help you focus on physical sensations without the pressure of performance or reaching a specific goal.",
+            "imageUrl": "https://images.unsplash.com/photo-1518568814500-bf0f8d125f46?w=800&auto=format&fit=crop",
+            "source": "Curated"
+        }
+    ],
+    "Latest News": [
+        {
+            "title": "New Trends in Wellness",
+            "summary": "Recent studies show that shared mindfulness practices can significantly improve relationship satisfaction over time.",
+            "imageUrl": "https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=800&auto=format&fit=crop",
+            "source": "Curated"
+        }
+    ],
+    "Common Worries": [
+        {
+            "title": "Navigating Low Libido",
+            "summary": "Libido fluctuations are normal and can be affected by stress, fatigue, or hormonal changes. Patience and empathy are essential.",
+            "imageUrl": "https://images.unsplash.com/photo-1522673607200-164d1b6ce486?w=800&auto=format&fit=crop",
+            "source": "Curated"
+        }
+    ],
+    "Let's Talk": [
+        {
+            "title": "Active Listening in Relationships",
+            "summary": "Try the 'speaker-listener' technique: one person speaks while the other summarizes what they heard before responding.",
+            "imageUrl": "https://images.unsplash.com/photo-1529333166437-7750a6dd5a70?w=800&auto=format&fit=crop",
+            "source": "Curated"
+        }
+    ]
+}

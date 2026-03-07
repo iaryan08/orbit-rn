@@ -1,0 +1,64 @@
+﻿node.exe : ΓÜá Warning: Next.js inferred 
+your workspace root, but it may not be 
+correct.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" 
+"C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecifi 
+   ed: (ΓÜá Warning: Ne...not be correc  
+  t.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeComm 
+   andError
+ 
+ We detected multiple lockfiles and 
+selected the directory of 
+C:\Users\Aryan\Desktop\package-lock.json 
+as the root directory.
+ To silence this warning, set 
+`turbopack.root` in your Next.js config, 
+or consider removing one of the 
+lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-re
+ference/config/next-config-js/turbopack#r
+oot-directory for more information.
+ Detected additional lockfiles: 
+   * C:\Users\Aryan\Desktop\orbit-v2\pack
+age-lock.json
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 6.6s
+  Running TypeScript ...
+Failed to compile.
+
+./components/dashboard-header.tsx:101:5
+Type error: Type 'number' is not 
+assignable to type 'Timeout'.
+
+[0m [90m  99 |[39m   [36mconst[39m 
+handlePointerDown [33m=[39m 
+(href[33m:[39m string) [33m=>[39m {
+ [90m 100 |[39m     isLongPressActive[
+33m.[39mcurrent[href] [33m=[39m 
+[36mfalse[39m[33m;[39m
+[31m[1m>[22m[39m[90m 101 |[39m     
+longPressTimers[33m.[39mcurrent[href] 
+[33m=[39m window[33m.[39msetTimeout(
+[36masync[39m () [33m=>[39m {
+ [90m     |[39m     
+[31m[1m^[22m[39m
+ [90m 102 |[39m       isLongPressActive
+[33m.[39mcurrent[href] [33m=[39m 
+[36mtrue[39m[33m;[39m
+ [90m 103 |[39m       [36mawait[39m t
+riggerHaptic([33mImpactStyle[39m[33m.
+[39m[33mHeavy[39m)[33m;[39m
+ [90m 104 |[39m       [36mif[39m 
+(href [33m===[39m 
+[32m'/memories'[39m) {[0m
+Next.js build worker exited with code: 1 
+and signal: null

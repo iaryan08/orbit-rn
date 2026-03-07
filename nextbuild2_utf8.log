@@ -1,0 +1,57 @@
+﻿node.exe : ΓÜá Warning: Next.js inferred 
+your workspace root, but it may not be 
+correct.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" 
+"C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecifi 
+   ed: (ΓÜá Warning: Ne...not be correc  
+  t.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeComm 
+   andError
+ 
+ We detected multiple lockfiles and 
+selected the directory of 
+C:\Users\Aryan\Desktop\package-lock.json 
+as the root directory.
+ To silence this warning, set 
+`turbopack.root` in your Next.js config, 
+or consider removing one of the 
+lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-re
+ference/config/next-config-js/turbopack#r
+oot-directory for more information.
+ Detected additional lockfiles: 
+   * C:\Users\Aryan\Desktop\orbit-v2\pack
+age-lock.json
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 7.2s
+  Running TypeScript ...
+Failed to compile.
+
+./components/e2ee/passphrase-escrow-panel
+.tsx:24:5
+Type error: Module 
+'"@/lib/client/crypto-e2ee"' has no 
+exported member 'decryptEscrowBlob'.
+
+[0m [90m 22 |[39m [36mimport[39m {
+ [90m 23 |[39m     
+createEscrowBlob[33m,[39m
+[31m[1m>[22m[39m[90m 24 |[39m     
+decryptEscrowBlob[33m,[39m
+ [90m    |[39m     [31m[1m^[22m[39m
+ [90m 25 |[39m     
+hasStoredMediaPassphrase[33m,[39m
+ [90m 26 |[39m     
+getKeyFingerprint[33m,[39m
+ [90m 27 |[39m     type 
+[33mEscrowBlob[39m[33m,[39m[0m
+Next.js build worker exited with code: 1 
+and signal: null

@@ -4,58 +4,100 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // Helper: check if user belongs to a specific couple
-    function isCoupleMemeber(coupleId) {
-      return request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.couple_id == coupleId;
+    function isCoupleMember(coupleId) {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/couples/$(coupleId)) && 
+        (get(/databases/$(database)/documents/couples/$(coupleId)).data.user1_id == request.auth.uid ||
+         get(/databases/$(database)/documents/couples/$(coupleId)).data.user2_id == request.auth.uid);
     }
 
     // ── Users collection ─────────────────────────────────────────
-    // Users can only read/write their own profile
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+
+      match /notifications/{notifId} {
+        allow get, list, update, delete: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null;
+      }
     }
 
     // ── Couples collection ────────────────────────────────────────
-    // Only members of the couple can access couple data and all sub-collections
     match /couples/{coupleId} {
-      allow read, write: if isCoupleMemeber(coupleId);
+      allow read, write: if request.auth != null;
 
       match /profiles/{userId} {
-        allow read, write: if isCoupleMemeber(coupleId);
+        allow read, write: if isCoupleMember(coupleId);
       }
 
       match /memories/{memoryId} {
-        allow read, write: if isCoupleMemeber(coupleId);
+        allow get, list, write: if isCoupleMember(coupleId);
       }
 
       match /letters/{letterId} {
-        allow read, write: if isCoupleMemeber(coupleId);
+        allow read, write: if isCoupleMember(coupleId);
       }
 
       match /moods/{moodId} {
-        allow read, write: if isCoupleMemeber(coupleId);
+        allow read, write: if request.auth != null;
       }
-
-      match /lunara/{cycleId} {
-        allow read, write: if isCoupleMemeber(coupleId);
-      }
-
-      match /dates/{dateId} {
-        allow read, write: if isCoupleMemeber(coupleId);
-      }
-
+      
       match /doodles/{doodleId} {
-        allow read, write: if isCoupleMemeber(coupleId);
+        allow read, write: if request.auth != null;
       }
+
+      match /polaroids/{polaroidId} {
+        allow get, list, write: if isCoupleMember(coupleId);
+      }
+
+      // Intimacy & Support
+      match /milestones/{milestoneId} {
+        allow read, write: if isCoupleMember(coupleId);
+      }
+      match /support_logs/{logId} {
+        allow read, write: if isCoupleMember(coupleId);
+      }
+
+      // Lunara & Cycle Tracking
+      match /cycle_profiles/{userId} {
+        allow read, write: if isCoupleMember(coupleId);
+      }
+      match /cycle_logs/{logId} {
+        allow read, write: if isCoupleMember(coupleId);
+      }
+
+      // Insights
+      match /couple_insights/{insightId} {
+        allow read, write: if isCoupleMember(coupleId);
+      }
+    }
+
+    // ── Global Insights ───────────────────────────────────────────
+    match /global_insights_cache/{insightId} {
+      allow read: if request.auth != null;
     }
 
     // ── Pairing codes ─────────────────────────────────────────────
     // Anyone authenticated can look up a pairing code to join a couple
     match /pair_codes/{code} {
       allow read: if request.auth != null;
-      // Only the couple member can create/delete their own code
-      allow write: if request.auth != null &&
-        request.auth.uid == resource.data.created_by;
+      // Creation: must be authenticated and set user_id correctly
+      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
+      // Updates/Deletes: owner can do anything, but any authenticated user can delete 
+      // when joining (the joinCouple transaction requires deleting the code)
+      allow update, delete: if request.auth != null;
+    }
+    // ── COMMENTS (Top Level) ──────────────────────────────────────────────────
+    match /memory_comments/{commentId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.user_id == request.auth.uid;
+    }
+
+    match /polaroid_comments/{commentId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.user_id == request.auth.uid;
     }
   }
 }

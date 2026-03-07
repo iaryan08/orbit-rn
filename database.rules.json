@@ -1,0 +1,18 @@
+{
+    "rules": {
+        "presence": {
+            "$couple_id": {
+                "$user_id": {
+                    ".read": "auth != null",
+                    ".write": "auth != null && auth.uid == $user_id"
+                }
+            }
+        },
+        "broadcasts": {
+            "$couple_id": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        }
+    }
+}

@@ -1,0 +1,843 @@
+﻿capacitor.config.ts(1,38): error TS2307: Cannot find module '@capacitor/cli' or its corresponding type declarations.
+components/ambient-top-loader.tsx(4,27): error TS2307: Cannot find module 'nextjs-toploader' or its corresponding type declarations.
+components/app-lock-provider.tsx(258,29): error TS2339: Property 'signOut' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/calendar.tsx(9,60): error TS2307: Cannot find module 'react-day-picker' or its corresponding type declarations.
+components/calendar.tsx(39,31): error TS7006: Parameter 'date' implicitly has an 'any' type.
+components/calendar.tsx(128,18): error TS7031: Binding element 'className' implicitly has an 'any' type.
+components/calendar.tsx(128,29): error TS7031: Binding element 'rootRef' implicitly has an 'any' type.
+components/calendar.tsx(138,21): error TS7031: Binding element 'className' implicitly has an 'any' type.
+components/calendar.tsx(138,32): error TS7031: Binding element 'orientation' implicitly has an 'any' type.
+components/calendar.tsx(159,24): error TS7031: Binding element 'children' implicitly has an 'any' type.
+components/couple-pairing.tsx(55,16): error TS2339: Property 'error' does not exist on type '{ success: boolean; coupleId: string; } | { error: any; }'.
+  Property 'error' does not exist on type '{ success: boolean; coupleId: string; }'.
+components/dashboard-header.tsx(101,5): error TS2322: Type 'number' is not assignable to type 'Timeout'.
+components/dialogs/add-memory-dialog.tsx(310,54): error TS2339: Property 'storage' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/dialogs/add-memory-dialog.tsx(336,54): error TS2339: Property 'storage' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/dialogs/add-memory-dialog.tsx(370,64): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/dialogs/add-memory-dialog.tsx(372,63): error TS2554: Expected 0 arguments, but got 1.
+components/dialogs/add-memory-dialog.tsx(372,82): error TS2554: Expected 0 arguments, but got 1.
+components/dialogs/add-memory-dialog.tsx(372,98): error TS2554: Expected 0 arguments, but got 2.
+components/dialogs/add-memory-dialog.tsx(373,31): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/dialogs/add-memory-dialog.tsx(377,41): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/dialogs/upload-polaroid-dialog.tsx(184,35): error TS2339: Property 'user' does not exist on type 'never'.
+components/dialogs/upload-polaroid-dialog.tsx(188,23): error TS2554: Expected 0 arguments, but got 1.
+components/dialogs/upload-polaroid-dialog.tsx(189,25): error TS2554: Expected 0 arguments, but got 1.
+components/dialogs/upload-polaroid-dialog.tsx(190,21): error TS2554: Expected 0 arguments, but got 2.
+components/dialogs/upload-polaroid-dialog.tsx(193,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/dialogs/upload-polaroid-dialog.tsx(197,51): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/dialogs/upload-polaroid-dialog.tsx(209,67): error TS2339: Property 'storage' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/dialogs/upload-polaroid-dialog.tsx(216,63): error TS2339: Property 'storage' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/distance-time-widget.tsx(15,46): error TS2307: Cannot find module '@capacitor/geolocation' or its corresponding type declarations.
+components/distance-time-widget.tsx(122,54): error TS2307: Cannot find module '@capacitor/geolocation' or its corresponding type declarations.
+components/e2ee/passphrase-escrow-panel.tsx(24,5): error TS2305: Module '"@/lib/client/crypto-e2ee"' has no exported member 'decryptEscrowBlob'.
+components/e2ee/passphrase-escrow-panel.tsx(27,10): error TS2305: Module '"@/lib/client/crypto-e2ee"' has no exported member 'EscrowBlob'.
+components/games/love-quiz.tsx(65,54): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/games/love-quiz.tsx(70,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/love-quiz.tsx(71,17): error TS2554: Expected 0 arguments, but got 1.
+components/games/love-quiz.tsx(72,13): error TS2554: Expected 0 arguments, but got 2.
+components/games/love-quiz.tsx(75,20): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/games/love-quiz.tsx(76,29): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/games/love-quiz.tsx(90,13): error TS2554: Expected 0 arguments, but got 1.
+components/games/love-quiz.tsx(91,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/love-quiz.tsx(92,11): error TS2554: Expected 0 arguments, but got 2.
+components/games/love-quiz.tsx(93,8): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/games/love-quiz.tsx(106,16): error TS2554: Expected 0 arguments, but got 1.
+components/games/love-quiz.tsx(108,9): error TS2554: Expected 0 arguments, but got 3.
+components/games/love-quiz.tsx(126,16): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/games/love-quiz.tsx(151,13): error TS2554: Expected 0 arguments, but got 1.
+components/games/love-quiz.tsx(152,8): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+components/games/love-quiz.tsx(188,13): error TS2554: Expected 0 arguments, but got 1.
+components/games/love-quiz.tsx(189,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/love-quiz.tsx(190,11): error TS2554: Expected 0 arguments, but got 2.
+components/games/love-quiz.tsx(191,8): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/games/truth-or-dare.tsx(117,54): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/games/truth-or-dare.tsx(122,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(123,17): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(124,13): error TS2554: Expected 0 arguments, but got 2.
+components/games/truth-or-dare.tsx(127,20): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/games/truth-or-dare.tsx(128,29): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/games/truth-or-dare.tsx(132,17): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(133,19): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(134,15): error TS2554: Expected 0 arguments, but got 2.
+components/games/truth-or-dare.tsx(134,29): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/games/truth-or-dare.tsx(138,29): error TS2339: Property 'user1_id' does not exist on type 'never'.
+components/games/truth-or-dare.tsx(139,29): error TS2339: Property 'user2_id' does not exist on type 'never'.
+components/games/truth-or-dare.tsx(204,13): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(205,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(206,11): error TS2554: Expected 0 arguments, but got 2.
+components/games/truth-or-dare.tsx(207,8): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/games/truth-or-dare.tsx(232,25): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(232,42): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+components/games/truth-or-dare.tsx(258,13): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(259,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(260,11): error TS2554: Expected 0 arguments, but got 2.
+components/games/truth-or-dare.tsx(261,8): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/games/truth-or-dare.tsx(283,13): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(284,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(285,11): error TS2554: Expected 0 arguments, but got 2.
+components/games/truth-or-dare.tsx(286,8): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/games/truth-or-dare.tsx(310,13): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(311,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/truth-or-dare.tsx(312,11): error TS2554: Expected 0 arguments, but got 2.
+components/games/truth-or-dare.tsx(313,8): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/games/would-you-rather.tsx(61,54): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/games/would-you-rather.tsx(66,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/would-you-rather.tsx(67,17): error TS2554: Expected 0 arguments, but got 1.
+components/games/would-you-rather.tsx(68,13): error TS2554: Expected 0 arguments, but got 2.
+components/games/would-you-rather.tsx(71,20): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/games/would-you-rather.tsx(72,29): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/games/would-you-rather.tsx(76,17): error TS2554: Expected 0 arguments, but got 1.
+components/games/would-you-rather.tsx(77,19): error TS2554: Expected 0 arguments, but got 1.
+components/games/would-you-rather.tsx(78,15): error TS2554: Expected 0 arguments, but got 2.
+components/games/would-you-rather.tsx(78,29): error TS2339: Property 'couple_id' does not exist on type 'never'.
+components/games/would-you-rather.tsx(82,29): error TS2339: Property 'user1_id' does not exist on type 'never'.
+components/games/would-you-rather.tsx(83,29): error TS2339: Property 'user2_id' does not exist on type 'never'.
+components/games/would-you-rather.tsx(124,13): error TS2554: Expected 0 arguments, but got 1.
+components/games/would-you-rather.tsx(125,15): error TS2554: Expected 0 arguments, but got 1.
+components/games/would-you-rather.tsx(126,11): error TS2554: Expected 0 arguments, but got 2.
+components/games/would-you-rather.tsx(127,8): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/games/would-you-rather.tsx(152,25): error TS2554: Expected 0 arguments, but got 1.
+components/games/would-you-rather.tsx(152,42): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+components/games/would-you-rather.tsx(183,56): error TS2339: Property 'rpc' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/lunara-dashboard.tsx(63,22): error TS2554: Expected 0 arguments, but got 1.
+components/lunara-dashboard.tsx(65,17): error TS2554: Expected 0 arguments, but got 3.
+components/lunara-dashboard.tsx(69,14): error TS2339: Property 'on' does not exist on type '{ subscribe: () => { unsubscribe: () => void; }; }'.
+components/lunara-dashboard.tsx(82,22): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/lunara-dashboard.tsx(140,64): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/lunara-dashboard.tsx(142,58): error TS2554: Expected 0 arguments, but got 1.
+components/lunara-dashboard.tsx(142,83): error TS2554: Expected 0 arguments, but got 1.
+components/lunara-dashboard.tsx(142,91): error TS2554: Expected 0 arguments, but got 2.
+components/lunara-dashboard.tsx(535,31): error TS2554: Expected 0 arguments, but got 1.
+components/lunara-dashboard.tsx(536,33): error TS2554: Expected 0 arguments, but got 1.
+components/lunara-dashboard.tsx(537,29): error TS2554: Expected 0 arguments, but got 2.
+components/lunara-dashboard.tsx(538,32): error TS2554: Expected 0 arguments, but got 2.
+components/lunara-dashboard.tsx(539,32): error TS2554: Expected 0 arguments, but got 1.
+components/memory-detail-dialog.tsx(136,41): error TS2339: Property 'id' does not exist on type 'User'.
+components/memory-detail-dialog.tsx(166,22): error TS2554: Expected 0 arguments, but got 1.
+components/memory-detail-dialog.tsx(167,17): error TS2554: Expected 0 arguments, but got 3.
+components/native-notification-listener.tsx(5,36): error TS2307: Cannot find module '@capacitor/local-notifications' or its corresponding type declarations.
+components/native-notification-listener.tsx(27,22): error TS2554: Expected 0 arguments, but got 1.
+components/native-notification-listener.tsx(27,37): error TS2339: Property 'id' does not exist on type 'User'.
+components/native-notification-listener.tsx(29,17): error TS2554: Expected 0 arguments, but got 3.
+components/native-notification-listener.tsx(34,53): error TS2339: Property 'id' does not exist on type 'User'.
+components/native-notification-listener.tsx(62,22): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/native-push-register.tsx(4,35): error TS2307: Cannot find module '@capacitor/push-notifications' or its corresponding type declarations.
+components/native-push-register.tsx(33,72): error TS7006: Parameter 'token' implicitly has an 'any' type.
+components/native-push-register.tsx(39,27): error TS2554: Expected 0 arguments, but got 1.
+components/native-push-register.tsx(40,22): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+components/native-push-register.tsx(41,36): error TS2339: Property 'id' does not exist on type 'User'.
+components/native-push-register.tsx(54,78): error TS7006: Parameter 'notification' implicitly has an 'any' type.
+components/native-push-register.tsx(59,85): error TS7006: Parameter 'notification' implicitly has an 'any' type.
+components/notification-bell.tsx(8,29): error TS2307: Cannot find module '@capacitor/geolocation' or its corresponding type declarations.
+components/notification-bell.tsx(9,36): error TS2307: Cannot find module '@capacitor/local-notifications' or its corresponding type declarations.
+components/notification-bell.tsx(102,27): error TS2554: Expected 0 arguments, but got 1.
+components/notification-bell.tsx(103,29): error TS2554: Expected 0 arguments, but got 1.
+components/notification-bell.tsx(104,25): error TS2554: Expected 0 arguments, but got 2.
+components/notification-bell.tsx(105,22): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/notification-bell.tsx(113,60): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/polaroid-detail-modal.tsx(81,60): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/polaroid-detail-modal.tsx(102,38): error TS2554: Expected 0 arguments, but got 1.
+components/polaroid-detail-modal.tsx(103,17): error TS2554: Expected 0 arguments, but got 3.
+components/polaroid-detail-modal.tsx(183,25): error TS2322: Type '{ src: string; alt: string; className: string; isEncrypted: boolean; onClick: () => void; }' is not assignable to type 'IntrinsicAttributes & DecryptedImageProps'.
+  Property 'onClick' does not exist on type 'IntrinsicAttributes & DecryptedImageProps'.
+components/PushNotificationManager.tsx(10,36): error TS2307: Cannot find module '@capacitor/local-notifications' or its corresponding type declarations.
+components/PushNotificationManager.tsx(11,29): error TS2307: Cannot find module '@capacitor/geolocation' or its corresponding type declarations.
+components/PushNotificationManager.tsx(33,54): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/resizable.tsx(12,51): error TS2339: Property 'PanelGroup' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/resizable.tsx(14,25): error TS2339: Property 'PanelGroup' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/resizable.tsx(35,51): error TS2339: Property 'PanelResizeHandle' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/resizable.tsx(39,25): error TS2339: Property 'PanelResizeHandle' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/resizable.tsx(52,26): error TS2339: Property 'PanelResizeHandle' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/romantic-background.tsx(194,42): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/romantic-background.tsx(195,42): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/sync-cinema.tsx(10,38): error TS2307: Cannot find module '@supabase/supabase-js' or its corresponding type declarations.
+components/sync-cinema.tsx(178,23): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+components/sync-engine.tsx(376,64): error TS2554: Expected 0 arguments, but got 1.
+components/sync-engine.tsx(376,87): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(377,49): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(377,78): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(377,120): error TS2554: Expected 0 arguments, but got 1.
+components/sync-engine.tsx(391,64): error TS2554: Expected 0 arguments, but got 1.
+components/sync-engine.tsx(391,83): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(392,49): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(392,78): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(392,121): error TS2554: Expected 0 arguments, but got 1.
+components/sync-engine.tsx(401,82): error TS2554: Expected 0 arguments, but got 1.
+components/sync-engine.tsx(402,41): error TS2554: Expected 0 arguments, but got 1.
+components/sync-engine.tsx(403,37): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(403,60): error TS2339: Property 'limit' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/sync-engine.tsx(464,61): error TS2554: Expected 0 arguments, but got 1.
+components/sync-engine.tsx(465,41): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(466,37): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(467,34): error TS2339: Property 'lt' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/sync-engine.tsx(483,61): error TS2554: Expected 0 arguments, but got 1.
+components/sync-engine.tsx(484,41): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(485,37): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(486,34): error TS2339: Property 'lt' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+components/sync-engine.tsx(610,42): error TS2554: Expected 0 arguments, but got 2.
+components/sync-engine.tsx(619,25): error TS2339: Property 'state' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+components/sync-engine.tsx(620,25): error TS2339: Property 'send' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+components/sync-engine.tsx(625,17): error TS2554: Expected 0 arguments, but got 3.
+components/sync-engine.tsx(626,39): error TS2339: Property 'presenceState' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+components/sync-engine.tsx(629,14): error TS2339: Property 'on' does not exist on type '{ subscribe: () => { unsubscribe: () => void; }; }'.
+components/sync-engine.tsx(730,22): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+components/sync-provider.tsx(4,25): error TS2307: Cannot find module '@capacitor/network' or its corresponding type declarations.
+components/sync-provider.tsx(34,91): error TS7006: Parameter 'status' implicitly has an 'any' type.
+components/ui/calendar.tsx(9,60): error TS2307: Cannot find module 'react-day-picker' or its corresponding type declarations.
+components/ui/calendar.tsx(39,31): error TS7006: Parameter 'date' implicitly has an 'any' type.
+components/ui/calendar.tsx(128,18): error TS7031: Binding element 'className' implicitly has an 'any' type.
+components/ui/calendar.tsx(128,29): error TS7031: Binding element 'rootRef' implicitly has an 'any' type.
+components/ui/calendar.tsx(138,21): error TS7031: Binding element 'className' implicitly has an 'any' type.
+components/ui/calendar.tsx(138,32): error TS7031: Binding element 'orientation' implicitly has an 'any' type.
+components/ui/calendar.tsx(159,24): error TS7031: Binding element 'children' implicitly has an 'any' type.
+components/ui/resizable.tsx(12,51): error TS2339: Property 'PanelGroup' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/ui/resizable.tsx(14,25): error TS2339: Property 'PanelGroup' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/ui/resizable.tsx(35,51): error TS2339: Property 'PanelResizeHandle' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/ui/resizable.tsx(39,25): error TS2339: Property 'PanelResizeHandle' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+components/ui/resizable.tsx(52,26): error TS2339: Property 'PanelResizeHandle' does not exist on type 'typeof import("C:/Users/Aryan/Desktop/orbit-v2/node_modules/react-resizable-panels/dist/react-resizable-panels")'.
+hooks/use-couple-channel.ts(56,33): error TS2554: Expected 0 arguments, but got 2.
+hooks/use-couple-channel.ts(69,13): error TS2554: Expected 0 arguments, but got 3.
+hooks/use-couple-channel.ts(70,10): error TS2339: Property 'on' does not exist on type '{ subscribe: () => { unsubscribe: () => void; }; }'.
+hooks/use-couple-channel.ts(77,26): error TS2339: Property 'track' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+hooks/use-couple-channel.ts(106,26): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+hooks/use-couple-channel.ts(177,26): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+lib/actions/announcements.ts(3,35): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/auth.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/bucket.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/consolidated.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/doodles.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/insights.ts(3,49): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/insights.ts(5,36): error TS2307: Cannot find module '@google/generative-ai' or its corresponding type declarations.
+lib/actions/intimacy.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/letters.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/memories.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/mood.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/notifications.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/polaroids.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/actions/reactions-comments.ts(3,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/client/announcements.ts(12,13): error TS2339: Property 'data' does not exist on type '{ eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }'.
+lib/client/announcements.ts(12,29): error TS2339: Property 'error' does not exist on type '{ eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }'.
+lib/client/announcements.ts(13,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/announcements.ts(14,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/announcements.ts(35,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/announcements.ts(36,22): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/auth-actions.ts(21,45): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/auth-actions.ts(22,44): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/auth-actions.ts(27,29): error TS2339: Property 'signOut' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/auth-actions.ts(30,43): error TS2339: Property 'signInWithPassword' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/auth-actions.ts(46,37): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/auth-actions.ts(84,43): error TS2339: Property 'signUp' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/auth-actions.ts(107,25): error TS2339: Property 'signOut' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/bucket.ts(11,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/bucket.ts(16,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(17,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(18,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(21,19): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(23,40): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(28,80): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(33,33): error TS2339: Property 'data' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/bucket.ts(34,35): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(35,37): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(36,33): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(36,54): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(37,36): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(56,17): error TS2339: Property 'data' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/bucket.ts(56,30): error TS2339: Property 'error' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/bucket.ts(57,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(58,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(59,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(59,38): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(60,20): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(87,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/bucket.ts(92,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(93,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(94,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(97,23): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(100,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(101,14): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/bucket.ts(102,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(114,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(115,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(116,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(116,31): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(120,38): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/bucket.ts(120,68): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/bucket.ts(120,86): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/bucket.ts(127,41): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/bucket.ts(134,54): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(137,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(165,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/bucket.ts(170,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(171,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(172,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(176,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(177,14): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/bucket.ts(186,37): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(188,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(189,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(190,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(190,35): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(194,42): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/bucket.ts(194,72): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/bucket.ts(194,90): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/bucket.ts(195,60): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(195,82): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(195,94): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(203,45): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/bucket.ts(203,92): error TS2339: Property 'title' does not exist on type 'never'.
+lib/client/bucket.ts(211,54): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(212,60): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(236,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/bucket.ts(241,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(242,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(243,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/bucket.ts(247,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/bucket.ts(248,14): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/bucket.ts(252,54): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/bucket.ts(253,60): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/consolidated.ts(210,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(211,29): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(212,25): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(220,37): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/consolidated.ts(227,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(228,29): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(229,25): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(233,45): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/consolidated.ts(233,80): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/consolidated.ts(233,102): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/consolidated.ts(252,54): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(252,73): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(252,81): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(252,98): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(253,53): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(253,71): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(253,79): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(253,95): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(254,31): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(254,56): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(254,64): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(254,84): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(255,54): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(255,79): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(255,87): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(255,109): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(256,54): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(256,70): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(256,137): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(256,159): error TS2339: Property 'gte' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(257,31): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(257,47): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(257,114): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(257,134): error TS2339: Property 'gte' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(258,53): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(258,73): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(258,81): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(258,104): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(259,79): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(259,99): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(259,107): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(259,130): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(260,53): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(260,71): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(260,79): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(260,108): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(260,150): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(260,153): error TS2339: Property 'maybeSingle' does not exist on type '{ data: never[]; error: null; }'.
+lib/client/consolidated.ts(261,53): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(261,75): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(261,83): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(261,112): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(263,53): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(263,74): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(263,82): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(263,111): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(263,151): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(264,53): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(264,76): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(264,84): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(264,113): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(264,155): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(270,35): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(270,54): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(270,94): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(271,35): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(271,58): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(271,98): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(275,51): error TS2339: Property 'count' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(276,50): error TS2339: Property 'count' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(313,26): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/consolidated.ts(314,82): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/consolidated.ts(333,17): error TS2339: Property 'data' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(333,23): error TS2339: Property 'error' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(334,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(335,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(336,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(362,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(363,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(364,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(365,18): error TS2339: Property 'limit' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/consolidated.ts(366,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(367,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/consolidated.ts(368,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/consolidated.ts(369,18): error TS2339: Property 'limit' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/doodles.ts(17,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/doodles.ts(18,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/doodles.ts(19,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/doodles.ts(21,29): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/doodles.ts(30,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/doodles.ts(31,10): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/doodles.ts(70,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/doodles.ts(71,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/doodles.ts(72,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/doodles.ts(74,29): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/doodles.ts(90,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/doodles.ts(91,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/doodles.ts(92,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/doodles.ts(93,16): error TS2554: Expected 0 arguments, but got 2.
+lib/client/doodles.ts(94,16): error TS2554: Expected 0 arguments, but got 1.
+lib/client/doodles.ts(101,55): error TS2698: Spread types may only be created from object types.
+lib/client/get-user.ts(16,37): error TS2307: Cannot find module '@supabase/supabase-js' or its corresponding type declarations.
+lib/client/insights.ts(39,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/insights.ts(40,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/insights.ts(41,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/insights.ts(45,75): error TS2339: Property 'content' does not exist on type 'never'.
+lib/client/insights.ts(101,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/insights.ts(102,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/insights.ts(103,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/insights.ts(104,14): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/insights.ts(113,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/insights.ts(114,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/insights.ts(115,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/insights.ts(118,29): error TS2339: Property 'content' does not exist on type 'never'.
+lib/client/insights.ts(131,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/insights.ts(132,10): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/intimacy.ts(20,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/intimacy.ts(25,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/intimacy.ts(26,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/intimacy.ts(27,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/intimacy.ts(30,23): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/intimacy.ts(30,44): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/intimacy.ts(33,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/intimacy.ts(34,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/intimacy.ts(35,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/intimacy.ts(35,31): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/intimacy.ts(40,32): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/intimacy.ts(47,32): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/intimacy.ts(69,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/intimacy.ts(70,14): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/intimacy.ts(79,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/intimacy.ts(80,22): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/intimacy.ts(88,46): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/intimacy.ts(101,44): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/intimacy.ts(101,62): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/intimacy.ts(127,37): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/letters.ts(15,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/letters.ts(24,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(25,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(26,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/letters.ts(27,14): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/letters.ts(35,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(36,18): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/letters.ts(73,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(74,14): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/letters.ts(112,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/letters.ts(117,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(118,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(119,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/letters.ts(120,14): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/letters.ts(130,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(131,18): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/letters.ts(146,30): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(147,22): error TS2339: Property 'send' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+lib/client/letters.ts(194,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/letters.ts(199,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(200,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(201,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/letters.ts(204,23): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/letters.ts(207,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(208,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(209,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/letters.ts(209,31): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/letters.ts(214,34): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/letters.ts(214,64): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/letters.ts(214,82): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/letters.ts(223,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(224,14): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/letters.ts(226,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/letters.ts(247,33): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/letters.ts(277,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/letters.ts(283,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(284,14): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/letters.ts(299,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(300,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(301,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/letters.ts(304,22): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/letters.ts(306,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(307,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/letters.ts(308,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/letters.ts(308,35): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/letters.ts(312,42): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/letters.ts(312,72): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/letters.ts(312,90): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/letters.ts(319,45): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/local-notifications.ts(1,36): error TS2307: Cannot find module '@capacitor/local-notifications' or its corresponding type declarations.
+lib/client/memories.ts(19,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/memories.ts(24,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(25,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(26,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/memories.ts(29,23): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/memories.ts(32,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(33,14): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/memories.ts(34,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/memories.ts(48,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(49,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(50,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/memories.ts(50,31): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/memories.ts(54,38): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/memories.ts(54,68): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/memories.ts(54,86): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/memories.ts(61,41): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/memories.ts(92,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/memories.ts(97,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(98,14): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/memories.ts(111,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(112,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(113,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/memories.ts(116,22): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/memories.ts(118,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(119,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(120,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/memories.ts(120,35): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/memories.ts(124,42): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/memories.ts(124,72): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/memories.ts(124,90): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/memories.ts(131,45): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/memories.ts(152,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/memories.ts(159,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(160,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(161,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/memories.ts(162,14): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/memories.ts(169,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/memories.ts(170,14): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/memories.ts(184,40): error TS2339: Property 'storage' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+lib/client/mood.ts(11,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/mood.ts(18,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(19,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(20,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/mood.ts(23,19): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(30,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(31,10): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/mood.ts(33,32): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(51,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(71,40): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(89,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(90,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(91,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/mood.ts(91,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(95,34): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/mood.ts(95,64): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/mood.ts(95,82): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/mood.ts(102,39): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(102,68): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(102,81): error TS2339: Property 'send' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+lib/client/mood.ts(115,37): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/mood.ts(126,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/mood.ts(131,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(132,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(133,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/mood.ts(136,19): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(146,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(147,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(148,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/mood.ts(148,34): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(149,10): error TS2339: Property 'gte' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/mood.ts(157,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/mood.ts(162,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(163,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(164,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/mood.ts(167,19): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(173,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(174,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/mood.ts(175,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/mood.ts(175,34): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/mood.ts(176,10): error TS2339: Property 'gte' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/notifications.ts(70,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(71,14): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/notifications.ts(174,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/notifications.ts(181,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(182,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(183,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/notifications.ts(184,20): error TS2554: Expected 0 arguments, but got 2.
+lib/client/notifications.ts(185,20): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(196,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/notifications.ts(203,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(204,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/notifications.ts(205,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/notifications.ts(206,14): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/notifications.ts(222,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/notifications.ts(228,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(229,18): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/notifications.ts(234,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(235,18): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/notifications.ts(257,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/notifications.ts(262,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(263,14): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/notifications.ts(286,27): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/notifications.ts(291,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(292,14): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/notifications.ts(322,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/notifications.ts(326,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(327,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(328,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/notifications.ts(331,19): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/notifications.ts(334,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(335,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(336,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/notifications.ts(336,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/notifications.ts(341,30): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/notifications.ts(341,60): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/notifications.ts(341,78): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/notifications.ts(348,27): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/notifications.ts(371,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/notifications.ts(375,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(376,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(377,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/notifications.ts(380,19): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/notifications.ts(383,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(384,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/notifications.ts(385,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/notifications.ts(385,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/notifications.ts(390,30): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/notifications.ts(390,60): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/notifications.ts(390,78): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/notifications.ts(397,27): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(85,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(86,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(87,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/offline-mutation-queue.ts(90,19): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(93,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(94,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(95,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/offline-mutation-queue.ts(95,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(98,40): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(98,69): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(98,87): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(108,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(110,51): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(110,63): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(111,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(125,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(126,18): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(141,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(142,18): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(160,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(161,18): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(170,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(175,51): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(175,67): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(176,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(190,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(191,18): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(206,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(207,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(208,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/offline-mutation-queue.ts(209,18): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/offline-mutation-queue.ts(214,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(215,22): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(222,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(223,18): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(232,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(233,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(234,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/offline-mutation-queue.ts(237,25): error TS2339: Property 'unlock_type' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(237,62): error TS2339: Property 'receiver_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(239,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(240,22): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(249,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(251,51): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(251,66): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(252,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(263,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(264,18): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(275,51): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(275,66): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(282,27): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(283,36): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(289,36): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/offline-mutation-queue.ts(305,49): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(305,63): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(312,55): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(312,69): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(321,51): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(321,68): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(337,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(338,22): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(344,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(345,22): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(355,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(356,18): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(364,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/offline-mutation-queue.ts(365,18): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/offline-mutation-queue.ts(380,29): error TS2339: Property 'user' does not exist on type 'never'.
+lib/client/outbox.ts(67,39): error TS2554: Expected 0 arguments, but got 1.
+lib/client/outbox.ts(68,34): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/pins.ts(37,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/pins.ts(189,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(190,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(191,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/pins.ts(192,10): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/pins.ts(212,13): error TS2339: Property 'data' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/pins.ts(212,19): error TS2339: Property 'error' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/pins.ts(213,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(214,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(215,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/pins.ts(216,16): error TS2554: Expected 0 arguments, but got 2.
+lib/client/pins.ts(252,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(253,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(254,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/pins.ts(255,10): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/pins.ts(265,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(266,10): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/pins.ts(316,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(317,10): error TS2339: Property 'upsert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/pins.ts(353,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(354,10): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/pins.ts(386,18): error TS2554: Expected 0 arguments, but got 1.
+lib/client/pins.ts(388,13): error TS2554: Expected 0 arguments, but got 3.
+lib/client/pins.ts(403,18): error TS2339: Property 'removeChannel' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+lib/client/polaroids.ts(63,17): error TS2339: Property 'data' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/polaroids.ts(63,23): error TS2339: Property 'error' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/polaroids.ts(64,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(65,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(66,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/polaroids.ts(67,20): error TS2554: Expected 0 arguments, but got 2.
+lib/client/polaroids.ts(121,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(122,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(123,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/polaroids.ts(126,23): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/polaroids.ts(129,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(130,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(131,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/polaroids.ts(131,31): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/polaroids.ts(137,28): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/polaroids.ts(138,31): error TS2339: Property 'display_name' does not exist on type 'never'.
+lib/client/polaroids.ts(139,28): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/polaroids.ts(139,57): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/polaroids.ts(139,75): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/polaroids.ts(149,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(150,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(151,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/polaroids.ts(152,10): error TS2339: Property 'eq' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/polaroids.ts(158,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(159,14): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/polaroids.ts(170,33): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(170,46): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/polaroids.ts(172,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(173,18): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/polaroids.ts(189,52): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(189,65): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/polaroids.ts(193,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(194,22): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/polaroids.ts(209,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(210,14): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/polaroids.ts(227,26): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(227,59): error TS2339: Property 'send' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+lib/client/polaroids.ts(256,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(257,17): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(258,13): error TS2554: Expected 0 arguments, but got 2.
+lib/client/polaroids.ts(259,10): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/polaroids.ts(262,15): error TS2554: Expected 0 arguments, but got 1.
+lib/client/polaroids.ts(263,10): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/polaroids.ts(274,32): error TS2339: Property 'storage' does not exist on type '{ auth: { getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }; from: () => { select: () => { eq: () => { single: () => Promise<...>; order: () => { ...; }; }; }; }; channel: () => { ...; }; }'.
+lib/client/reactions-comments.ts(75,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(82,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(83,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(84,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(85,14): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/reactions-comments.ts(95,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(96,14): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/reactions-comments.ts(104,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(105,22): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/reactions-comments.ts(136,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(137,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(138,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(142,42): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(142,72): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(142,90): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(166,17): error TS2339: Property 'data' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/reactions-comments.ts(166,33): error TS2339: Property 'error' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/reactions-comments.ts(167,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(168,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(169,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(170,20): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(177,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(178,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(179,14): error TS2339: Property 'in' does not exist on type '{ eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }'.
+lib/client/reactions-comments.ts(191,60): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(194,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(194,46): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(194,62): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(195,30): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(200,48): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(216,72): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(239,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(245,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(246,14): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/reactions-comments.ts(274,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(282,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(282,42): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(282,58): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(283,33): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(287,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(288,14): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/reactions-comments.ts(306,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(313,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(314,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(315,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(316,14): error TS2339: Property 'maybeSingle' does not exist on type '{ single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }'.
+lib/client/reactions-comments.ts(326,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(327,14): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/reactions-comments.ts(335,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(336,22): error TS2339: Property 'insert' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/reactions-comments.ts(366,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(367,25): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(368,21): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(372,42): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(372,72): error TS2339: Property 'user2_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(372,90): error TS2339: Property 'user1_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(395,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(401,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(402,14): error TS2339: Property 'update' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/reactions-comments.ts(429,52): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(436,23): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(436,42): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(436,58): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(437,33): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(441,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(442,14): error TS2339: Property 'delete' does not exist on type '{ select: () => { eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }; }'.
+lib/client/reactions-comments.ts(467,17): error TS2339: Property 'data' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/reactions-comments.ts(467,33): error TS2339: Property 'error' does not exist on type '{ limit: () => { data: never[]; error: null; }; }'.
+lib/client/reactions-comments.ts(468,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(469,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(470,17): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(471,20): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(478,19): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(479,21): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(480,14): error TS2339: Property 'in' does not exist on type '{ eq: () => { single: () => Promise<{ data: null; error: null; }>; order: () => { limit: () => { data: never[]; error: null; }; }; }; }'.
+lib/client/reactions-comments.ts(492,60): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/reactions-comments.ts(495,27): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(495,46): error TS2554: Expected 0 arguments, but got 1.
+lib/client/reactions-comments.ts(495,62): error TS2554: Expected 0 arguments, but got 2.
+lib/client/reactions-comments.ts(496,30): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(501,48): error TS2339: Property 'couple_id' does not exist on type 'never'.
+lib/client/reactions-comments.ts(517,72): error TS2339: Property 'getUser' does not exist on type '{ getSession: () => Promise<{ data: { session: null; }; error: null; }>; onAuthStateChange: () => { data: { subscription: { unsubscribe: () => void; }; }; }; }'.
+lib/client/realtime.ts(10,38): error TS2554: Expected 0 arguments, but got 1.
+lib/client/realtime.ts(11,13): error TS2339: Property 'subscribe' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+lib/client/realtime.ts(17,21): error TS2339: Property 'unsubscribe' does not exist on type '{ on: () => { subscribe: () => { unsubscribe: () => void; }; }; }'.
+lib/push-server.ts(2,35): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/push-server.ts(3,21): error TS2307: Cannot find module 'web-push' or its corresponding type declarations.
+lib/push-server.ts(59,51): error TS7006: Parameter 'sub' implicitly has an 'any' type.
+lib/push-server.ts(98,42): error TS7006: Parameter 'r' implicitly has an 'any' type.
+lib/server/api-auth.ts(1,54): error TS2307: Cannot find module '@supabase/supabase-js' or its corresponding type declarations.
+lib/server/api-auth.ts(2,27): error TS2307: Cannot find module '@supabase/supabase-js' or its corresponding type declarations.
+lib/server/api-auth.ts(4,52): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
