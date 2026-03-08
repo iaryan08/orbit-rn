@@ -18,6 +18,13 @@ const MEDIA_KEY_STORAGE = "orbit:media:key:v1";
 const MEDIA_KEY_NATIVE_STORAGE = "orbit_media_key_v1_secure";
 const E2EE_ENABLED_STORAGE = "orbit:e2ee:enabled:v1";
 const RECOVERY_KIT_VERSION = 1;
+export interface EscrowBlob {
+    version: number;
+    fingerprintHex: string | null;
+    saltB64: string;
+    ivB64: string;
+    ciphertextB64: string;
+}
 
 export function isE2EEEnabled() {
     if (typeof window === "undefined") return true;
@@ -238,11 +245,16 @@ export async function importRecoveryKit(file: File) {
     setStoredMediaPassphrase(parsed.mediaKey);
 }
 
-export async function createEscrowBlob(passphrase: string) {
+export async function createEscrowBlob(passphrase: string): Promise<EscrowBlob> {
     // Placeholder for real escrow logic to keep file small/fixed
     return {
         version: 1,
         fingerprintHex: await getKeyFingerprint(),
         saltB64: "", ivB64: "", ciphertextB64: ""
-    } as any;
+    };
+}
+
+export async function decryptEscrowBlob(blob: EscrowBlob, passphrase: string): Promise<void> {
+    // Placeholder (Real implementation would decrypt blob with passphrase and call setStoredMediaPassphrase)
+    console.log("Decrypting escrow blob with passphrase...", passphrase);
 }
