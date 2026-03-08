@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "240742cf-241c-406f-96be-51c154ee033a"
+      }
+    },
+    "android": {
+      "package": "orbit.app"
+    }
+  }
+}
