@@ -533,24 +533,30 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
                             >
                                 {incomingReaction.type === 'heartbeat' && (
                                     <div className="flex flex-col items-center gap-4">
-                                        <div className="w-64 h-64 flex items-center justify-center bg-[radial-gradient(circle,rgba(244,63,94,0.4)_0%,transparent_60%)]">
-                                            {(() => {
-                                                const isSelf = incomingReaction.senderId === currentUserId || incomingReaction.senderName === myName
-                                                const avatarUrl = isSelf
-                                                    ? useOrbitStore.getState().profile?.avatar_url
-                                                    : useOrbitStore.getState().partnerProfile?.avatar_url
-                                                return avatarUrl ? (
-                                                    <DecryptedImage
-                                                        src={avatarUrl}
-                                                        alt={isSelf ? "You" : partnerName}
-                                                        className="w-32 h-32 rounded-full object-cover border-2 border-rose-500/30"
-                                                        bucket="avatars"
-                                                    />
-                                                ) : (
-                                                    <span className="text-[120px]">❤️</span>
-                                                )
-                                            })()}
-                                        </div>
+                                        {(() => {
+                                            const isSelf = incomingReaction.senderId === currentUserId || incomingReaction.senderName === myName
+                                            const avatarUrl = isSelf
+                                                ? useOrbitStore.getState().profile?.avatar_url
+                                                : useOrbitStore.getState().partnerProfile?.avatar_url
+
+                                            return (
+                                                <div className={cn(
+                                                    "w-64 h-64 flex items-center justify-center",
+                                                    avatarUrl && "bg-[radial-gradient(circle,rgba(244,63,94,0.4)_0%,transparent_60%)]"
+                                                )}>
+                                                    {avatarUrl ? (
+                                                        <DecryptedImage
+                                                            src={avatarUrl}
+                                                            alt={isSelf ? "You" : partnerName}
+                                                            className="w-32 h-32 rounded-full object-cover border-2 border-rose-500/30"
+                                                            bucket="avatars"
+                                                        />
+                                                    ) : (
+                                                        <span className="text-[120px]">❤️</span>
+                                                    )}
+                                                </div>
+                                            )
+                                        })()}
                                         {incomingReaction.senderName && (
                                             <span className="text-rose-200 text-xs font-black uppercase tracking-[0.3em] bg-black/40 px-4 py-2 rounded-full border border-rose-500/20 animate-pulse">
                                                 {incomingReaction.senderName}
@@ -560,7 +566,7 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
                                 )}
                                 {incomingReaction.type === 'laugh' && (
                                     <div className="flex flex-col items-center gap-4">
-                                        <div className="w-64 h-64 flex items-center justify-center bg-[radial-gradient(circle,rgba(56,189,248,0.3)_0%,transparent_60%)]">
+                                        <div className="w-64 h-64 flex items-center justify-center">
                                             <span className="text-[120px]">😂</span>
                                         </div>
                                         {incomingReaction.senderName && (
@@ -572,7 +578,7 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
                                 )}
                                 {incomingReaction.type === 'tap' && (
                                     <div className="flex flex-col items-center gap-4">
-                                        <div className="w-64 h-64 flex items-center justify-center bg-[radial-gradient(circle,rgba(255,255,255,0.1)_0%,transparent_50%)]">
+                                        <div className="w-64 h-64 flex items-center justify-center">
                                             <span className="text-[120px]">{incomingReaction.emoji || selectedEmoji}</span>
                                         </div>
                                         {incomingReaction.senderName && (
