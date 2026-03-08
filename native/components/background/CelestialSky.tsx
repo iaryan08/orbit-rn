@@ -35,16 +35,16 @@ const Star = React.memo(({ star, starColor }: StarProps) => {
 });
 
 export function CelestialSky({
-    userLat,
-    userLon,
     partnerLat,
     partnerLon,
     starColor = [255, 255, 255],
 }: CelestialSkyProps) {
-    const fallbackLat = Number.isFinite(userLat) ? userLat! : 28.61;
-    const fallbackLon = Number.isFinite(userLon) ? userLon! : 77.21;
-    const skyLat = Number.isFinite(partnerLat) ? partnerLat! : fallbackLat;
-    const skyLon = Number.isFinite(partnerLon) ? partnerLon! : fallbackLon;
+    if (!Number.isFinite(partnerLat) || !Number.isFinite(partnerLon)) {
+        return null;
+    }
+
+    const skyLat = partnerLat!;
+    const skyLon = partnerLon!;
     const stars = useMemo(() => {
         const now = new Date();
         const JD = now.getTime() / 86400000 + 2440587.5;
