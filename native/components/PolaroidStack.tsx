@@ -165,7 +165,7 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
                             <>
                                 <AnimatedImage
                                     source={{ uri: imageUrl || undefined }}
-                                    style={[styles.image, imageStyle, { backgroundColor: '#1A1A1A' }]}
+                                    style={[styles.image, imageStyle]}
                                     contentFit="cover"
                                     transition={200}
                                     cachePolicy="disk"

@@ -186,58 +186,50 @@ export function IntimacyScreen() {
                                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                         setIsPrivate(!isPrivate);
                                     }}
-                                    style={styles.privateToggle}
+                                    style={[styles.privateToggle, isPrivate && styles.privateToggleActive]}
                                 >
-                                    {isPrivate ? <Lock size={18} color={Colors.dark.amber[400]} /> : <Unlock size={18} color="rgba(255,255,255,0.2)" />}
+                                    {isPrivate ? <Lock size={18} color={Colors.dark.rose[500]} /> : <Unlock size={18} color="rgba(255,255,255,0.4)" />}
                                 </TouchableOpacity>
                                 <TextInput
-                                    style={styles.textInput}
-                                    placeholder={isPrivate ? "Add a private dream..." : "Add a new shared dream..."}
+                                    style={styles.input}
+                                    placeholder="Add to our bucket list..."
                                     placeholderTextColor="rgba(255,255,255,0.3)"
                                     value={newItem}
                                     onChangeText={setNewItem}
+                                    selectionColor={Colors.dark.rose[500]}
                                     onSubmitEditing={handleAdd}
-                                    returnKeyType="done"
                                 />
                                 <TouchableOpacity
                                     style={[styles.addBtn, !newItem.trim() && { opacity: 0.5 }]}
                                     onPress={handleAdd}
-                                    disabled={isAdding || !newItem.trim()}
+                                    disabled={!newItem.trim() || isAdding}
                                 >
                                     <Plus size={20} color="white" />
                                 </TouchableOpacity>
                             </View>
 
-                            {filteredBucket.map((item) => (
-                                <TouchableOpacity
-                                    key={item.id}
-                                    style={[
-                                        styles.bucketItem,
-                                        item.is_completed && styles.bucketItemCompleted
-                                    ]}
-                                    onPress={() => handleToggle(item.id, item.is_completed)}
-                                    activeOpacity={0.7}
-                                >
-                                    <View style={[styles.checkbox, item.is_completed && styles.checkboxChecked]}>
-                                        {item.is_completed && <Check size={12} color="white" strokeWidth={3} />}
-                                    </View>
-
-                                    <Text style={[styles.itemText, item.is_completed && styles.itemTextDone]}>
-                                        {item.title}
-                                    </Text>
-
-                                    {item.is_completed && (
-                                        <Trophy size={16} color={Colors.dark.amber[400]} style={styles.trophyIcon} />
-                                    )}
-
+                            <View style={styles.bucketListContainer}>
+                                {filteredBucket.map((item) => (
                                     <TouchableOpacity
-                                        onPress={() => handleDelete(item.id)}
-                                        style={styles.deleteBtn}
+                                        key={item.id}
+                                        style={[styles.bucketItem, item.is_completed && styles.bucketItemCompleted]}
+                                        onPress={() => handleToggle(item.id, item.is_completed)}
                                     >
-                                        <Trash2 size={16} color="rgba(255,255,255,0.15)" />
+                                        <View style={[styles.itemCheck, item.is_completed && styles.itemCheckActive]}>
+                                            {item.is_completed && <Check size={12} color="white" strokeWidth={3} />}
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[styles.itemTitle, item.is_completed && styles.itemTitleCompleted]}>
+                                                {item.title}
+                                            </Text>
+                                        </View>
+                                        {item.is_completed && <Trophy size={16} color={Colors.dark.amber[400]} style={{ opacity: 0.8 }} />}
+                                        <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteBtn}>
+                                            <Trash2 size={16} color="rgba(255,255,255,0.2)" />
+                                        </TouchableOpacity>
                                     </TouchableOpacity>
-                                </TouchableOpacity>
-                            ))}
+                                ))}
+                            </View>
                         </View>
                     </GlassCard>
 
@@ -416,14 +408,18 @@ const styles = StyleSheet.create({
     inputBar: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 20,
+        backgroundColor: 'rgba(225, 29, 72, 0.03)',
+        borderRadius: 24,
         paddingLeft: 12,
         paddingRight: 6,
         height: 52,
         marginBottom: 16,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: 'rgba(225, 29, 72, 0.15)',
+        shadowColor: Colors.dark.rose[500],
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
     },
     privateToggle: {
         width: 36,
@@ -433,7 +429,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: 4,
     },
-    textInput: {
+    privateToggleActive: {
+        backgroundColor: 'rgba(225, 29, 72, 0.1)',
+        borderColor: 'rgba(225, 29, 72, 0.2)',
+        borderWidth: 1,
+    },
+    input: {
         flex: 1,
         color: 'white',
         fontSize: 14,
@@ -447,11 +448,14 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    bucketListContainer: {
+        marginTop: 8,
+    },
     bucketItem: {
         flexDirection: 'row',
         alignItems: 'center',
         padding: 16,
-        borderRadius: 20,
+        borderRadius: 100,
         backgroundColor: 'rgba(255,255,255,0.03)',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.05)',
@@ -463,7 +467,7 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(225, 29, 72, 0.1)',
         opacity: 0.7,
     },
-    checkbox: {
+    itemCheck: {
         width: 24,
         height: 24,
         borderRadius: 12,
@@ -472,7 +476,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    checkboxChecked: {
+    itemCheckActive: {
         backgroundColor: Colors.dark.rose[500],
         borderColor: Colors.dark.rose[500],
         shadowColor: Colors.dark.rose[500],
@@ -480,13 +484,13 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.5,
         shadowRadius: 10,
     },
-    itemText: {
+    itemTitle: {
         flex: 1,
         color: 'white',
         fontSize: 14,
         fontFamily: Typography.sansBold,
     },
-    itemTextDone: {
+    itemTitleCompleted: {
         color: 'rgba(255,255,255,0.3)',
         textDecorationLine: 'line-through',
     },

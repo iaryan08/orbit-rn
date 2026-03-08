@@ -1,7 +1,9 @@
 import React, { useMemo, useEffect } from 'react';
 import { View, Dimensions, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import Animated, { useSharedValue, withTiming, Easing, interpolateColor, SharedValue } from 'react-native-reanimated';
+import Animated, { useSharedValue, withTiming, withRepeat, withSequence, useAnimatedStyle, SharedValue, useAnimatedProps } from 'react-native-reanimated';
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 import { BRIGHT_STARS } from '../../lib/astronomy/stars';
 
 interface CelestialSkyProps {
@@ -10,6 +12,7 @@ interface CelestialSkyProps {
     partnerLat?: number;
     partnerLon?: number;
     starColor?: number[]; // [r, g, b]
+    speed?: number;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -23,13 +26,18 @@ interface StarProps {
     starColor: number[];
 }
 
-const Star = React.memo(({ star, starColor }: StarProps) => {
+const Star = React.memo(({ star, starColor, shimmer }: { star: any, starColor: number[], shimmer: SharedValue<number> }) => {
+    const animatedProps = useAnimatedProps(() => ({
+        opacity: star.opacity * (0.6 + shimmer.value * 0.4),
+    }));
+
     return (
-        <Circle
+        <AnimatedCircle
             cx={star.x}
             cy={star.y}
             r={star.size * 0.5}
-            fill={`rgba(${starColor[0]}, ${starColor[1]}, ${starColor[2]}, ${star.opacity})`}
+            fill={`rgba(${starColor[0]}, ${starColor[1]}, ${starColor[2]}, 1)`}
+            animatedProps={animatedProps}
         />
     );
 });
@@ -38,14 +46,31 @@ export function CelestialSky({
     partnerLat,
     partnerLon,
     starColor = [255, 255, 255],
+    speed = 1
 }: CelestialSkyProps) {
-    if (!Number.isFinite(partnerLat) || !Number.isFinite(partnerLon)) {
-        return null;
-    }
+    const shimmer = useSharedValue(0.5);
 
-    const skyLat = partnerLat!;
-    const skyLon = partnerLon!;
+    useEffect(() => {
+        if (speed > 0) {
+            shimmer.value = withRepeat(
+                withSequence(
+                    withTiming(1, { duration: 2000 }),
+                    withTiming(0.2, { duration: 3000 })
+                ),
+                -1,
+                true
+            );
+        } else {
+            shimmer.value = withTiming(0.8);
+        }
+    }, [speed]);
+
     const stars = useMemo(() => {
+        if (!Number.isFinite(partnerLat) || !Number.isFinite(partnerLon)) {
+            return [];
+        }
+        const skyLat = partnerLat!;
+        const skyLon = partnerLon!;
         const now = new Date();
         const JD = now.getTime() / 86400000 + 2440587.5;
         const D = JD - 2451545.0;
@@ -100,13 +125,17 @@ export function CelestialSky({
         });
 
         return visibleStars;
-    }, [skyLat, skyLon]);
+    }, [partnerLat, partnerLon]);
+
+    if (!Number.isFinite(partnerLat) || !Number.isFinite(partnerLon)) {
+        return null;
+    }
 
     return (
         <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
             <Svg width="100%" height="100%">
                 {stars.map(star => (
-                    <Star key={star.id} star={star} starColor={starColor} />
+                    <Star key={star.id} star={star} starColor={starColor} shimmer={shimmer} />
                 ))}
             </Svg>
         </View>

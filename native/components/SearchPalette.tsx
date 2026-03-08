@@ -51,19 +51,19 @@ const STATIC_ITEMS = [
     {
         id: 'settings', title: 'Settings', subtitle: 'Profile, atmosphere, security',
         icon: Settings, iconColor: '#94a3b8', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(5); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(7); },
         keywords: ['settings', 'profile', 'account', 'wallpaper', 'atmosphere'],
     },
     {
         id: 'lunara_screen', title: 'Lunara', subtitle: 'Cycle & rhythm dashboard',
         icon: Moon, iconColor: '#a855f7', group: 'Screens',
-        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(6); },
+        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5); },
         keywords: ['lunara', 'cycle', 'period', 'rhythm', 'tracking'],
     },
     {
         id: 'mode_lunara', title: 'Switch to Lunara Mode', subtitle: 'Purple theme + cycle tracking',
         icon: Moon, iconColor: '#a855f7', group: 'Modes',
-        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(6); },
+        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5); },
         keywords: ['lunara mode', 'purple', 'cycle', 'switch'],
     },
     {
@@ -81,7 +81,7 @@ const STATIC_ITEMS = [
     {
         id: 'partner_nav', title: 'Partner (Lunara)', subtitle: 'Switch dock to Lunara 3-icon layout',
         icon: Sparkles, iconColor: '#c084fc', group: 'Actions',
-        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(6); },
+        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5); },
         keywords: ['partner', 'spark', 'lunara dock', 'three icons'],
     },
     {

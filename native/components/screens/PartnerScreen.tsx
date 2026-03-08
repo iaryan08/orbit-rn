@@ -99,20 +99,20 @@ export function PartnerScreen() {
         <View style={styles.container}>
             <ScrollView
                 style={styles.content}
-                contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + Spacing.xl }]}
+                contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + Spacing.md }]}
                 showsVerticalScrollIndicator={false}
             >
-                <View style={styles.header}>
-                    <Text style={styles.title}>Relationship Calendar</Text>
-                    <Text style={styles.subtitle}>OUR SPECIAL MOMENTS</Text>
+                <View style={[styles.header, { marginBottom: 28 }]}>
+                    <Text style={styles.title}>Temporal <Text style={styles.titleAccent}>Resonance</Text></Text>
+                    <Text style={styles.subtitle}>SYMLIFE CALENDAR</Text>
                 </View>
 
                 {/* Libido Section */}
-                <GlassCard style={styles.libidoCard} intensity={15}>
+                <GlassCard style={styles.libidoCard} intensity={25}>
                     <View style={styles.libidoHeader}>
                         <View style={styles.libidoTitleRow}>
                             <Flame size={20} color={Colors.dark.rose[500]} />
-                            <Text style={styles.libidoTitle}>Libidometer</Text>
+                            <Text style={styles.resonanceTitle}>Desire Frequency</Text>
                         </View>
                         {partnerLogsToday?.sex_drive === 'very_high' && (
                             <View style={styles.hotBadge}>
@@ -285,26 +285,18 @@ const styles = StyleSheet.create({
         paddingHorizontal: Spacing.xs,
     },
     title: {
-        fontSize: 24,
+        fontSize: 28,
         fontFamily: Typography.serif,
-        color: Colors.dark.foreground,
+        color: 'white',
     },
-    badge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 100,
-        backgroundColor: 'rgba(225, 29, 72, 0.05)',
-        borderWidth: 1,
-        borderColor: 'rgba(225, 29, 72, 0.1)',
+    titleAccent: {
+        fontFamily: Typography.serifItalic,
+        color: '#a855f7',
     },
-    badgeText: {
-        fontSize: 8,
-        fontFamily: Typography.sansBold,
-        color: Colors.dark.rose[400],
-        letterSpacing: 1,
+    resonanceTitle: {
+        fontSize: 18,
+        fontFamily: Typography.serif,
+        color: 'white',
     },
     libidoCard: {
         padding: Spacing.lg,
@@ -321,11 +313,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-    },
-    libidoTitle: {
-        fontSize: 18,
-        fontFamily: Typography.serif,
-        color: 'white',
     },
     hotBadge: {
         paddingHorizontal: 8,
@@ -371,10 +358,10 @@ const styles = StyleSheet.create({
         letterSpacing: 2,
     },
     wisdomText: {
-        fontSize: 16,
+        fontSize: 17,
         fontFamily: Typography.serifItalic,
         color: 'white',
-        lineHeight: 24,
+        lineHeight: 26,
     },
     cycleIndicator: {
         flexDirection: 'row',
@@ -399,7 +386,7 @@ const styles = StyleSheet.create({
     cyclePhaseText: {
         fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,160,255,0.4)',
     },
     auraRow: {
         flexDirection: 'row',
@@ -431,7 +418,7 @@ const styles = StyleSheet.create({
         fontSize: 8,
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 1,
+        letterSpacing: 1.5,
     },
     calendarCard: {
         padding: Spacing.md,

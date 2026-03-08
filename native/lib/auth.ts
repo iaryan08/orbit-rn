@@ -1,6 +1,7 @@
 import { auth, db } from './firebase';
 import { doc, setDoc, addDoc, collection, serverTimestamp, getDocs, query, where, deleteDoc } from 'firebase/firestore';
-import { useOrbitStore } from './store';
+// useOrbitStore is imported dynamically inside functions to avoid circular dependency with store.ts
+
 import { getTodayIST } from './utils';
 import { sendNotification } from './notifications';
 
@@ -8,6 +9,7 @@ export async function submitMood(mood: string, note?: string) {
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
+    const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple ID' };
@@ -47,6 +49,7 @@ export async function clearMood() {
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
+    const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple ID' };
@@ -72,6 +75,7 @@ export async function logSymptoms(symptoms: string[], options?: { notifyPartner?
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
+    const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple ID' };
@@ -122,6 +126,7 @@ export async function logSexDrive(level: string) {
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
+    const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple ID' };
@@ -218,6 +223,7 @@ export async function addBucketItem(title: string, description: string = '', is_
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
+    const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple found' };
@@ -258,6 +264,7 @@ export async function toggleBucketItem(id: string, isCompleted: boolean) {
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
+    const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple found' };
@@ -296,6 +303,7 @@ export async function deleteBucketItem(id: string) {
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
+    const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple found' };

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Nativ
 import { Image } from 'expo-image';
 import { useOrbitStore } from '../../lib/store';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
-import { Pin } from 'lucide-react-native';
+import { Pin, Sparkles } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,9 +16,11 @@ import * as Haptics from 'expo-haptics';
 import { X, Send, Camera as CameraIcon, Image as ImageIconLucide, Calendar as CalendarIcon, Video, AlertCircle, ChevronDown, Plus } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../../lib/firebase';
+import { usePersistentMedia } from '../../lib/media';
 
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
@@ -50,13 +52,15 @@ const LunarPagination = React.memo(({ imageUrls, scrollX, activeIndex }: { image
     );
 });
 
-const MemoryImage = React.memo(({ url, idToken, onPress }: { url: string, idToken: string | null, onPress: () => void }) => {
-    const imageUrl = useMemo(() => getPublicStorageUrl(url, 'memories', idToken), [url, idToken]);
+const MemoryImage = React.memo(({ url, id, idToken, onPress }: { url: string, id: string, idToken: string | null | undefined, onPress: () => void }) => {
+    const rawUrl = useMemo(() => getPublicStorageUrl(url, 'memories', idToken || ''), [url, idToken]);
+    const persistentSource = usePersistentMedia(id, rawUrl || undefined);
+
     return (
         <TouchableOpacity activeOpacity={0.9} onPress={onPress}>
             <Image
-                source={{ uri: imageUrl || undefined }}
-                style={[styles.mediaFull, { backgroundColor: '#1A1A1A' }]}
+                source={{ uri: persistentSource || undefined }}
+                style={styles.mediaFull}
                 contentFit="cover"
                 transition={200}
                 cachePolicy="memory-disk"
@@ -132,6 +136,7 @@ const MemoryCard = React.memo(({ item, profile, partnerProfile, idToken, couple 
                             <MemoryImage
                                 key={i}
                                 url={url}
+                                id={`${item.id}_${i}`} // Unique ID for each image in the memory
                                 idToken={idToken}
                                 onPress={() => {
                                     openMediaViewer(imageUrls, i, item.sender_id, item.id, 'memory');
@@ -193,7 +198,7 @@ const MemoryCard = React.memo(({ item, profile, partnerProfile, idToken, couple 
 });
 
 export function MemoriesScreen() {
-    const { profile, partnerProfile, couple, memories, idToken, fetchData } = useOrbitStore();
+    const { profile, partnerProfile, couple, memories, idToken, fetchData, appMode } = useOrbitStore();
     const insets = useSafeAreaInsets();
     const [isComposeVisible, setIsComposeVisible] = useState(false);
     const [title, setTitle] = useState('');
@@ -277,8 +282,21 @@ export function MemoriesScreen() {
     };
 
     const uploadFile = async (uri: string, path: string) => {
-        const response = await fetch(uri);
-        const blob = await response.blob();
+        // Robust XHR handling for local URIs in React Native (Android/iOS)
+        const blob: Blob = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.onload = function () {
+                resolve(xhr.response);
+            };
+            xhr.onerror = function (e) {
+                console.error("[MediaUpload] XHR Error:", e);
+                reject(new TypeError("Network request failed"));
+            };
+            xhr.responseType = "blob";
+            xhr.open("GET", uri, true);
+            xhr.send(null);
+        });
+
         const fileRef = ref(storage, path);
         const uploadTask = uploadBytesResumable(fileRef, blob);
 
@@ -288,7 +306,10 @@ export function MemoriesScreen() {
                     const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
                     setUploadProgress(progress);
                 },
-                (error) => reject(error),
+                (error) => {
+                    console.error("[FirebaseStorage] Upload Error:", error);
+                    reject(error);
+                },
                 async () => {
                     const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                     resolve(downloadURL);
@@ -315,10 +336,27 @@ export function MemoriesScreen() {
         setUploadProgress(0);
 
         try {
-            const uploadPromises = selectedMedia.map((media, index) => {
-                const extension = media.uri.split('.').pop();
+            // Process images to High-Fidelity WebP (Universal Optimization)
+            const uploadPromises = selectedMedia.map(async (media, index) => {
+                let finalUri = media.uri;
+                let extension = media.uri.split('.').pop() || 'jpg';
+
+                if (media.type === 'image') {
+                    try {
+                        const manipulated = await ImageManipulator.manipulateAsync(
+                            media.uri,
+                            [{ resize: { width: 2000 } }], // High-end 2K resolution cap
+                            { compress: 0.95, format: ImageManipulator.SaveFormat.WEBP }
+                        );
+                        finalUri = manipulated.uri;
+                        extension = 'webp';
+                    } catch (e) {
+                        console.error("Compression failed, falling back to original:", e);
+                    }
+                }
+
                 const path = `memories/${couple.id}/${Date.now()}_${index}.${extension}`;
-                return uploadFile(media.uri, path);
+                return uploadFile(finalUri, path);
             });
 
             const imageUrls = await Promise.all(uploadPromises);
@@ -331,6 +369,7 @@ export function MemoriesScreen() {
                 couple_id: couple.id,
                 memory_date: memoryDate,
                 created_at: serverTimestamp(),
+                updated_at: serverTimestamp(),
             };
 
             await addDoc(collection(db, 'couples', couple.id, 'memories'), memoryData);
@@ -371,7 +410,7 @@ export function MemoriesScreen() {
                 renderItem={renderItem}
                 keyExtractor={(item: any) => item.id}
                 estimatedItemSize={450}
-                contentContainerStyle={[styles.listContent, { paddingTop: insets.top + Spacing.lg }]}
+                contentContainerStyle={[styles.listContent, { paddingTop: insets.top + Spacing.md }]}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
@@ -392,7 +431,9 @@ export function MemoriesScreen() {
                             <Text style={styles.badgeCount}>{memories.length}</Text>
                         </Animated.View>
                         <Animated.View style={[styles.headerTitleRow, titleAnimatedStyle]}>
-                            <Text style={styles.pageTitle}>Memories</Text>
+                            <Text style={[styles.pageTitle, appMode === 'lunara' && styles.lunaraPageTitle]}>
+                                {appMode === 'lunara' ? 'Discovery' : 'Memories'}
+                            </Text>
                             <TouchableOpacity
                                 style={styles.addMemoryBtn}
                                 onPress={() => {
@@ -695,10 +736,10 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.dark.rose[500],
     },
     galleryBadgeText: {
-        fontSize: 10,
+        fontSize: 9,
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.4)',
-        letterSpacing: 2,
+        letterSpacing: 2.5,
         textTransform: 'uppercase',
     },
     badgeCount: {
@@ -707,13 +748,19 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
     },
     pageTitle: {
-        fontSize: 56,
+        fontSize: 44,
         fontFamily: Typography.serif,
         color: Colors.dark.foreground,
-        letterSpacing: -1,
+        letterSpacing: -0.5,
         flex: 1,
         marginTop: Spacing.xs,
         marginBottom: 8,
+    },
+    lunaraPageTitle: {
+        fontFamily: Typography.serif,
+        fontSize: 58,
+        letterSpacing: 0,
+        color: '#d8b4fe',
     },
     pageSubtitle: {
         fontSize: 16,

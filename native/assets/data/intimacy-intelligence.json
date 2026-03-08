@@ -1,0 +1,38 @@
+[
+    {
+        "day": 1,
+        "phase": "Menstrual",
+        "energy": "Low / Restoration",
+        "aura": "Lavender",
+        "insight": "The inner winter. Focus on emotional intimacy and cozy comforts today.",
+        "partner_cheat_code": "Don't ask 'what's for dinner'—just decide and surprise her with something comforting. A warm heat pad or a soft massage can work wonders.",
+        "mission": "Share a 10-minute quiet cuddle without any devices."
+    },
+    {
+        "day": 5,
+        "phase": "Follicular",
+        "energy": "Rising / Creative",
+        "aura": "Soft Teal",
+        "insight": "Energy is returning. This is a great time to plan future dreams or start a new shared project.",
+        "partner_cheat_code": "Ask her about a dream she wants to chase this year. Support her creative sparks with genuine curiosity.",
+        "mission": "Compliment a specific strength you admire in her."
+    },
+    {
+        "day": 14,
+        "phase": "Ovulatory",
+        "energy": "Peak / Magnetic",
+        "aura": "Amber Glow",
+        "insight": "The inner summer. Communication is fluid and physical connection is often at its most natural peak.",
+        "partner_cheat_code": "Plan a surprise date night or suggest something adventurous. Her confidence is high—remind her why you find her magnetic.",
+        "mission": "Try a spicy 5-second kiss when she least expects it."
+    },
+    {
+        "day": 21,
+        "phase": "Luteal",
+        "energy": "Waning / Reflective",
+        "aura": "Dusty Rose",
+        "insight": "Turning inward. Emotional reassurance is much more valuable than physical excitement right now.",
+        "partner_cheat_code": "Handle a chore or a bill without being asked. Small acts of service today speak louder than words. Be a safe harbour for her thoughts.",
+        "mission": "Write a small 'Thank You' note for something she did this week."
+    }
+]

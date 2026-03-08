@@ -41,7 +41,7 @@ export function ProfileAvatar({
             {url ? (
                 <Image
                     source={{ uri: url }}
-                    style={{ width: '100%', height: '100%', borderRadius: radius, backgroundColor: '#1A1A1A' }}
+                    style={{ width: '100%', height: '100%', borderRadius: radius }}
                     contentFit="cover"
                     transition={200}
                     cachePolicy="disk"

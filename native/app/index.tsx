@@ -15,9 +15,12 @@ import { SyncCinemaScreen } from '../components/screens/SyncCinemaScreen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LoadingScreen } from '../components/LoadingScreen';
+import { initializeDatabase } from '../lib/db/db';
+import { getPublicStorageUrl } from '../lib/storage';
+import * as FileSystem from 'expo-file-system';
 
 export default function Index() {
-    const { activeTabIndex, setTabIndex, isPagerScrollEnabled, setPagerScrollEnabled, fetchData, appMode, setAppMode, loading, couple, initAppMode } = useOrbitStore();
+    const { activeTabIndex, setTabIndex, scrollOffset, isPagerScrollEnabled, setPagerScrollEnabled, fetchData, appMode, setAppMode, loading, couple, initAppMode } = useOrbitStore();
     const [user, setUser] = useState<any>(null);
     const [isAuthChecking, setIsAuthChecking] = useState(true);
     const [isPagerReady, setIsPagerReady] = useState(false);
@@ -27,6 +30,7 @@ export default function Index() {
 
     useEffect(() => {
         console.log("[Index] Mounting...");
+        initializeDatabase(); // Best in Class: Setup SQLite
         initAppMode(); // Load persisted mode and set initial tab
         const unsub = onAuthStateChanged(auth, (u) => {
             console.log("[Index] onAuthStateChanged:", u?.uid || "null");
@@ -51,7 +55,7 @@ export default function Index() {
                 // If the PagerView is already at the correct index, do nothing
                 // This prevents recursive updates and "glitches"
                 isSyncingRef.current = true;
-                pagerRef.current.setPageWithoutAnimation(activeTabIndex);
+                pagerRef.current.setPage(activeTabIndex);
 
                 // Clear any existing timeout
                 if (syncTimeoutRef.current) {
@@ -72,11 +76,45 @@ export default function Index() {
         setPagerScrollEnabled(true);
     }, [activeTabIndex, isPagerReady]);
 
-    // Auto-sync dock mode
+    // Best in Class: Predictive Asset Prewarming + Persistent Cache
     useEffect(() => {
-        if (activeTabIndex === 6 || activeTabIndex === 7) {
+        if (!user || loading) return;
+
+        const { memories, idToken } = useOrbitStore.getState();
+
+        const prewarm = async (index: number) => {
+            if (index === 2) { // Memories Tab
+                const firstFive = memories.slice(0, 5);
+                firstFive.forEach(async (m) => {
+                    if (m.image_url) {
+                        try {
+                            const url = getPublicStorageUrl(m.image_url, 'memories', idToken || '');
+                            if (!url) return;
+
+                            // Best in Class: Persistent Signal-style storage
+                            const { ensureMediaPersistent } = require('../lib/media');
+                            ensureMediaPersistent(m.id, url);
+
+                            // Expo Image prefetch for immediate use
+                            const { Image } = require('expo-image');
+                            Image.prefetch(url);
+                        } catch (e) { }
+                    }
+                });
+            }
+        };
+
+        if (activeTabIndex === 1) prewarm(2);
+        if (activeTabIndex === 0) prewarm(2);
+    }, [activeTabIndex, loading]);
+
+    // Auto-sync dock mode (Ultra-responsive)
+    useEffect(() => {
+        // Lunara screens are now 5 (Lunara) and 6 (Partner)
+        if (activeTabIndex === 5 || activeTabIndex === 6) {
             setAppMode('lunara');
-        } else if (activeTabIndex <= 5 && appMode === 'lunara') {
+        } else if (activeTabIndex === 1 || activeTabIndex === 2 || activeTabIndex === 4) {
+            // Dashboard, Letters, Intimacy (Memories 3 can be both, so we skip it to preserve current mode)
             setAppMode('moon');
         }
     }, [activeTabIndex]);
@@ -99,8 +137,11 @@ export default function Index() {
                 style={styles.pagerView}
                 initialPage={activeTabIndex}
                 scrollEnabled={isPagerScrollEnabled}
+                onPageScroll={(e) => {
+                    scrollOffset.value = e.nativeEvent.position + e.nativeEvent.offset;
+                }}
                 onPageSelected={(e) => {
-                    if (isSyncingRef.current) return; // Ignore programmatic changes from echoing
+                    if (isSyncingRef.current) return;
                     setTabIndex(e.nativeEvent.position);
                 }}
                 onLayout={() => setIsPagerReady(true)}
@@ -121,14 +162,13 @@ export default function Index() {
                     <IntimacyScreen />
                 </View>
                 <View key="5">
-                    <SettingsScreen />
-                </View>
-                {/* Tab 6: Lunara — only rendered in lunara mode */}
-                <View key="6">
                     <LunaraScreen />
                 </View>
-                <View key="7">
+                <View key="6">
                     <PartnerScreen />
+                </View>
+                <View key="7">
+                    <SettingsScreen />
                 </View>
             </PagerView>
 

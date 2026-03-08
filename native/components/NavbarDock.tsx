@@ -1,10 +1,13 @@
-import React, { useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text } from 'react-native';
-import Animated, { useAnimatedStyle, withTiming, useSharedValue, withSequence, withDelay } from 'react-native-reanimated';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import Animated, {
+    useAnimatedStyle, withTiming, useSharedValue, withSequence, withDelay, useDerivedValue,
+    interpolate, Extrapolate
+} from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
-import { ANIM_MICRO, ANIM_FADE_IN, ANIM_FADE_OUT } from '../constants/Animation';
+import { ANIM_MICRO } from '../constants/Animation';
 
-import { Colors, Spacing } from '../constants/Theme';
+import { Colors } from '../constants/Theme';
 import {
     LayoutDashboard, Image as ImageIcon, Mail, Flame,
     Search, Bell, Sparkles, Compass, Heart
@@ -14,16 +17,21 @@ import * as Haptics from 'expo-haptics';
 import { useOrbitStore } from '../lib/store';
 import { rtdb } from '../lib/firebase';
 import { ref, onValue } from 'firebase/database';
-import { useState } from 'react';
+import { GlitterPill } from './GlitterPill';
 
 const BTN_SIZE = 40;
 const BTN_GAP = 4;
 const SLOT = BTN_SIZE + BTN_GAP; // 44px
 
+/**
+ * NavbarDock: Refined for "Instant fingertips" and "Unified coordinates"
+ * to avoid jumping/jitter when appMode switches mid-swipe.
+ */
 export function NavbarDock() {
     const {
         activeTabIndex,
         setTabIndex,
+        scrollOffset,
         setNotificationDrawerOpen,
         appMode,
         toggleAppMode,
@@ -34,93 +42,96 @@ export function NavbarDock() {
     const insets = useSafeAreaInsets();
     const [isPartnerActive, setIsPartnerActive] = useState(false);
 
-    // RTDB instantaneous presence instead of last_seen Firestore polling
     useEffect(() => {
         if (!couple?.id || !profile?.partner_id) return;
-
         const partnerRef = ref(rtdb, `presence/${couple.id}/${profile.partner_id}`);
         const unsub = onValue(partnerRef, (snapshot) => {
             const data = snapshot.val();
             setIsPartnerActive(!!data?.is_online || !!data?.in_cinema);
         });
-
         return unsub;
     }, [couple?.id, profile?.partner_id]);
 
     const isLunara = appMode === 'lunara';
 
-    // Moon mode: 4 tabs (Dashboard, Letters, Memories, Intimacy)
+    // UI DEFINITIONS
     const moonNavItems = [
-        { name: 'Dashboard', icon: LayoutDashboard, tabIndex: 1, unread: false },
-        { name: 'Letters', icon: Mail, tabIndex: 2, unread: true },
-        { name: 'Memories', icon: ImageIcon, tabIndex: 3, unread: true },
-        { name: 'Intimacy', icon: Flame, tabIndex: 4, unread: true },
+        { name: 'Dashboard', icon: LayoutDashboard, tabIndex: 1 },
+        { name: 'Letters', icon: Mail, tabIndex: 2 },
+        { name: 'Memories', icon: ImageIcon, tabIndex: 3 },
+        { name: 'Intimacy', icon: Flame, tabIndex: 4 },
     ];
-
-    // Lunara mode: 3 tabs (Lunara/Home, Discover/Memories, Partner/Heart)
     const lunaraNavItems = [
-        { name: 'Lunara', icon: Sparkles, tabIndex: 6, unread: false },  // cycle screen
-        { name: 'Discover', icon: Compass, tabIndex: 3, unread: false },  // memories
-        { name: 'Partner', icon: Heart, tabIndex: 7, unread: false },  // partner screen (calendar)
+        { name: 'Discover', icon: Compass, tabIndex: 3 },
+        { name: 'Lunara', icon: Sparkles, tabIndex: 5 },
+        { name: 'Partner', icon: Heart, tabIndex: 6 },
     ];
-
-
     const navItems = isLunara ? lunaraNavItems : moonNavItems;
 
-    // Indicator x position - pixel perfect center of the active button
-    // Each button occupies BTN_SIZE px, with BTN_GAP between them
-    const getIndicatorX = (idx: number) => {
-        // Find active item's position index in current navItems array (0 to 3)
-        const posIdx = navItems.findIndex(item => item.tabIndex === idx);
-        const i = posIdx >= 0 ? posIdx : 0;
-        return i * SLOT;
-    };
+    /**
+     * UNIFIED COORDINATE SYSTEM
+     * We map ALL tabs [1-6] to a virtual "Dock X" coordinate.
+     * This avoids the "freeze in mid" jitter because the mapping is continuous.
+     */
+    const translateX = useDerivedValue(() => {
+        // We define a consistent translation for each tab index regardless of current mode
+        // Dashboard(1), Letters(2), Memories/Discover(3), Intimacy(4), Lunara(5), Partner(6)
 
-    const translateX = useSharedValue(getIndicatorX(activeTabIndex));
+        const inputRange = [1, 2, 3, 4, 5, 6];
 
-    // Icons crossfade when mode switches
-    const iconsOpacity = useSharedValue(1);
-    const borderOpacity = useSharedValue(1);
+        // Define Slot offsets relative to the start of the dock
+        // In Moon mode: D(0), L(1), M(2), I(3)
+        // In Lunara mode: D(0), Lu(1), P(2)  <-- Tab 3 is Slot 0 here
 
-    // Slide dock down when hidden
-    const isDockHidden = activeTabIndex === 0;
-    const dockTranslationY = useSharedValue(isDockHidden ? 150 : 0);
-    const dockOpacity = useSharedValue(isDockHidden ? 0 : 1);
+        // To make it SNAPPY and "FOLLOW FINGERTIPS", we calculate the SLOT based on 
+        // the mode we'll be in (or are currently in).
 
-    // Animate immediately — withTiming keeps pill in sync with icon colour switch
-
-    const animatePillTo = (posIdx: number) => {
-        translateX.value = withTiming(posIdx * SLOT, ANIM_MICRO);
-    };
-
-    // Fallback sync for PagerView swipe
-    useEffect(() => {
-        const posIdx = navItems.findIndex(item => item.tabIndex === activeTabIndex);
-        if (posIdx >= 0) {
-            translateX.value = withTiming(posIdx * SLOT, ANIM_MICRO);
+        if (isLunara) {
+            // Lunara logic: Tab 3 is 0, 5 is 1, 6 is 2.
+            // We extrapolate others to keep the line moving.
+            const lunaraOutput = [
+                -2 * SLOT, // 1
+                -1 * SLOT, // 2
+                0 * SLOT,  // 3
+                0.5 * SLOT, // 4 (transition)
+                1 * SLOT,  // 5
+                2 * SLOT   // 6
+            ];
+            return interpolate(scrollOffset.value, inputRange, lunaraOutput, Extrapolate.CLAMP);
+        } else {
+            // Moon logic: 1 is 0, 2 is 1, 3 is 2, 4 is 3.
+            const moonOutput = [
+                0 * SLOT, // 1
+                1 * SLOT, // 2
+                2 * SLOT, // 3
+                3 * SLOT, // 4
+                4 * SLOT, // 5
+                5 * SLOT  // 6
+            ];
+            return interpolate(scrollOffset.value, inputRange, moonOutput, Extrapolate.CLAMP);
         }
-    }, [activeTabIndex, isLunara]);
+    });
 
-    // Smooth crossfade when dock mode changes
+    const iconsOpacity = useSharedValue(1);
+    const dockTranslationY = useSharedValue(activeTabIndex === 0 ? 150 : 0);
+    const dockOpacity = useSharedValue(activeTabIndex === 0 ? 0 : 1);
+
     useEffect(() => {
-        // Fade icons out, pill snaps during invisible window, fade back in
         iconsOpacity.value = withSequence(
             withTiming(0, { duration: 80 }),
             withDelay(20, withTiming(1, { duration: 120 }))
         );
     }, [isLunara]);
 
-    // Slide dock out when hidden (e.g. going into Cinema)
     useEffect(() => {
-        if (isDockHidden) {
-            dockTranslationY.value = 150; // Instant slide down
-            dockOpacity.value = 0; // Instant fade out
+        if (activeTabIndex === 0) {
+            dockTranslationY.value = withTiming(150, ANIM_MICRO);
+            dockOpacity.value = withTiming(0, ANIM_MICRO);
         } else {
             dockTranslationY.value = withTiming(0, ANIM_MICRO);
             dockOpacity.value = withTiming(1, ANIM_MICRO);
         }
-    }, [isDockHidden]);
-
+    }, [activeTabIndex]);
 
     const animatedIndicatorStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: translateX.value }],
@@ -133,66 +144,34 @@ export function NavbarDock() {
         opacity: dockOpacity.value,
     }));
 
-
-    // Theme accent colors
     const accent = isLunara ? '#a855f7' : '#f43f5e';
-    const accentSoft = isLunara ? 'rgba(168,85,247,0.2)' : 'rgba(244,63,94,0.12)';
     const accentBorder = isLunara ? 'rgba(168,85,247,0.4)' : 'rgba(225,29,72,0.4)';
-    const accentGlow = isLunara ? 'rgba(168,85,247,0.07)' : 'rgba(0,0,0,0)';
 
     const activeNavIndex = navItems.findIndex(item => item.tabIndex === activeTabIndex);
     const isActiveInDock = activeNavIndex >= 0;
 
     return (
-        <Animated.View style={[styles.dockContainer, { bottom: Math.max(insets.bottom, 12) }, animatedDockContainerStyle]} pointerEvents={isDockHidden ? 'none' : 'box-none'}>
+        <Animated.View style={[styles.dockContainer, { bottom: Math.max(insets.bottom, 12) }, animatedDockContainerStyle]} pointerEvents={activeTabIndex === 0 ? 'none' : 'box-none'}>
             <View style={styles.dockWrapper}>
 
-
-                {/* Bell (Notifications) */}
-                <BlurView
-                    intensity={30}
-                    tint="dark"
-                    experimentalBlurMethod="dimezisBlurView"
-                    style={[
-                        styles.sideCapsule,
-                        { borderColor: isPartnerActive ? '#10b981' : accentBorder }
-                    ]}
-                >
-                    <TouchableOpacity
-                        style={styles.sideBtn}
-                        onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                            setNotificationDrawerOpen(true);
-                        }}
-                    >
+                {/* Bell */}
+                <BlurView intensity={30} tint="dark" experimentalBlurMethod="dimezisBlurView" style={[styles.sideCapsule, { borderColor: isPartnerActive ? '#10b981' : accentBorder }]}>
+                    <TouchableOpacity style={styles.sideBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setNotificationDrawerOpen(true); }}>
                         <Bell size={20} color="rgba(255,255,255,0.5)" strokeWidth={2} />
                     </TouchableOpacity>
                 </BlurView>
 
-                {/* Middle Navigation Capsule */}
-                <BlurView
-                    intensity={30}
-                    tint="dark"
-                    experimentalBlurMethod="dimezisBlurView"
-                    style={[
-                        styles.middleCapsule,
-                        {
-                            borderColor: isPartnerActive ? '#10b981' : accentBorder,
-                            backgroundColor: accentGlow
-                        }
-                    ]}
-                >
+                {/* Main Navigation Capsule */}
+                <BlurView intensity={30} tint="dark" experimentalBlurMethod="dimezisBlurView" style={[styles.middleCapsule, { borderColor: isPartnerActive ? '#10b981' : accentBorder }]}>
                     <View style={styles.middleContent}>
-                        {/* Sliding Active Pill */}
                         {isActiveInDock && (
                             <Animated.View style={[styles.pillTrack, animatedIndicatorStyle]}>
-                                <View style={[styles.activePill, { backgroundColor: accentSoft, borderColor: accent + '55' }]} />
+                                <GlitterPill color={accent} isLunara={isLunara} />
                             </Animated.View>
                         )}
 
-                        {/* Nav Buttons — wrapped for crossfade on mode switch */}
                         <Animated.View style={[styles.navRow, iconsStyle]}>
-                            {navItems.map((item, posIdx) => {
+                            {navItems.map((item) => {
                                 const isActive = item.tabIndex === activeTabIndex;
                                 const Icon = item.icon;
                                 return (
@@ -201,37 +180,22 @@ export function NavbarDock() {
                                         style={styles.navBtn}
                                         onPress={() => {
                                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                            animatePillTo(posIdx); // immediate — no state round-trip lag
                                             setTabIndex(item.tabIndex);
                                         }}
                                         onLongPress={() => {
                                             if (item.name === 'Dashboard' || item.name === 'Lunara') {
                                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                                                if (isLunara) {
-                                                    // Switch back to Moon → go to Dashboard
-                                                    toggleAppMode();
-                                                    setTabIndex(1);
-                                                } else {
-                                                    // Switch to Lunara → go to Lunara screen
-                                                    toggleAppMode();
-                                                    setTabIndex(6);
-                                                }
-
+                                                toggleAppMode();
+                                                setTabIndex(isLunara ? 1 : 6);
                                             }
                                         }}
                                         delayLongPress={400}
                                     >
                                         <Icon
                                             size={20}
-                                            color={isActive
-                                                ? (isLunara ? '#d8b4fe' : 'rgba(255,255,255,0.95)')
-                                                : 'rgba(255,255,255,0.4)'}
+                                            color={isActive ? (isLunara ? '#d8b4fe' : '#fff') : 'rgba(255,255,255,0.4)'}
                                             strokeWidth={isActive ? 2.5 : 2}
                                         />
-                                        {/* Unread dot */}
-                                        {!isActive && item.unread && (
-                                            <View style={[styles.unreadDot, { backgroundColor: accent }]} />
-                                        )}
                                     </TouchableOpacity>
                                 );
                             })}
@@ -240,111 +204,25 @@ export function NavbarDock() {
                 </BlurView>
 
                 {/* Search */}
-                <BlurView
-                    intensity={30}
-                    tint="dark"
-                    experimentalBlurMethod="dimezisBlurView"
-                    style={[
-                        styles.sideCapsule,
-                        { borderColor: isPartnerActive ? '#10b981' : accentBorder }
-                    ]}
-                >
-                    <TouchableOpacity
-                        style={styles.sideBtn}
-                        onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                            setSearchOpen(true);
-                        }}
-                    >
+                <BlurView intensity={30} tint="dark" experimentalBlurMethod="dimezisBlurView" style={[styles.sideCapsule, { borderColor: isPartnerActive ? '#10b981' : accentBorder }]}>
+                    <TouchableOpacity style={styles.sideBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setSearchOpen(true); }}>
                         <Search size={20} color="rgba(255,255,255,0.5)" strokeWidth={2} />
                     </TouchableOpacity>
                 </BlurView>
+
             </View>
         </Animated.View>
-
     );
 }
 
-
 const styles = StyleSheet.create({
-    dockContainer: {
-        position: 'absolute',
-        left: 0, right: 0,
-        alignItems: 'center',
-        zIndex: 100,
-    },
-    dockWrapper: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-
-    // Side capsules (Bell / Search)
-    sideCapsule: {
-        borderRadius: 24,
-        overflow: 'hidden',
-        borderWidth: 1,
-        backgroundColor: 'rgba(0,0,0,0.55)',
-        padding: 4,
-    },
-    sideBtn: {
-        width: BTN_SIZE,
-        height: BTN_SIZE,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-
-    // Middle capsule
-    middleCapsule: {
-        borderRadius: 999,
-        overflow: 'hidden',
-        borderWidth: 1,
-        backgroundColor: 'rgba(0,0,0,0.55)',
-    },
-    middleContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        gap: BTN_GAP,
-        position: 'relative',
-    },
-
-    // Nav button — same size as slot
-    navBtn: {
-        width: BTN_SIZE,
-        height: BTN_SIZE,
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1,
-    },
-    navRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: BTN_GAP,
-    },
-
-    // Sliding pill — absolute, same size as navBtn
-    pillTrack: {
-        position: 'absolute',
-        left: 8, // matches paddingHorizontal
-        top: 4,  // matches paddingVertical
-        width: BTN_SIZE,
-        height: BTN_SIZE,
-        zIndex: 0,
-    },
-    activePill: {
-        flex: 1,
-        borderRadius: BTN_SIZE / 2,
-        borderWidth: 1,
-    },
-
-    unreadDot: {
-        position: 'absolute',
-        top: 8, right: 8,
-        width: 6, height: 6,
-        borderRadius: 3,
-        borderWidth: 1.5,
-        borderColor: '#0a0a0f',
-    },
+    dockContainer: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 100 },
+    dockWrapper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    sideCapsule: { borderRadius: 24, overflow: 'hidden', borderWidth: 1, backgroundColor: 'rgba(0,0,0,0.55)', padding: 4 },
+    sideBtn: { width: BTN_SIZE, height: BTN_SIZE, alignItems: 'center', justifyContent: 'center' },
+    middleCapsule: { borderRadius: 999, overflow: 'hidden', borderWidth: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
+    middleContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, gap: BTN_GAP, position: 'relative' },
+    navBtn: { width: BTN_SIZE, height: BTN_SIZE, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+    navRow: { flexDirection: 'row', alignItems: 'center', gap: BTN_GAP },
+    pillTrack: { position: 'absolute', left: 8, top: 4, width: BTN_SIZE, height: BTN_SIZE, zIndex: 0 },
 });

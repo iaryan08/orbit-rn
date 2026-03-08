@@ -20,8 +20,9 @@ import * as Haptics from 'expo-haptics';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 
 export function HeaderPill({ title, scrollOffset, showAt = 60, count }: HeaderPillProps) {
-    const { profile, idToken, setTabIndex } = useOrbitStore();
+    const { profile, idToken, setTabIndex, appMode } = useOrbitStore();
     const insets = useSafeAreaInsets();
+    const isLunara = appMode === 'lunara';
 
     const handleProfilePress = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -36,8 +37,8 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count }: HeaderPi
         <View style={styles.headerContent}>
             <View style={styles.pillContainer}>
                 <BlurView intensity={30} tint="dark" style={styles.blur} experimentalBlurMethod="dimezisBlurView">
-                    <View style={styles.dot} />
-                    <Text style={styles.text}>{title.toUpperCase()}</Text>
+                    <View style={[styles.dot, isLunara && { backgroundColor: '#a855f7' }]} />
+                    <Text style={[styles.text, isLunara && styles.lunaraText]}>{title.toUpperCase()}</Text>
                     {count !== undefined && (
                         <>
                             <View style={styles.divider} />
@@ -92,9 +93,15 @@ const styles = StyleSheet.create({
     },
     text: {
         color: 'white',
-        fontSize: 11,
+        fontSize: 10,
         letterSpacing: 2,
         fontFamily: Typography.sansBold,
+    },
+    lunaraText: {
+        fontFamily: Typography.serif,
+        color: '#d8b4fe',
+        letterSpacing: 1,
+        fontSize: 12,
     },
     divider: {
         width: 1,

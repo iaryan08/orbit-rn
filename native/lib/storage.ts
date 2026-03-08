@@ -4,40 +4,11 @@
 // Note: Expo requires the EXPO_PUBLIC_ prefix for env vars to be bundled in release builds.
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://orbit-rn-beta.vercel.app';
 
-const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
-function encodeBase64(str: string): string {
-    let output = '';
-    let i = 0;
-    str = unescape(encodeURIComponent(str));
-
-    while (i < str.length) {
-        const chr1 = str.charCodeAt(i++);
-        const chr2 = i < str.length ? str.charCodeAt(i++) : Number.NaN;
-        const chr3 = i < str.length ? str.charCodeAt(i++) : Number.NaN;
-
-        const enc1 = chr1 >> 2;
-        const enc2 = ((chr1 & 3) << 4) | (isNaN(chr2) ? 0 : chr2 >> 4);
-        const enc3 = isNaN(chr2) ? 64 : ((chr2 & 15) << 2) | (isNaN(chr3) ? 0 : chr3 >> 6);
-        const enc4 = isNaN(chr3) ? 64 : chr3 & 63;
-
-        output += chars.charAt(enc1) + chars.charAt(enc2) +
-            (enc3 === 64 ? '=' : chars.charAt(enc3)) +
-            (enc4 === 64 ? '=' : chars.charAt(enc4));
-    }
-    return output;
-}
-
-function encodeMediaToken(payload: Record<string, any>): string {
-    const jsonStr = JSON.stringify(payload);
-    let base64 = encodeBase64(jsonStr);
-
-    return base64
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/, '');
-}
-
+/**
+ * Generates a storage URL for assets using the Next.js backend proxy.
+ * Standard query parameters are much more robust across React Native environments
+ * than manual Base64 encoding which often requires polyfills for TextEncoder/Buffer.
+ */
 export function getPublicStorageUrl(path: string | null | undefined, bucket: string = 'memories', authToken?: string | null) {
     if (!path || typeof path !== 'string') return null;
 
@@ -45,17 +16,14 @@ export function getPublicStorageUrl(path: string | null | undefined, bucket: str
     if (path.startsWith('data:')) return path;
 
     const cleanPath = path.replace(/^\/+/, '');
+    const finalBucket = cleanPath.startsWith(`${bucket}/`) ? '' : bucket;
+    const finalPath = finalBucket ? `${finalBucket}/${cleanPath}` : cleanPath;
 
-    // The Next.js web app proxy expects a Base64 encoded token of {bucket, path}
-    try {
-        const token = encodeMediaToken({ bucket, path: cleanPath });
-        let url = `${API_BASE}/api/media/view/${token}`;
-        if (authToken) {
-            url += `?auth=${authToken}`;
-        }
-        return url;
-    } catch (e) {
-        console.error("Failed to encode media token:", e);
-        return `${API_BASE}/api/media/view/${bucket}/${cleanPath}${authToken ? `?auth=${authToken}` : ''}`;
+    let url = `${API_BASE}/api/media/view/${finalPath.replace(/\/\//g, '/')}`;
+
+    if (authToken) {
+        url += `?auth=${encodeURIComponent(authToken)}`;
     }
+
+    return url;
 }

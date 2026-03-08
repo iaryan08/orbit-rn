@@ -11,11 +11,22 @@ import { getPublicStorageUrl } from '../../lib/storage';
 import { rtdb } from '../../lib/firebase';
 import { ref, update, set, onDisconnect, onValue } from 'firebase/database';
 import * as Haptics from 'expo-haptics';
-import { Film, X, Plus } from 'lucide-react-native';
+import { Film, X, Plus, Play, Pause, Sparkles as SparklesIcon, RotateCcw, RotateCw, SkipBack, SkipForward, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { Emoji } from '../Emoji';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { Canvas, Blur, ColorMatrix, Group, Paint, Circle } from '@shopify/react-native-skia';
+import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
+import { GlassCard } from '../GlassCard';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+const INITIAL_VIDEO = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+const MOVIE_LIBRARY = [
+    { title: 'Big Buck Bunny', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' },
+    { title: 'Elephant Dream', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4' },
+    { title: 'Sintel', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4' },
+];
 
 type ReactionType = 'laugh' | 'heartbeat' | 'tap' | 'emoji-preset';
 
@@ -27,7 +38,25 @@ export function SyncCinemaScreen() {
     const isFocused = activeTabIndex === 0;
     const insets = useSafeAreaInsets();
 
+    const [videoSource, setVideoSource] = useState(INITIAL_VIDEO);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [showLibrary, setShowLibrary] = useState(false);
 
+    const player = useVideoPlayer(isFocused ? videoSource : '', (p) => {
+        p.loop = true;
+    });
+
+    // Keep audio/play state synced with focus
+    useEffect(() => {
+        if (!isFocused) {
+            player.pause();
+            player.muted = true;
+        } else {
+            // Re-mute based on user settings if needed, but for now just unmute
+            player.muted = false;
+            if (isPlaying) player.play();
+        }
+    }, [isFocused, player, isPlaying]);
     const [partnerInCinema, setPartnerInCinema] = useState(false);
     const [incomingReaction, setIncomingReaction] = useState<{ type: ReactionType; emoji?: string; senderName?: string; senderId?: string } | null>(null);
     const [selectedEmoji, setSelectedEmoji] = useState(BASE_EMOJIS[0]);
@@ -65,11 +94,17 @@ export function SyncCinemaScreen() {
         const presenceRef = ref(rtdb, `presence/${couple.id}/${profile.id}`);
         const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
 
-        update(presenceRef, {
-            in_cinema: true,
-            is_online: true,
-            last_changed: Date.now()
-        });
+        const updatePresence = () => {
+            update(presenceRef, {
+                in_cinema: true,
+                is_online: true,
+                last_changed: Date.now()
+            });
+        };
+
+        updatePresence();
+        const heartbeat = setInterval(updatePresence, 60000);
+
         onDisconnect(presenceRef).update({
             in_cinema: null,
             is_online: false
@@ -80,6 +115,7 @@ export function SyncCinemaScreen() {
 
 
         return () => {
+            clearInterval(heartbeat);
             // Add a small delay so rapid tab switching doesn't accidentally clear the state
             // after it was just re-established.
             setTimeout(() => {
@@ -98,6 +134,9 @@ export function SyncCinemaScreen() {
     // Listen for partner presence and events
     useEffect(() => {
         if (!couple?.id || !partnerProfile?.id) return;
+
+        // Guard: Only listen if focused to prevent background noise/sync
+        if (!isFocused) return;
 
         // Presence listener
         const presenceRef = ref(rtdb, `presence/${couple.id}/${partnerProfile.id}`);
@@ -118,11 +157,49 @@ export function SyncCinemaScreen() {
             }
         });
 
+        // Listen for playback sync
+        const playbackRef = ref(rtdb, `playback/${couple.id}`);
+        const unsubPlayback = onValue(playbackRef, (snap) => {
+            const data = snap.val();
+            if (!data || data.senderId === profile?.id) return;
+
+            if (data.action === 'play') {
+                player.play();
+                setIsPlaying(true);
+            } else if (data.action === 'pause') {
+                player.pause();
+                setIsPlaying(false);
+            } else if (data.action === 'source_change') {
+                setVideoSource(data.url);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } else if (data.action === 'seek' && Math.abs(player.currentTime - data.time) > 2) {
+                player.currentTime = data.time;
+            }
+        });
+
         return () => {
             unsubPresence();
             unsubBroadcasts();
+            unsubPlayback();
         };
-    }, [couple?.id, partnerProfile?.id]);
+    }, [isFocused, couple?.id, partnerProfile?.id, player]);
+
+    const togglePlayback = () => {
+        const next = !isPlaying;
+        setIsPlaying(next);
+        if (next) player.play();
+        else player.pause();
+
+        if (couple?.id && partnerInCinema) {
+            const playbackRef = ref(rtdb, `playback/${couple.id}`);
+            update(playbackRef, {
+                action: next ? 'play' : 'pause',
+                time: player.currentTime,
+                senderId: profile?.id,
+                timestamp: Date.now()
+            });
+        }
+    };
 
     const handleIncomingEvent = (event: any) => {
         if (!event || event.senderId === profile?.id) return;
@@ -201,8 +278,8 @@ export function SyncCinemaScreen() {
         if (now - lastBroadcastAt.current < 500) return;
         lastBroadcastAt.current = now;
 
-        // Broadcast to RTDB natively using the exact same structure as web SyncEngine
-        if (couple?.id && profile?.id) {
+        // Only broadcast reactions if partner is actually here to see them, saving DB resources
+        if (couple?.id && profile?.id && partnerInCinema) {
             const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
             set(broadcastRef, {
                 event: 'cinema_event',
@@ -319,13 +396,124 @@ export function SyncCinemaScreen() {
         }
     }, [isFocused]);
 
-    if (!isFocused) return null;
+    // if (!isFocused) return null; // MOVED: Now we keep it mounted to preserve player state
 
+
+    const handleSeek = (seconds: number) => {
+        const newTime = Math.max(0, Math.min(player.duration, player.currentTime + seconds));
+        player.currentTime = newTime;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+        if (couple?.id && partnerInCinema) {
+            const playbackRef = ref(rtdb, `playback/${couple.id}`);
+            update(playbackRef, {
+                action: 'seek',
+                time: newTime,
+                senderId: profile?.id,
+                timestamp: Date.now()
+            });
+        }
+    };
+
+    const handleSourceChange = (url: string) => {
+        setVideoSource(url);
+        setShowLibrary(false);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+        if (couple?.id && profile?.id && partnerInCinema) {
+            const playbackRef = ref(rtdb, `playback/${couple.id}`);
+            update(playbackRef, {
+                action: 'source_change',
+                url,
+                senderId: profile.id,
+                timestamp: Date.now()
+            });
+        }
+    };
+
+    const formatTime = (seconds: number) => {
+        if (!seconds || isNaN(seconds)) return "00:00";
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // Auto-resume on focus if it was playing
+    useEffect(() => {
+        if (isFocused && isPlaying) {
+            player.play();
+        }
+    }, [isFocused]);
+
+    if (!isFocused) return <View style={styles.container} />; // Strict dead-code policy for background tabs
 
     return (
         <View style={styles.container}>
+            <VideoView
+                player={player}
+                style={StyleSheet.absoluteFill}
+                contentFit="contain"
+                nativeControls={false}
+                allowsFullscreen={false}
+                allowsPictureInPicture={false}
+            />
+
+            {/* Tap/Interaction Layer - Only captures if not on a button */}
             <GestureDetector gesture={composed}>
                 <View style={StyleSheet.absoluteFill}>
+                    {/* Dark overlay to make UI readable */}
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: isFocused ? 'rgba(0,0,0,0.4)' : 'black' }]} pointerEvents="none" />
+                </View>
+            </GestureDetector>
+
+            {isFocused && (
+                <>
+                    {/* Playback Controls Layer - Outside the GestureDetector to ensure button priority */}
+                    <View style={styles.playbackControlsRow} pointerEvents="box-none">
+                        <TouchableOpacity style={styles.controlSmallBtn} onPress={() => handleSeek(-15)}>
+                            <RotateCcw size={24} color="white" />
+                            <Text style={styles.skipText}>15</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.playBtn}
+                            onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                togglePlayback();
+                            }}
+                        >
+                            {isPlaying ? <Pause size={32} color="white" /> : <Play size={32} color="white" />}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.controlSmallBtn} onPress={() => handleSeek(15)}>
+                            <RotateCw size={24} color="white" />
+                            <Text style={styles.skipText}>15</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Timeline HUD */}
+                    <View style={[styles.timelineContainer, { bottom: insets.bottom + 80 }]} pointerEvents="none">
+                        <View style={styles.progressBarBg}>
+                            <View style={[styles.progressBarFill, { width: `${(player.currentTime / (player.duration || 1)) * 100}%` }]} />
+                        </View>
+                        <View style={styles.timeRow}>
+                            <Text style={styles.timeLabel}>{formatTime(player.currentTime)}</Text>
+                            <Text style={styles.timeLabel}>{formatTime(player.duration)}</Text>
+                        </View>
+                    </View>
+
+                    {/* Top Controls */}
+                    <View style={[styles.topActions, { top: insets.top + 12 }]}>
+                        <TouchableOpacity
+                            style={styles.libraryBtn}
+                            onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setShowLibrary(true);
+                            }}
+                        >
+                            <Film size={20} color="white" />
+                        </TouchableOpacity>
+                    </View>
 
                     {/* HUD */}
                     <View style={styles.hudContainer} pointerEvents="none">
@@ -356,22 +544,59 @@ export function SyncCinemaScreen() {
                         </Animated.View>
                     </View>
 
+                    {/* Content Library Modal */}
+                    <Modal visible={showLibrary} transparent animationType="fade" onRequestClose={() => setShowLibrary(false)}>
+                        <View style={styles.modalOverlay}>
+                            <GlassCard style={styles.libraryCard} intensity={40}>
+                                <View style={styles.libraryHeader}>
+                                    <Text style={styles.libraryTitle}>SELECT EXPERIENCE</Text>
+                                    <TouchableOpacity onPress={() => setShowLibrary(false)}>
+                                        <X size={24} color="rgba(255,255,255,0.5)" />
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={styles.libraryList}>
+                                    {MOVIE_LIBRARY.map((movie) => (
+                                        <TouchableOpacity
+                                            key={movie.url}
+                                            style={[styles.libraryItem, videoSource === movie.url && styles.libraryItemActive]}
+                                            onPress={() => handleSourceChange(movie.url)}
+                                        >
+                                            <Text style={[styles.libraryItemText, videoSource === movie.url && styles.libraryItemTextActive]}>
+                                                {movie.title.toUpperCase()}
+                                            </Text>
+                                            {videoSource === movie.url && <SparklesIcon size={14} color="#fbbf24" />}
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </GlassCard>
+                        </View>
+                    </Modal>
+
                     {/* Reaction Overlay */}
                     {incomingReaction && (
                         <Animated.View style={[styles.reactionOverlay, animatedReactionStyle]} pointerEvents="none">
                             <View style={{ alignItems: 'center' }}>
                                 <Animated.View style={[
                                     styles.reactionContainer,
-                                    animatedReactionStyle,
-                                    incomingReaction.type === 'heartbeat' && {
-                                        shadowColor: (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? '#f43f5e' : '#0ea5e9',
-                                        shadowOffset: { width: 0, height: 0 },
-                                        shadowOpacity: 0.9,
-                                        shadowRadius: 80,
-                                        elevation: 0,
-                                        borderRadius: 70,
-                                    }
+                                    animatedReactionStyle
                                 ]}>
+                                    {incomingReaction.type === 'heartbeat' && (
+                                        <View style={{ position: 'absolute', width: 300, height: 300, alignItems: 'center', justifyContent: 'center' }}>
+                                            <Canvas style={{ width: 300, height: 300 }}>
+                                                <Circle cx={150} cy={150} r={70}>
+                                                    <Paint>
+                                                        <Blur blur={45} />
+                                                        <ColorMatrix matrix={[
+                                                            1, 0, 0, 0, (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? 0.95 : 0.05,
+                                                            0, 1, 0, 0, (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? 0.25 : 0.65,
+                                                            0, 0, 1, 0, (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? 0.35 : 0.95,
+                                                            0, 0, 0, 1, 0,
+                                                        ]} />
+                                                    </Paint>
+                                                </Circle>
+                                            </Canvas>
+                                        </View>
+                                    )}
                                     {incomingReaction.type === 'heartbeat' ? (
                                         (incomingReaction.senderId === partnerProfile?.id && partnerAvatarUrl) ? (
                                             <Image
@@ -396,7 +621,7 @@ export function SyncCinemaScreen() {
                                                 }}
                                             />
                                         ) : (
-                                            <Emoji symbol="❤️" size={100} style={{ textShadowColor: 'rgba(244,63,94,0.8)' }} />
+                                            <Emoji symbol="❤️" size={100} />
                                         )
                                     ) : (
                                         <Emoji
@@ -433,85 +658,80 @@ export function SyncCinemaScreen() {
                             </View>
                         </Animated.View>
                     )}
-                </View>
-            </GestureDetector>
 
-            {/* Emoji Tray */}
-            <Animated.View style={[styles.trayContainer, { bottom: Math.max(insets.bottom, 16) }, animatedTrayStyle]} pointerEvents="box-none">
-                <View style={[
-                    styles.emojiTray,
-                    { borderColor: partnerInCinema ? 'rgba(16, 185, 129, 0.5)' : 'rgba(225, 29, 72, 0.4)' }
-                ]}>
-                    {[...BASE_EMOJIS, ...customEmojis].map((emoji) => (
-                        <TouchableOpacity
-                            key={emoji}
-                            disabled={!partnerInCinema}
-                            style={[
-                                styles.emojiBtn,
-                                selectedEmoji === emoji && styles.emojiBtnSelected,
-                                { opacity: partnerInCinema ? 1 : 0.5 }
-                            ]}
-                            onPress={() => {
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                setSelectedEmoji(emoji);
-                                handleAction('emoji-preset', emoji);
-                            }}
-                        >
-                            <Emoji symbol={emoji} size={18} />
-                        </TouchableOpacity>
-                    ))}
+                    {/* Emoji Tray */}
+                    <Animated.View style={[styles.trayContainer, { bottom: Math.max(insets.bottom, 16) }, animatedTrayStyle]} pointerEvents="box-none">
+                        <View style={[
+                            styles.emojiTray,
+                            { borderColor: partnerInCinema ? 'rgba(16, 185, 129, 0.5)' : 'rgba(225, 29, 72, 0.4)' }
+                        ]}>
+                            {[...BASE_EMOJIS, ...customEmojis].map((emoji) => (
+                                <TouchableOpacity
+                                    key={emoji}
+                                    disabled={!partnerInCinema}
+                                    style={[
+                                        styles.emojiBtn,
+                                        selectedEmoji === emoji && styles.emojiBtnSelected,
+                                        { opacity: partnerInCinema ? 1 : 0.5 }
+                                    ]}
+                                    onPress={() => {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                        setSelectedEmoji(emoji);
+                                        handleAction('emoji-preset', emoji);
+                                    }}
+                                >
+                                    <Emoji symbol={emoji} size={18} />
+                                </TouchableOpacity>
+                            ))}
 
-                    {customEmojis.length < 3 && (
-                        <TouchableOpacity
-                            disabled={!partnerInCinema}
-                            style={[styles.emojiBtn, { opacity: partnerInCinema ? 1 : 0.5 }]}
-                            onPress={handleAddEmojiPrompt}
-                        >
-                            <Plus size={20} color="rgba(255,255,255,0.4)" />
-                        </TouchableOpacity>
-                    )}
-                </View>
-            </Animated.View>
-
-            {/* Custom Emoji Modal */}
-            <Modal
-                visible={showEmojiModal}
-                transparent={true}
-                animationType="fade"
-                onRequestClose={() => setShowEmojiModal(false)}
-            >
-                <KeyboardAvoidingView
-                    style={styles.modalOverlay}
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                >
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Add Custom Emoji</Text>
-                        <Text style={styles.modalDesc}>Enter exactly ONE emoji.</Text>
-                        <TextInput
-                            style={[styles.modalInput, { fontFamily: 'AppleColorEmoji' }]}
-                            value={emojiInput}
-                            onChangeText={setEmojiInput}
-                            autoFocus={true}
-                            maxLength={5}
-                            selectionColor="#f43f5e"
-                        />
-                        <View style={styles.modalBtnRow}>
-                            <TouchableOpacity
-                                style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.1)' }]}
-                                onPress={() => setShowEmojiModal(false)}
-                            >
-                                <Text style={styles.modalBtnText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.modalBtn, { backgroundColor: 'rgba(244,63,94,0.8)' }]}
-                                onPress={submitCustomEmoji}
-                            >
-                                <Text style={styles.modalBtnText}>Add</Text>
-                            </TouchableOpacity>
+                            {customEmojis.length < 3 && (
+                                <TouchableOpacity
+                                    disabled={!partnerInCinema}
+                                    style={[styles.emojiBtn, { opacity: partnerInCinema ? 1 : 0.5 }]}
+                                    onPress={handleAddEmojiPrompt}
+                                >
+                                    <Plus size={20} color="rgba(255,255,255,0.4)" />
+                                </TouchableOpacity>
+                            )}
                         </View>
-                    </View>
-                </KeyboardAvoidingView>
-            </Modal>
+                    </Animated.View>
+
+                    {/* Custom Emoji Modal */}
+                    <Modal visible={showEmojiModal} transparent animationType="fade" onRequestClose={() => setShowEmojiModal(false)}>
+                        <KeyboardAvoidingView
+                            style={styles.modalOverlay}
+                            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        >
+                            <View style={styles.modalContent}>
+                                <Text style={styles.modalTitle}>Add Custom Emoji</Text>
+                                <Text style={styles.modalDesc}>Enter exactly ONE emoji.</Text>
+                                <TextInput
+                                    style={[styles.modalInput, { fontFamily: 'AppleColorEmoji' }]}
+                                    value={emojiInput}
+                                    onChangeText={setEmojiInput}
+                                    autoFocus={true}
+                                    maxLength={5}
+                                    selectionColor="#f43f5e"
+                                />
+                                <View style={styles.modalBtnRow}>
+                                    <TouchableOpacity
+                                        style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.1)' }]}
+                                        onPress={() => setShowEmojiModal(false)}
+                                    >
+                                        <Text style={styles.modalBtnText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.modalBtn, { backgroundColor: 'rgba(244,63,94,0.8)' }]}
+                                        onPress={submitCustomEmoji}
+                                    >
+                                        <Text style={styles.modalBtnText}>Add</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </KeyboardAvoidingView>
+                    </Modal>
+                </>
+            )}
         </View>
     );
 }
@@ -658,7 +878,8 @@ const styles = StyleSheet.create({
     },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.6)',
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        alignItems: 'center',
         justifyContent: 'center',
         padding: 20,
     },
@@ -709,5 +930,146 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: 'bold',
         fontSize: 16,
-    }
+    },
+    playbackControlsRow: {
+        position: 'absolute',
+        top: '50%',
+        left: 0,
+        right: 0,
+        marginTop: -40,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 40,
+        zIndex: 100,
+    },
+    controlSmallBtn: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    skipText: {
+        position: 'absolute',
+        color: 'white',
+        fontSize: 8,
+        fontWeight: '900',
+        top: 20,
+    },
+    timelineContainer: {
+        position: 'absolute',
+        left: 20,
+        right: 20,
+        zIndex: 50,
+    },
+    progressBarBg: {
+        height: 2,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderRadius: 1,
+        overflow: 'hidden',
+    },
+    progressBarFill: {
+        height: '100%',
+        backgroundColor: 'rgba(255,255,255,0.4)',
+    },
+    timeRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 8,
+    },
+    timeLabel: {
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 10,
+        fontWeight: 'bold',
+        fontFamily: Typography.sansBold,
+    },
+    playbackControls: {
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        marginLeft: -40,
+        marginTop: -40,
+        width: 80,
+        height: 80,
+        zIndex: 100,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    playBtn: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.2)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    topActions: {
+        position: 'absolute',
+        right: 20,
+        zIndex: 100,
+    },
+    libraryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+    },
+    libraryBtnText: {
+        fontSize: 10,
+        fontFamily: Typography.sansBold,
+        color: 'white',
+        letterSpacing: 1.5,
+    },
+    libraryCard: {
+        width: '100%',
+        maxWidth: 400,
+        padding: 24,
+        borderRadius: Radius.xxl,
+    },
+    libraryHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 24,
+    },
+    libraryTitle: {
+        fontSize: 12,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.4)',
+        letterSpacing: 3,
+    },
+    libraryList: {
+        gap: 12,
+    },
+    libraryItem: {
+        padding: 20,
+        borderRadius: Radius.lg,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    libraryItemActive: {
+        backgroundColor: 'rgba(168,85,247,0.1)',
+        borderColor: 'rgba(168,85,247,0.3)',
+    },
+    libraryItemText: {
+        fontSize: 16,
+        fontFamily: Typography.serif,
+        color: 'rgba(255,255,255,0.5)',
+    },
+    libraryItemTextActive: {
+        color: 'white',
+    },
 });

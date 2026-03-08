@@ -96,7 +96,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
                 {/* User Avatar (Left, Back) */}
                 <TouchableOpacity
                     style={[styles.avatarWrapper, styles.userAvatarShift]}
-                    onPress={() => setTabIndex(5)}
+                    onPress={() => setTabIndex(7)}
                 >
                     <ProfileAvatar
                         url={userAvatarUrl}

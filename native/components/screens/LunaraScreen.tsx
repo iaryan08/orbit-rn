@@ -1,14 +1,15 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity,
     Dimensions, Alert
 } from 'react-native';
 import Animated, {
     useSharedValue, useAnimatedScrollHandler, useAnimatedStyle,
-    interpolate, Extrapolate, withTiming, Easing, withSpring
+    interpolate, Extrapolate, withTiming, Easing, withSpring,
+    FadeIn
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Moon, Sparkles, Heart, Calendar, Shield, Flame, Settings, ChevronRight, Info } from 'lucide-react-native';
+import { Moon, Sparkles, Heart, Calendar, Shield, Flame, Settings, ChevronRight, Info, Droplets } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { auth, db } from '../../lib/firebase';
 import {
@@ -19,26 +20,13 @@ import { useOrbitStore } from '../../lib/store';
 import { Colors, Spacing, Typography, Radius } from '../../constants/Theme';
 import { GlassCard } from '../../components/GlassCard';
 import { HeaderPill } from '../../components/HeaderPill';
+import { predictNextPeriod, getTodayIST, getCycleDay } from '../../lib/cycle';
+import { PhaseSphere } from '../lunara/PhaseSphere';
+import { BiologicalTimeline } from '../lunara/BiologicalTimeline';
 
 const { width } = Dimensions.get('window');
 
-// ─── Cycle logic (mirrors web) ────────────────────────────────────────────────
-
-function getTodayIST(): string {
-    const now = new Date();
-    // Adjust to IST (UTC+5:30)
-    const offset = 5.5 * 60 * 60 * 1000;
-    const ist = new Date(now.getTime() + offset);
-    return ist.toISOString().split('T')[0]; // YYYY-MM-DD
-}
-
-function getCycleDay(lastPeriodStart: string, avgCycleLength = 28): number {
-    const last = new Date(lastPeriodStart);
-    const today = new Date(getTodayIST());
-    const diffMs = today.getTime() - last.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    return (diffDays % avgCycleLength) + 1;
-}
+// ─── Phase logic ─────────────────────────────────────────────────────────────
 
 function getPhaseInfo(day: number) {
     if (day <= 5) return { name: 'Menstrual', color: '#fb7185', advice: 'Rest and warmth are key today. Gentle comfort goes a long way.', partnerAdvice: 'She needs physical comfort — think warmth, her fave snacks, and gentle presence.' };
@@ -54,32 +42,31 @@ function getSuggestedSymptoms(day: number): string[] {
     return ['Mood swings', 'Cravings', 'Bloating', 'Anxiety', 'Tired'];
 }
 
-function getDaysUntilNextPeriod(lastPeriodStart: string, avgCycleLength = 28): number {
-    const currentDay = getCycleDay(lastPeriodStart, avgCycleLength);
-    return avgCycleLength - currentDay + 1;
-}
-
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export function LunaraScreen() {
-    const { profile, partnerProfile, couple, cycleLogs } = useOrbitStore();
+    const {
+        profile,
+        partnerProfile,
+        couple,
+        cycleLogs,
+        intimacyForecast,
+        isRefreshingForecast,
+        refreshForecast,
+    } = useOrbitStore();
     const insets = useSafeAreaInsets();
 
     const [cycleProfile, setCycleProfile] = useState<any>(null);
     const [partnerCycleProfile, setPartnerCycleProfile] = useState<any>(null);
     const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
     const [isLogging, setIsLogging] = useState(false);
-    const [supportLogs, setSupportLogs] = useState<any[]>([]);
+    const [selectedTimelineDay, setSelectedTimelineDay] = useState<number | null>(null);
+    const [isCheatCodeUnlocked, setIsCheatCodeUnlocked] = useState(false);
 
     const scrollOffset = useSharedValue(0);
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (e) => { scrollOffset.value = e.contentOffset.y; }
     });
-
-    const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [60, 90], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [60, 90], [10, 0], Extrapolate.CLAMP) }]
-    }));
 
     const isFemale = profile?.gender === 'female';
     const user = auth.currentUser;
@@ -92,13 +79,11 @@ export function LunaraScreen() {
     useEffect(() => {
         if (!coupleId || !user) return;
 
-        // Own cycle profile
         const ownRef = doc(db, 'couples', coupleId, 'cycle_profiles', user.uid);
         const unsubOwn = onSnapshot(ownRef, (snap) => {
             if (snap.exists()) setCycleProfile(snap.data());
         });
 
-        // Partner cycle profile
         if (partnerId) {
             const partnerRef = doc(db, 'couples', coupleId, 'cycle_profiles', partnerId);
             const unsubPartner = onSnapshot(partnerRef, (snap) => {
@@ -106,213 +91,249 @@ export function LunaraScreen() {
             });
             return () => { unsubOwn(); unsubPartner(); };
         }
+    }, [coupleId, user, partnerId]);
 
-        return unsubOwn;
-    }, [coupleId, user?.uid, partnerId]);
+    const activeCycle = isFemale ? cycleProfile : partnerCycleProfile;
 
-    // Load today's logged symptoms
-    useEffect(() => {
-        if (!coupleId || !user) return;
-        const today = getTodayIST();
-        const logRef = doc(db, 'couples', coupleId, 'cycle_logs', `${user.uid}_${today}`);
-        const unsub = onSnapshot(logRef, (snap) => {
-            if (snap.exists()) setSelectedSymptoms(snap.data().symptoms || []);
-        });
-        return unsub;
-    }, [coupleId, user?.uid]);
+    // Predictive Engine (Flo-Style)
+    const prediction = useMemo(() => {
+        return predictNextPeriod(activeCycle?.period_history || [], activeCycle?.avg_cycle_length || 28);
+    }, [activeCycle]);
 
-    // ─── Actions ─────────────────────────────────────────────────────────────
+    const realCurrentDay = activeCycle?.last_period_start
+        ? getCycleDay(activeCycle.last_period_start, prediction.avgCycleLength)
+        : null;
+
+    // We favor the user-selected timeline day if they are explorative
+    const currentDay = selectedTimelineDay || realCurrentDay;
+    const phase = currentDay ? getPhaseInfo(currentDay) : null;
+    const suggestedSymptoms = currentDay ? getSuggestedSymptoms(currentDay) : [];
+
+    // Timeline Data Generation
+    const timelineDays = useMemo(() => {
+        if (!activeCycle?.last_period_start || !realCurrentDay) return [];
+        const base = new Date(getTodayIST());
+        const result = [];
+        for (let i = 0; i < 14; i++) {
+            const date = new Date(base.getTime() + i * 24 * 60 * 60 * 1000);
+            const dCycle = ((realCurrentDay + i - 1) % prediction.avgCycleLength) + 1;
+            result.push({
+                date,
+                dayOfCycle: dCycle,
+                phase: getPhaseInfo(dCycle).name,
+                isToday: i === 0,
+                isOvulation: dCycle === prediction.ovulationDay,
+                isPeriod: dCycle <= 5
+            });
+        }
+        return result;
+    }, [activeCycle, realCurrentDay, prediction]);
 
     const handleLogPeriod = async () => {
         if (!coupleId || !user) return;
-        setIsLogging(true);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        const today = getTodayIST();
-        try {
-            await setDoc(
-                doc(db, 'couples', coupleId, 'cycle_profiles', user.uid),
+
+        const todayStr = getTodayIST();
+        Alert.alert(
+            "Log Period Start",
+            `Confirm your period started today (${todayStr})?`,
+            [
+                { text: "Cancel", style: "cancel" },
                 {
-                    user_id: user.uid,
-                    last_period_start: today,
-                    avg_cycle_length: cycleProfile?.avg_cycle_length || 28,
-                    avg_period_length: cycleProfile?.avg_period_length || 5,
-                    sharing_enabled: cycleProfile?.sharing_enabled ?? true,
-                    updated_at: serverTimestamp(),
-                },
-                { merge: true }
-            );
-        } catch (e) {
-            console.error('[LUNARA] logPeriod error', e);
-        } finally {
-            setIsLogging(false);
-        }
+                    text: "Confirm",
+                    onPress: async () => {
+                        setIsLogging(true);
+                        try {
+                            const profileRef = doc(db, 'couples', coupleId, 'cycle_profiles', user.uid);
+                            const history = cycleProfile?.period_history || [];
+                            const nextHistory = [...new Set([todayStr, ...history])].slice(0, 12);
+
+                            await setDoc(profileRef, {
+                                last_period_start: todayStr,
+                                period_history: nextHistory,
+                                avg_cycle_length: prediction.avgCycleLength,
+                                sharing_enabled: true,
+                                updated_at: serverTimestamp()
+                            }, { merge: true });
+
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        } catch (e) {
+                            console.error('Error logging period:', e);
+                        } finally {
+                            setIsLogging(false);
+                        }
+                    }
+                }
+            ]
+        );
     };
 
-    const handleToggleSymptom = useCallback(async (symptom: string) => {
+    const handleToggleSymptom = async (symptom: string) => {
         if (!coupleId || !user) return;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        const today = getTodayIST();
+        const todayStr = getTodayIST();
         const next = selectedSymptoms.includes(symptom)
             ? selectedSymptoms.filter(s => s !== symptom)
             : [...selectedSymptoms, symptom];
-        setSelectedSymptoms(next); // optimistic
+
+        setSelectedSymptoms(next);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
         try {
-            await setDoc(
-                doc(db, 'couples', coupleId, 'cycle_logs', `${user.uid}_${today}`),
-                {
-                    user_id: user.uid,
-                    log_date: today,
-                    symptoms: next,
-                    updated_at: serverTimestamp(),
-                },
-                { merge: true }
-            );
+            const logRef = doc(db, 'couples', coupleId, 'cycle_logs', user.uid, 'logs', todayStr);
+            await setDoc(logRef, {
+                log_date: todayStr,
+                symptoms: next,
+                updated_at: serverTimestamp()
+            }, { merge: true });
         } catch (e) {
-            console.error('[LUNARA] symptom log error', e);
-            setSelectedSymptoms(selectedSymptoms); // revert
+            console.error('Error logging symptom:', e);
         }
-    }, [selectedSymptoms, coupleId, user]);
+    };
 
-    // ─── Derive display data ──────────────────────────────────────────────────
-
-    // For female: use own cycle. For male: use partner's (if sharing enabled).
-    const activeCycle = isFemale ? cycleProfile : (partnerCycleProfile?.sharing_enabled ? partnerCycleProfile : null);
-    const currentDay = activeCycle?.last_period_start
-        ? getCycleDay(activeCycle.last_period_start, activeCycle.avg_cycle_length)
-        : null;
-    const phase = currentDay ? getPhaseInfo(currentDay) : null;
-    const daysUntilNext = activeCycle?.last_period_start
-        ? getDaysUntilNextPeriod(activeCycle.last_period_start, activeCycle.avg_cycle_length)
-        : null;
-    const suggestedSymptoms = currentDay ? getSuggestedSymptoms(currentDay) : [];
-
-    // Today's partner log (for male users seeing partner data)
-    const today = getTodayIST();
-    const partnerLog = cycleLogs && partnerId
-        ? Object.values(cycleLogs[partnerId] || {}).find((l: any) => l.log_date === today)
-        : null;
-
-    // ─── Render ───────────────────────────────────────────────────────────────
     return (
         <View style={styles.container}>
-            {/* Sticky HeaderPill */}
-            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
-                <HeaderPill title="Lunara" scrollOffset={scrollOffset} />
-            </Animated.View>
-
             <Animated.ScrollView
+                style={styles.scroll}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
-                contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 56 }]}
                 showsVerticalScrollIndicator={false}
             >
-                {/* ── Hero Brand Header ──────────────────────────────────── */}
-                <View style={styles.hero}>
-                    <View style={styles.heroBadge}>
-                        <Sparkles size={10} color="#c084fc" />
-                        <Text style={styles.heroBadgeText}>LUNARA SYNC</Text>
+                <View style={[styles.hero, { paddingTop: insets.top + Spacing.md }]}>
+                    <View style={styles.ritualHeader}>
+                        <Text style={styles.ritualSubtitle}>THE BIOLOGICAL RHYTHM</Text>
+                        <Text style={styles.ritualTitle}>
+                            {phase?.name || 'Orbiting'} <Text style={styles.ritualAccent}>Phase</Text>
+                        </Text>
                     </View>
-                    <Text style={styles.heroTitle}>
-                        {isFemale ? 'Your Natural' : 'Her Natural'}
-                        {'\n'}
-                        <Text style={styles.heroAccent}>Flow & Rhythm</Text>
-                    </Text>
-                </View>
 
-                {/* ── Main Cycle Orb ─────────────────────────────────────── */}
-                <GlassCard style={styles.orbCard} intensity={12}>
-                    {/* Phase accent line */}
-                    <View style={[styles.phaseBar, { backgroundColor: phase?.color || '#a855f7' }]} />
+                    {phase && (
+                        <PhaseSphere phase={phase.name} intensity={0.7} />
+                    )}
 
-                    <View style={styles.orb}>
-                        <View style={[styles.orbRing, { borderColor: (phase?.color || '#a855f7') + '22' }]} />
-                        <View style={[styles.orbInnerRing, { borderColor: (phase?.color || '#a855f7') + '44' }]} />
-                        <View style={styles.orbContent}>
-                            <Moon size={36} color={phase?.color || '#a855f7'} />
-                            <Text style={styles.orbDay}>
-                                {currentDay ? `Day ${currentDay}` : (isFemale ? 'Start Tracking' : 'Awaiting Sync')}
-                            </Text>
-                            {currentDay && (
-                                <Text style={[styles.orbPhase, { color: phase?.color || '#a855f7' }]}>
-                                    {phase?.name.toUpperCase()}
-                                </Text>
-                            )}
-                            {activeCycle?.last_period_start && (
-                                <Text style={styles.orbDate}>
-                                    Since {activeCycle.last_period_start}
-                                </Text>
-                            )}
+                    {!isFemale && partnerProfile && (
+                        <View style={styles.partnerFocus}>
+                            <HeaderPill
+                                title={`HER ${partnerProfile.display_name.toUpperCase()}`}
+                                scrollOffset={scrollOffset}
+                            />
                         </View>
-                    </View>
+                    )}
 
-                    {/* CTA Buttons */}
-                    <View style={styles.ctaRow}>
-                        {isFemale ? (
+                    {timelineDays.length > 0 && (
+                        <BiologicalTimeline
+                            days={timelineDays}
+                            selectedDay={currentDay || 1}
+                            onSelectDay={(d) => {
+                                setSelectedTimelineDay(d);
+                                setIsCheatCodeUnlocked(false);
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }}
+                        />
+                    )}
+
+                    <View style={styles.heroCtaRow}>
+                        {isFemale && (
                             <TouchableOpacity
-                                style={[styles.ctaBtn, isLogging && styles.ctaBtnDisabled]}
+                                style={styles.ritualBtn}
                                 onPress={handleLogPeriod}
                                 disabled={isLogging}
                             >
-                                <Calendar size={14} color="#c084fc" />
-                                <Text style={styles.ctaBtnText}>
-                                    {isLogging ? 'Logging...' : 'Log Period Start'}
+                                <Droplets size={14} color="#f87171" />
+                                <Text style={[styles.ritualBtnText, { color: '#f87171' }]}>
+                                    {isLogging ? 'LOGGING...' : 'LOG PERIOD'}
                                 </Text>
                             </TouchableOpacity>
-                        ) : (
-                            <View style={styles.ctaBtn}>
-                                <Heart size={14} color="#fb7185" />
-                                <Text style={[styles.ctaBtnText, { color: '#fb7185' }]}>
-                                    {partnerCycleProfile?.sharing_enabled ? 'Partner Sync Active' : 'Sharing Paused'}
-                                </Text>
-                            </View>
                         )}
+                        <TouchableOpacity
+                            style={styles.ritualBtn}
+                            onPress={() => {
+                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                refreshForecast({
+                                    lastPeriodStart: activeCycle?.last_period_start,
+                                    avgCycleLength: activeCycle?.avg_cycle_length || 28,
+                                    periodHistory: activeCycle?.period_history || []
+                                });
+                            }}
+                            disabled={isRefreshingForecast}
+                        >
+                            <Moon size={14} color="#c084fc" />
+                            <Text style={styles.ritualBtnText}>
+                                {isRefreshingForecast ? 'REFINING ORBIT...' : 'NEW MOON RITUAL'}
+                            </Text>
+                        </TouchableOpacity>
                     </View>
-                </GlassCard>
-
-                {/* ── Quick Stats Row ─────────────────────────────────────── */}
-                <View style={styles.statsRow}>
-                    <GlassCard style={styles.statCard} intensity={10}>
-                        <Calendar size={18} color="#a855f7" />
-                        <Text style={styles.statValue}>
-                            {daysUntilNext !== null ? `${daysUntilNext}d` : '—'}
-                        </Text>
-                        <Text style={styles.statLabel}>Next Period</Text>
-                    </GlassCard>
-                    <GlassCard style={styles.statCard} intensity={10}>
-                        <Moon size={18} color="#818cf8" />
-                        <Text style={styles.statValue}>
-                            {activeCycle?.avg_cycle_length || 28}
-                        </Text>
-                        <Text style={styles.statLabel}>Cycle Days</Text>
-                    </GlassCard>
-                    <GlassCard style={styles.statCard} intensity={10}>
-                        <Sparkles size={18} color="#fb7185" />
-                        <Text style={styles.statValue}>
-                            {activeCycle?.avg_period_length || 5}
-                        </Text>
-                        <Text style={styles.statLabel}>Period Days</Text>
-                    </GlassCard>
                 </View>
 
-                {/* ── Daily Insight ───────────────────────────────────────── */}
-                {phase && (
-                    <GlassCard style={styles.insightCard} intensity={10}>
-                        <View style={styles.insightHeader}>
-                            <Shield size={14} color="rgba(168,85,247,0.5)" />
-                            <Text style={styles.insightLabel}>
-                                {isFemale ? 'DAILY INSIGHT' : 'PARTNER ADVICE'}
+                {/* ── Fertility & Prediction (Premium Info) ──────────────────── */}
+                {activeCycle?.last_period_start && (
+                    <View style={styles.statsGrid}>
+                        <GlassCard style={styles.predictionCard} intensity={20}>
+                            <Text style={styles.predictionLabel}>PREDICTED START</Text>
+                            <Text style={styles.predictionValue}>{prediction.predictedDate}</Text>
+                            <View style={[styles.confidenceBadge, styles[`conf${prediction.confidence}` as keyof typeof styles] as any]}>
+                                <Text style={styles.confidenceText}>{prediction.confidence === 'High' ? 'LOCKED 🔒' : 'LEARNING...'}</Text>
+                            </View>
+                        </GlassCard>
+
+                        <GlassCard style={styles.predictionCard} intensity={20}>
+                            <Text style={styles.predictionLabel}>PREGNANCY CHANCE</Text>
+                            <Text style={[styles.predictionValue, { color: prediction.currentPregnancyChance === 'Peak' ? '#fbbf24' : '#fff' }]}>
+                                {prediction.currentPregnancyChance}
+                            </Text>
+                            <Text style={styles.predictionSubText}>{prediction.daysUntil} days left</Text>
+                        </GlassCard>
+                    </View>
+                )}
+
+                {/* ── Poetic AI Insight Card ────────────────────────────── */}
+                {currentDay && intimacyForecast[currentDay - 1] && (
+                    <GlassCard style={styles.poeticCard} intensity={25}>
+                        <View style={styles.poeticHeader}>
+                            <Sparkles size={14} color="#fbbf24" />
+                            <Text style={styles.poeticLabel}>TODAY'S ORBIT INSIGHT</Text>
+                        </View>
+                        <Text style={styles.poeticInsight}>
+                            {intimacyForecast[currentDay - 1].insight}
+                        </Text>
+
+                        <View style={styles.poeticDivider} />
+
+                        <View style={styles.unlockableSection}>
+                            <Text style={styles.unlockableLabel}>PARTNER CONNECTION KEY</Text>
+                            {!isCheatCodeUnlocked ? (
+                                <TouchableOpacity
+                                    style={styles.unlockBtn}
+                                    onPress={() => {
+                                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                        setIsCheatCodeUnlocked(true);
+                                    }}
+                                >
+                                    <View style={styles.blurCover}>
+                                        <Shield size={20} color="rgba(255,255,255,0.4)" />
+                                        <Text style={styles.unlockText}>TAP TO REVEAL</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            ) : (
+                                <Animated.View entering={FadeIn.duration(500)}>
+                                    <Text style={styles.cheatText}>
+                                        {intimacyForecast[currentDay - 1].cheatCode}
+                                    </Text>
+                                </Animated.View>
+                            )}
+                        </View>
+
+                        <View style={styles.connectMission}>
+                            <Flame size={14} color="#fb7185" />
+                            <Text style={styles.missionText}>
+                                {intimacyForecast[currentDay - 1].mission}
                             </Text>
                         </View>
-                        <Text style={styles.insightText}>
-                            {isFemale ? phase.advice : phase.partnerAdvice}
-                        </Text>
                     </GlassCard>
                 )}
 
-                {/* ── Symptom Tracker (female only) ───────────────────────── */}
+                {/* ── Routine Logs ────────────────────────────────────────── */}
                 {isFemale && currentDay && (
                     <GlassCard style={styles.symptomsCard} intensity={10}>
-                        <Text style={styles.sectionTitle}>HOW ARE YOU FEELING?</Text>
+                        <Text style={styles.sectionTitle}>PHYSICAL RESONANCE</Text>
                         <View style={styles.chipGrid}>
                             {suggestedSymptoms.map(symptom => {
                                 const isSelected = selectedSymptoms.includes(symptom);
@@ -335,150 +356,127 @@ export function LunaraScreen() {
                     </GlassCard>
                 )}
 
-                {/* ── Partner Symptoms (male view) ─────────────────────────── */}
-                {!isFemale && partnerCycleProfile?.sharing_enabled && (
-                    <GlassCard style={styles.symptomsCard} intensity={10}>
-                        <Text style={styles.sectionTitle}>HER SYMPTOMS TODAY</Text>
-                        <View style={styles.chipGrid}>
-                            {(() => {
-                                const partnerTodayLog = cycleLogs && partnerId
-                                    ? cycleLogs[partnerId]?.[today]
-                                    : null;
-                                const symptoms = partnerTodayLog?.symptoms || [];
-                                return symptoms.length > 0
-                                    ? symptoms.map((s: string) => (
-                                        <View key={s} style={[styles.chip, { backgroundColor: 'rgba(251,113,133,0.15)', borderColor: 'rgba(251,113,133,0.4)' }]}>
-                                            <Text style={[styles.chipText, { color: '#fb7185' }]}>{s}</Text>
-                                        </View>
-                                    ))
-                                    : <Text style={styles.emptyText}>No symptoms shared yet today</Text>;
-                            })()}
-                        </View>
-                    </GlassCard>
-                )}
-
-                {/* ── No Data / Onboarding nudge ───────────────────────────── */}
-                {isFemale && !cycleProfile?.last_period_start && (
-                    <GlassCard style={styles.onboardCard} intensity={10}>
-                        <Info size={20} color="#a855f7" />
-                        <Text style={styles.onboardTitle}>Start Your Cycle Journal</Text>
-                        <Text style={styles.onboardSub}>
-                            Tap "Log Period Start" above to begin tracking your rhythm.
-                            Your insights will appear here.
-                        </Text>
-                    </GlassCard>
-                )}
-
                 <View style={{ height: 120 }} />
             </Animated.ScrollView>
         </View>
     );
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
-    stickyHeader: {
-        position: 'absolute', left: 0, right: 0, zIndex: 1000, pointerEvents: 'box-none'
-    },
-    scroll: { paddingHorizontal: Spacing.md, paddingBottom: 40 },
-
-    // Hero
-    hero: { marginBottom: Spacing.lg },
-    heroBadge: {
-        flexDirection: 'row', alignItems: 'center', gap: 6,
-        alignSelf: 'flex-start',
-        paddingHorizontal: 12, paddingVertical: 5,
-        borderRadius: 999, marginBottom: 12,
-        backgroundColor: 'rgba(168,85,247,0.1)',
-        borderWidth: 1, borderColor: 'rgba(168,85,247,0.2)',
-    },
-    heroBadgeText: {
+    scroll: { paddingHorizontal: Spacing.md },
+    // Ritual Hero
+    hero: { marginBottom: Spacing.xl, alignItems: 'center' },
+    ritualHeader: { alignItems: 'center', marginBottom: 20 },
+    ritualSubtitle: {
         fontSize: 9, fontFamily: Typography.sansBold,
-        color: '#c084fc', letterSpacing: 2,
+        color: 'rgba(255,255,255,0.3)', letterSpacing: 2.5,
+        marginBottom: 8,
     },
-    heroTitle: {
-        fontSize: 36, fontFamily: Typography.serif,
-        color: 'white', lineHeight: 42,
+    ritualTitle: {
+        fontSize: 44, fontFamily: Typography.serif,
+        color: 'white',
     },
-    heroAccent: {
+    ritualAccent: {
         fontFamily: Typography.serifItalic,
         color: '#c084fc',
     },
-
-    // Orb card
-    orbCard: {
-        marginBottom: Spacing.md, borderRadius: Radius.xl,
-        borderWidth: 1, borderColor: 'rgba(168,85,247,0.15)',
-        overflow: 'hidden', position: 'relative', padding: 0,
-    },
-    phaseBar: { height: 3, width: '100%', opacity: 0.7 },
-    orb: {
-        alignItems: 'center', justifyContent: 'center',
-        paddingVertical: Spacing.xl, position: 'relative',
-    },
-    orbRing: {
-        position: 'absolute', width: 200, height: 200,
-        borderRadius: 100, borderWidth: 3, borderStyle: 'dashed',
-    },
-    orbInnerRing: {
-        position: 'absolute', width: 160, height: 160,
-        borderRadius: 80, borderWidth: 1,
-    },
-    orbContent: { alignItems: 'center', gap: 6 },
-    orbDay: {
-        fontSize: 44, fontFamily: Typography.serif, color: 'white',
-        marginTop: 8,
-    },
-    orbPhase: {
-        fontSize: 10, fontFamily: Typography.sansBold, letterSpacing: 3,
-    },
-    orbDate: {
-        fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.3)',
-    },
-    ctaRow: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, alignItems: 'center' },
-    ctaBtn: {
+    partnerFocus: { marginBottom: 20 },
+    heroCtaRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
+    ritualBtn: {
         flexDirection: 'row', alignItems: 'center', gap: 8,
-        paddingHorizontal: 20, paddingVertical: 10,
-        borderRadius: 999, borderWidth: 1,
-        borderColor: 'rgba(168,85,247,0.3)',
-        backgroundColor: 'rgba(168,85,247,0.08)',
+        paddingHorizontal: 20, paddingVertical: 12,
+        borderRadius: 999, backgroundColor: 'rgba(168,85,247,0.1)',
+        borderWidth: 1, borderColor: 'rgba(168,85,247,0.3)',
     },
-    ctaBtnDisabled: { opacity: 0.5 },
-    ctaBtnText: {
-        color: '#c084fc', fontSize: 12, fontFamily: Typography.sansBold,
-        letterSpacing: 1, textTransform: 'uppercase',
+    ritualBtnText: {
+        fontSize: 10, fontFamily: Typography.sansBold,
+        color: '#c084fc', letterSpacing: 1.5,
     },
 
-    // Stats
-    statsRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
-    statCard: {
-        flex: 1, alignItems: 'center', padding: Spacing.md,
-        borderRadius: Radius.xl, gap: 4,
-        borderWidth: 1, borderColor: 'rgba(168,85,247,0.1)',
+    // Prediction Stats
+    statsGrid: {
+        flexDirection: 'row', gap: Spacing.md,
+        marginVertical: Spacing.lg,
     },
-    statValue: {
-        fontSize: 24, fontFamily: Typography.serif, color: 'white',
+    predictionCard: {
+        flex: 1, padding: 20, borderRadius: Radius.xl,
+        alignItems: 'center', justifyContent: 'center'
     },
-    statLabel: {
-        fontSize: 9, fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)', letterSpacing: 1, textTransform: 'uppercase',
+    predictionLabel: {
+        fontSize: 8, fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.4)', letterSpacing: 1.5,
+        marginBottom: 8
+    },
+    predictionValue: {
+        fontSize: 16, fontFamily: Typography.sansBold,
+        color: '#fff', marginBottom: 4
+    },
+    predictionSubText: {
+        fontSize: 9, color: 'rgba(255,255,255,0.5)',
+        fontFamily: Typography.sans
+    },
+    confidenceBadge: {
+        marginTop: 6, paddingHorizontal: 8, paddingVertical: 3,
+        borderRadius: 6
+    },
+    confHigh: { backgroundColor: 'rgba(52,211,153,0.15)' },
+    confFair: { backgroundColor: 'rgba(251,191,36,0.15)' },
+    confLearning: { backgroundColor: 'rgba(255,255,255,0.1)' },
+    confidenceText: {
+        fontSize: 7, fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.8)'
     },
 
-    // Insight
-    insightCard: {
-        marginBottom: Spacing.md, padding: Spacing.lg,
-        borderRadius: Radius.xl, borderWidth: 1, borderColor: 'rgba(168,85,247,0.1)',
+    // Poetic AI Card
+    poeticCard: {
+        marginBottom: Spacing.xl, padding: 24,
+        borderRadius: Radius.xxl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(255,255,255,0.02)',
     },
-    insightHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-    insightLabel: {
+    poeticHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+    poeticLabel: {
+        fontSize: 10, fontFamily: Typography.sansBold,
+        color: '#fbbf24', letterSpacing: 2.5,
+    },
+    poeticInsight: {
+        fontSize: 22, fontFamily: Typography.serifItalic,
+        color: 'white', lineHeight: 34, marginBottom: 24,
+    },
+    poeticDivider: {
+        height: 1, backgroundColor: 'rgba(255,255,255,0.1)',
+        marginBottom: 24,
+    },
+    unlockableSection: { marginBottom: 24 },
+    unlockableLabel: {
         fontSize: 9, fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)', letterSpacing: 2,
+        color: 'rgba(255,255,255,0.3)', letterSpacing: 2, marginBottom: 12,
     },
-    insightText: {
-        fontSize: 16, fontFamily: Typography.serifItalic,
+    unlockBtn: {
+        height: 80, borderRadius: Radius.lg,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        overflow: 'hidden',
+    },
+    blurCover: {
+        flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8,
+    },
+    unlockText: {
+        fontSize: 11, fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.4)', letterSpacing: 1,
+    },
+    cheatText: {
+        fontSize: 16, fontFamily: Typography.sans,
         color: 'rgba(255,255,255,0.85)', lineHeight: 26,
+    },
+    connectMission: {
+        flexDirection: 'row', alignItems: 'center', gap: 12,
+        padding: 16, borderRadius: Radius.lg,
+        backgroundColor: 'rgba(168,85,247,0.1)',
+        borderWidth: 1, borderColor: 'rgba(168,85,247,0.2)',
+    },
+    missionText: {
+        flex: 1, fontSize: 13, fontFamily: Typography.sans,
+        color: '#c084fc', lineHeight: 20,
     },
 
     // Symptoms
@@ -500,24 +498,5 @@ const styles = StyleSheet.create({
     chipText: {
         fontSize: 11, fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5,
-    },
-    emptyText: {
-        fontSize: 12, fontFamily: Typography.serifItalic,
-        color: 'rgba(255,255,255,0.2)',
-    },
-
-    // Onboard nudge
-    onboardCard: {
-        marginBottom: Spacing.md, padding: Spacing.xl,
-        borderRadius: Radius.xl, borderWidth: 1,
-        borderColor: 'rgba(168,85,247,0.15)', alignItems: 'center', gap: 12,
-        borderStyle: 'dashed',
-    },
-    onboardTitle: {
-        fontSize: 18, fontFamily: Typography.serif, color: 'white',
-    },
-    onboardSub: {
-        fontSize: 13, fontFamily: Typography.serifItalic,
-        color: 'rgba(255,255,255,0.4)', textAlign: 'center', lineHeight: 20,
     },
 });

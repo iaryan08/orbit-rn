@@ -516,7 +516,7 @@ export const BucketListWidget = React.memo(() => {
                         <Text style={[styles.itemText, item.is_completed && styles.itemTextCompleted]} numberOfLines={1}>
                             {item.title}
                         </Text>
-                        {item.is_completed && <Trophy size={14} color={Colors.dark.amber[400]} style={{ opacity: 0.6 }} />}
+                        {item.is_completed && <Trophy size={14} color={Colors.dark.amber[400]} style={{ opacity: 0.8 }} />}
                     </TouchableOpacity>
                 ))}
             </View>
@@ -793,21 +793,35 @@ const styles = StyleSheet.create({
     bucketInputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.05)',
+        backgroundColor: 'rgba(225, 29, 72, 0.03)',
         borderRadius: 16,
         paddingLeft: 10,
         paddingRight: 4,
-        height: 44,
+        height: 48,
         marginBottom: 20,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)'
+        borderColor: 'rgba(225, 29, 72, 0.15)',
+        shadowColor: Colors.dark.rose[500],
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
     },
     privateToggle: { width: 32, height: 32, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 4 },
     bucketInput: { flex: 1, color: 'white', fontSize: 13, fontFamily: Typography.sans },
     addBtnSmall: { width: 34, height: 34, borderRadius: 10, backgroundColor: Colors.dark.rose[500], alignItems: 'center', justifyContent: 'center' },
 
     bucketItemsList: { gap: 8 },
-    bucketItemRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    bucketItemRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        padding: 12,
+        borderRadius: 100,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
+        marginBottom: 4
+    },
     bucketItemCompleted: { opacity: 0.6, backgroundColor: 'rgba(225, 29, 72, 0.03)', borderColor: 'rgba(225, 29, 72, 0.05)' },
     itemCheck: { width: 18, height: 18, borderRadius: Radius.full, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
     itemCheckActive: { backgroundColor: Colors.dark.rose[500], borderColor: Colors.dark.rose[500] },
