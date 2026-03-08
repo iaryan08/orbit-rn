@@ -126,7 +126,7 @@ export default function DashboardPage() {
         ? Math.floor((new Date().getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24))
         : 0
     const isNative = Capacitor.isNativePlatform()
-    const longPressTimer = useRef<NodeJS.Timeout | null>(null)
+    const longPressTimer = useRef<any>(null)
     const { mode } = useAppMode()
 
     const handleDeletePolaroid = async (id: string) => {
