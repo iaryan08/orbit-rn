@@ -98,6 +98,8 @@ interface OrbitState {
     fetchData: (userId: string) => () => void;
 }
 
+let lastTabChangeTime = 0;
+
 export const useOrbitStore = create<OrbitState>((set, get) => ({
     profile: null,
     partnerProfile: null,
@@ -123,7 +125,13 @@ export const useOrbitStore = create<OrbitState>((set, get) => ({
     setProfile: (profile: any) => set({ profile }),
     setPartnerProfile: (partnerProfile: any) => set({ partnerProfile }),
     setCouple: (couple: any) => set({ couple }),
-    setTabIndex: (index: number) => set({ activeTabIndex: index }),
+    setTabIndex: (index: number) => {
+        const now = Date.now();
+        // Debounce tab changes globally to strictly prevent PagerView concurrent updates
+        if (now - lastTabChangeTime < 300) return;
+        lastTabChangeTime = now;
+        set({ activeTabIndex: index });
+    },
     setNotificationDrawerOpen: (open: boolean) => set({ isNotificationDrawerOpen: open }),
     isMoodDrawerOpen: false,
     setMoodDrawerOpen: (open: boolean) => set({ isMoodDrawerOpen: open }),

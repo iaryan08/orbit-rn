@@ -41,14 +41,32 @@ export default function Index() {
         return unsub;
     }, []);
 
+    const isSyncingRef = useRef(false);
+    const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     // Sync PagerView with store index and safety reset scrolling
     useEffect(() => {
         if (isPagerReady && pagerRef.current) {
             try {
-                console.log("[Index] Syncing PagerView to:", activeTabIndex);
+                // If the PagerView is already at the correct index, do nothing
+                // This prevents recursive updates and "glitches"
+                isSyncingRef.current = true;
                 pagerRef.current.setPageWithoutAnimation(activeTabIndex);
+
+                // Clear any existing timeout
+                if (syncTimeoutRef.current) {
+                    clearTimeout(syncTimeoutRef.current);
+                }
+
+                // Reset the syncing flag after a short delay to allow the
+                // native animation event (if any echoes) to pass ignored
+                syncTimeoutRef.current = setTimeout(() => {
+                    isSyncingRef.current = false;
+                }, 150);
+
             } catch (e) {
                 console.warn("[Index] PagerView sync failed:", e);
+                isSyncingRef.current = false;
             }
         }
         setPagerScrollEnabled(true);
@@ -82,6 +100,7 @@ export default function Index() {
                 initialPage={activeTabIndex}
                 scrollEnabled={isPagerScrollEnabled}
                 onPageSelected={(e) => {
+                    if (isSyncingRef.current) return; // Ignore programmatic changes from echoing
                     setTabIndex(e.nativeEvent.position);
                 }}
                 onLayout={() => setIsPagerReady(true)}

@@ -19,7 +19,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type ReactionType = 'laugh' | 'heartbeat' | 'tap' | 'emoji-preset';
 
-const BASE_EMOJIS = ['✨', '🥺', '😘', '🍿'];
+const BASE_EMOJIS = ['💗', '🥺', '😘', '🍿'];
 
 
 export function SyncCinemaScreen() {

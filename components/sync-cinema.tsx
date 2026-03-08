@@ -46,7 +46,7 @@ type NavPayload = {
     direction?: 'forward' | 'backward' | 'up' | 'down'
 }
 
-const BASE_EMOJIS = ['✨', '🥺', '😘', '🍿']
+const BASE_EMOJIS = ['💗', '🥺', '😘', '🍿']
 const SINGLE_EMOJI_REGEX = /^\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*$/u
 
 export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: SyncCinemaProps) {
