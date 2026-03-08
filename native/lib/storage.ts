@@ -1,7 +1,8 @@
 // For local development, point to the Next.js local server IP running on your Wi-Fi network.
 // e.g., 'http://192.168.1.100:3000'
 // Cloudflare's orbit-app-proxy blocks React Native's User-Agent, so we MUST use the Nextjs backend.
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'http://10.81.17.146:3000';
+// Note: Expo requires the EXPO_PUBLIC_ prefix for env vars to be bundled in release builds.
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://orbit-rn-beta.vercel.app';
 
 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
