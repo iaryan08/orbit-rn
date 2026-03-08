@@ -142,7 +142,7 @@ export default function CelestialSky({
         document.addEventListener("visibilitychange", handleVisibility);
 
         // 3. Resize Handling (Debounced)
-        let resizeTimer: NodeJS.Timeout;
+        let resizeTimer: any;
         const handleResize = () => {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(drawSky, 500);

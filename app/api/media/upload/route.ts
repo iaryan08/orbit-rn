@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
         }
 
-        const formData = await request.formData()
+        const formData: any = await request.formData()
         const bucket = String(formData.get('bucket') || '').trim()
         const path = String(formData.get('path') || '').trim().replace(/^\/+/, '')
         const contentType = String(formData.get('contentType') || 'application/octet-stream').trim()

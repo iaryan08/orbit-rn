@@ -56,10 +56,10 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
     const [selectedEmoji, setSelectedEmoji] = useState(BASE_EMOJIS[0])
     const [customEmojis, setCustomEmojis] = useState<string[]>([])
     const isNative = Capacitor.isNativePlatform()
-    const pressTimer = useRef<NodeJS.Timeout | null>(null)
+    const pressTimer = useRef<any>(null)
     const touchStartY = useRef<number>(0)
-    const closeReactionTimer = useRef<number | null>(null)
-    const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const closeReactionTimer = useRef<any>(null)
+    const tapTimeoutRef = useRef<any>(null)
     const lastNavAt = useRef<number>(0)
 
     const partnerName = useOrbitStore(state => state.getPartnerDisplayName())

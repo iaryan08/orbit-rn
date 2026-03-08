@@ -40,7 +40,7 @@ export function SyncProvider({
                         RealtimeManager.subscribe(coupleId);
                     } else {
                         console.log('Internet lost - Unsubscribing realtime...');
-                        RealtimeManager.unsubscribe();
+                        RealtimeManager.unsubscribe(coupleId);
                     }
                 });
 
@@ -60,7 +60,7 @@ export function SyncProvider({
             if (networkListener) {
                 networkListener.remove();
             }
-            RealtimeManager.unsubscribe();
+            RealtimeManager.unsubscribe(coupleId);
         };
     }, [coupleId]);
 
