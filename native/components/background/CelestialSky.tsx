@@ -1,10 +1,8 @@
 import React, { useMemo, useEffect } from 'react';
 import { View, Dimensions, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import Animated, { useAnimatedProps, useSharedValue, withTiming, Easing, interpolateColor, SharedValue } from 'react-native-reanimated';
+import Animated, { useSharedValue, withTiming, Easing, interpolateColor, SharedValue } from 'react-native-reanimated';
 import { BRIGHT_STARS } from '../../lib/astronomy/stars';
-
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 interface CelestialSkyProps {
     userLat?: number;
@@ -22,22 +20,16 @@ const { width, height } = Dimensions.get('window');
  */
 interface StarProps {
     star: any;
-    r: SharedValue<number>;
-    g: SharedValue<number>;
-    b: SharedValue<number>;
+    starColor: number[];
 }
 
-const Star = React.memo(({ star, r, g, b }: StarProps) => {
-    const animatedProps = useAnimatedProps(() => ({
-        fill: `rgba(${Math.round(r.value)}, ${Math.round(g.value)}, ${Math.round(b.value)}, ${star.opacity})`
-    }));
-
+const Star = React.memo(({ star, starColor }: StarProps) => {
     return (
-        <AnimatedCircle
+        <Circle
             cx={star.x}
             cy={star.y}
             r={star.size * 0.5}
-            animatedProps={animatedProps}
+            fill={`rgba(${starColor[0]}, ${starColor[1]}, ${starColor[2]}, ${star.opacity})`}
         />
     );
 });
@@ -53,19 +45,6 @@ export function CelestialSky({
     const fallbackLon = Number.isFinite(userLon) ? userLon! : 77.21;
     const skyLat = Number.isFinite(partnerLat) ? partnerLat! : fallbackLat;
     const skyLon = Number.isFinite(partnerLon) ? partnerLon! : fallbackLon;
-
-    // Transition Color Values
-    const r = useSharedValue(starColor[0]);
-    const g = useSharedValue(starColor[1]);
-    const b = useSharedValue(starColor[2]);
-
-    useEffect(() => {
-        const config = { duration: 300, easing: Easing.out(Easing.exp) };
-        r.value = withTiming(starColor[0], config);
-        g.value = withTiming(starColor[1], config);
-        b.value = withTiming(starColor[2], config);
-    }, [starColor]);
-
     const stars = useMemo(() => {
         const now = new Date();
         const JD = now.getTime() / 86400000 + 2440587.5;
@@ -127,7 +106,7 @@ export function CelestialSky({
         <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
             <Svg width="100%" height="100%">
                 {stars.map(star => (
-                    <Star key={star.id} star={star} r={r} g={g} b={b} />
+                    <Star key={star.id} star={star} starColor={starColor} />
                 ))}
             </Svg>
         </View>

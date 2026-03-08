@@ -50,7 +50,7 @@ export const DynamicBackground = React.memo(({
     const starColor = isLunara ? [200, 150, 255] : [255, 255, 255];
 
     const activeImageUrl = mode === 'custom' ? useOrbitStore.getState().profile?.custom_wallpaper_url : (mode === 'shared' ? partnerProfile?.custom_wallpaper_url : null);
-    const fullUrl = activeImageUrl ? getPublicStorageUrl(activeImageUrl, 'avatars', idToken) : null;
+    const fullUrl = activeImageUrl ? getPublicStorageUrl(activeImageUrl, 'wallpapers', idToken) : null;
 
     // Animation values - 300ms for a faster "snappy" feel
     const transitionConfig = { duration: 300, easing: Easing.out(Easing.exp) };
