@@ -144,7 +144,7 @@ export function NavbarDock() {
     const isActiveInDock = activeNavIndex >= 0;
 
     return (
-        <Animated.View style={[styles.dockContainer, { bottom: Math.max(insets.bottom, Spacing.md) }, animatedDockContainerStyle]} pointerEvents={isDockHidden ? 'none' : 'box-none'}>
+        <Animated.View style={[styles.dockContainer, { bottom: Math.max(insets.bottom, 12) }, animatedDockContainerStyle]} pointerEvents={isDockHidden ? 'none' : 'box-none'}>
             <View style={styles.dockWrapper}>
 
 

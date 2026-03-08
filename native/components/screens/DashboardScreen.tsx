@@ -129,8 +129,8 @@ export function DashboardScreen() {
     return (
         <KeyboardAvoidingView
             style={styles.container}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 80}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
             {/* Sticky Header Pill - FIXED PINNING */}
             <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
