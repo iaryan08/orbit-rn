@@ -56,9 +56,9 @@ const MemoryImage = React.memo(({ url, idToken, onPress }: { url: string, idToke
         <TouchableOpacity activeOpacity={0.9} onPress={onPress}>
             <Image
                 source={{ uri: imageUrl || undefined }}
-                style={styles.mediaFull}
+                style={[styles.mediaFull, { backgroundColor: '#1A1A1A' }]}
                 contentFit="cover"
-                transition={300}
+                transition={200}
                 cachePolicy="memory-disk"
             />
         </TouchableOpacity>
