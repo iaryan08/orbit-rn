@@ -1,10 +1,31 @@
 import { db_local } from './db/db';
 import { db as firebaseDb } from './firebase';
 import { collection, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore';
-import { memories, letters, moods, bucketList, syncMetadata, polaroids } from './db/schema';
+import { memories, letters, moods, bucketList, syncMetadata, polaroids, musicState, profiles } from './db/schema';
 import { eq, sql } from 'drizzle-orm';
 
 class Repository {
+    // Profiling & Personalization Caching
+    async getProfiles() {
+        return db_local.select().from(profiles).all();
+    }
+
+    async saveProfile(id: string, data: any, isPartner = false) {
+        const payload = {
+            id,
+            display_name: data.display_name || null,
+            avatar_url: data.avatar_url || null,
+            couple_id: data.couple_id || null,
+            partner_id: data.partner_id || null,
+            is_partner: isPartner ? 1 : 0,
+            updated_at: Date.now()
+        };
+        await db_local.insert(profiles).values(payload as any).onConflictDoUpdate({
+            target: profiles.id,
+            set: payload as any
+        });
+    }
+
     // Generic Delta Sync Engine
     async syncCollection(name: string, coupleId: string, table: any, subPath: string) {
         try {
@@ -46,6 +67,14 @@ class Repository {
                 // Handle specific JSON fields
                 if (data.image_urls) sanitizedData.image_urls = JSON.stringify(data.image_urls);
                 if (data.read_by) sanitizedData.read_by = JSON.stringify(data.read_by);
+                if (name === 'bucket_list') {
+                    const normalizedTitle = typeof data.title === 'string' ? data.title.trim() : '';
+                    if (!normalizedTitle) {
+                        console.warn(`[Repo] Skipping invalid bucket_list row with empty title: ${doc.id}`);
+                        continue;
+                    }
+                    sanitizedData.title = normalizedTitle;
+                }
 
                 await db_local.insert(table).values({
                     id: doc.id,
@@ -54,6 +83,8 @@ class Repository {
                     updated_at: updatedAt,
                     // Booleans for SQLite
                     is_read: data.is_read ? 1 : 0,
+                    is_scheduled: data.is_scheduled ? 1 : 0,
+                    is_vanish: data.is_vanish ? 1 : 0,
                     is_completed: data.is_completed ? 1 : 0,
                     is_private: data.is_private ? 1 : 0,
                 } as any).onConflictDoUpdate({
@@ -91,7 +122,13 @@ class Repository {
     }
 
     async getLetters() {
-        return db_local.select().from(letters).orderBy(sql`${letters.created_at} DESC`).all();
+        const rows = await db_local.select().from(letters).orderBy(sql`${letters.created_at} DESC`).all();
+        return rows.map((row: any) => ({
+            ...row,
+            is_read: !!row.is_read,
+            is_scheduled: !!row.is_scheduled,
+            is_vanish: !!row.is_vanish,
+        }));
     }
 
     async getMoods() {
@@ -99,7 +136,70 @@ class Repository {
     }
 
     async getBucketList() {
-        return db_local.select().from(bucketList).orderBy(sql`${bucketList.created_at} DESC`).all();
+        const results = await db_local.select().from(bucketList).orderBy(sql`${bucketList.created_at} DESC`).all();
+        return results.map(row => ({
+            ...row,
+            is_completed: !!row.is_completed,
+            is_private: !!row.is_private
+        }));
+    }
+
+    async updateBucketItemStatus(id: string, isCompleted: boolean) {
+        await db_local.update(bucketList)
+            .set({
+                is_completed: isCompleted ? 1 : 0,
+                updated_at: Date.now()
+            } as any)
+            .where(eq(bucketList.id, id));
+    }
+
+    async updateLetterReadStatus(id: string, isRead: boolean) {
+        await db_local.update(letters)
+            .set({
+                is_read: isRead ? 1 : 0,
+                updated_at: Date.now()
+            } as any)
+            .where(eq(letters.id, id));
+    }
+
+    async deleteBucketItem(id: string) {
+        await db_local.delete(bucketList).where(eq(bucketList.id, id));
+    }
+
+    async getPolaroids() {
+        return db_local.select().from(polaroids).orderBy(sql`${polaroids.created_at} DESC`).all();
+    }
+
+    // Music State Persistence
+    async getMusicState(id: string) {
+        const row = await db_local.select().from(musicState).where(eq(musicState.id, id)).get();
+        if (!row) return null;
+        return {
+            ...row,
+            current_track: row.current_track ? JSON.parse(row.current_track) : null,
+            queue: row.queue ? JSON.parse(row.queue) : [],
+            playlist: row.playlist ? JSON.parse(row.playlist) : [],
+        };
+    }
+
+    async saveMusicState(id: string, state: Partial<any>) {
+        const existing = await db_local.select().from(musicState).where(eq(musicState.id, id)).get();
+
+        const data: any = {
+            id,
+            current_track: state.current_track ? JSON.stringify(state.current_track) : (existing?.current_track || null),
+            queue: state.queue ? JSON.stringify(state.queue) : (existing?.queue || "[]"),
+            playlist: state.playlist ? JSON.stringify(state.playlist) : (existing?.playlist || "[]"),
+            is_playing: state.is_playing !== undefined ? (state.is_playing ? 1 : 0) : (existing?.is_playing || 0),
+            progress_ms: state.progress_ms !== undefined ? state.progress_ms : (existing?.progress_ms || 0),
+            last_updated: Date.now(),
+            updated_at: Date.now()
+        };
+
+        await db_local.insert(musicState).values(data).onConflictDoUpdate({
+            target: musicState.id,
+            set: data
+        });
     }
 }
 

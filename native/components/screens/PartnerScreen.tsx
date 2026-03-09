@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
 import { useOrbitStore } from '../../lib/store';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
+import { GlobalStyles } from '../../constants/Styles';
 import {
     Calendar as CalendarIcon,
     Heart,
@@ -21,12 +22,20 @@ import {
 import { GlassCard } from '../../components/GlassCard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, {
+    useSharedValue,
+    useAnimatedScrollHandler,
+    useAnimatedStyle,
+    interpolate,
+    Extrapolate,
+    FadeInDown
+} from 'react-native-reanimated';
+import { HeaderPill } from '../../components/HeaderPill';
 import { LibidoMeter } from '../../components/LibidoMeter';
 import { LibidoSlider } from '../../components/LibidoSlider';
 import { db } from '../../lib/firebase';
 import { doc, updateDoc, setDoc } from 'firebase/firestore';
-import { getTodayIST } from '../../lib/utils';
+import { getTodayIST, getPartnerName } from '../../lib/utils';
 import * as Haptics from 'expo-haptics';
 
 
@@ -47,6 +56,31 @@ export function PartnerScreen() {
     const partnerId = partnerProfile?.id;
     const myLogsToday = myId ? cycleLogs[myId]?.[today] : null;
     const partnerLogsToday = partnerId ? cycleLogs[partnerId]?.[today] : null;
+
+    const scrollOffset = useSharedValue(0);
+    const scrollHandler = useAnimatedScrollHandler({
+        onScroll: (e) => { scrollOffset.value = e.contentOffset.y; }
+    });
+
+    // Morphing: Standardized thresholds [80, 135]
+    const titleAnimatedStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollOffset.value, [80, 135], [1, 0], Extrapolate.CLAMP),
+        transform: [{ scale: interpolate(scrollOffset.value, [80, 135], [1, 0.9], Extrapolate.CLAMP) }]
+    }));
+
+    const sublineAnimatedStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollOffset.value, [60, 110], [1, 0], Extrapolate.CLAMP),
+    }));
+
+    const headerPillStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollOffset.value, [120, 160], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [120, 160], [8, 0], Extrapolate.CLAMP) }]
+    }));
+
+    const scrollRef = React.useRef<any>(null);
+    const scrollToTop = () => {
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+    };
 
     // Use current day of cycle for advice
     const getCycleDay = () => {
@@ -77,53 +111,54 @@ export function PartnerScreen() {
         }
     };
 
-    const handleLibidoChange = async (level: string) => {
-        if (!myId || !couple?.id) return;
-        const logId = `${myId}_${today}`;
-        const logRef = doc(db, 'couples', couple.id, 'cycle_logs', logId);
-
-        try {
-            await setDoc(logRef, {
-                user_id: myId,
-                log_date: today,
-                sex_drive: level,
-                updated_at: new Date().toISOString()
-            }, { merge: true });
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (e) {
-            console.error("Error updating libido:", e);
-        }
+    const handleLibidoChange = (level: string) => {
+        if (!myId) return;
+        const { logSexDriveOptimistic } = useOrbitStore.getState();
+        logSexDriveOptimistic(myId, level);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     };
 
     return (
         <View style={styles.container}>
-            <ScrollView
+            {/* Sticky Header Pill */}
+            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
+                <HeaderPill title="Connections" scrollOffset={scrollOffset} onPress={scrollToTop} />
+            </Animated.View>
+
+            <Animated.ScrollView
+                ref={scrollRef}
+                onScroll={scrollHandler}
+                scrollEventThrottle={16}
                 style={styles.content}
-                contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + Spacing.md }]}
+                contentContainerStyle={[
+                    styles.scrollContent,
+                    { paddingTop: insets.top + Spacing.md, paddingBottom: 200 }
+                ]}
                 showsVerticalScrollIndicator={false}
+                nestedScrollEnabled={true}
             >
-                <View style={[styles.header, { marginBottom: 28 }]}>
-                    <Text style={styles.title}>Temporal <Text style={styles.titleAccent}>Resonance</Text></Text>
-                    <Text style={styles.subtitle}>SYMLIFE CALENDAR</Text>
-                </View>
+                <Animated.View style={[styles.standardHeader, titleAnimatedStyle]}>
+                    <Text style={[styles.standardTitle, { color: 'white' }]}>Connections</Text>
+                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>DEEP · RESONANCE</Animated.Text>
+                </Animated.View>
 
                 {/* Libido Section */}
                 <GlassCard style={styles.libidoCard} intensity={25}>
                     <View style={styles.libidoHeader}>
                         <View style={styles.libidoTitleRow}>
                             <Flame size={20} color={Colors.dark.rose[500]} />
-                            <Text style={styles.resonanceTitle}>Desire Frequency</Text>
+                            <Text style={styles.sectionTitle}>Desire Frequency</Text>
                         </View>
                         {partnerLogsToday?.sex_drive === 'very_high' && (
                             <View style={styles.hotBadge}>
-                                <Text style={styles.hotBadgeText}>PARTNER IS HOT</Text>
+                                <Text style={styles.hotBadgeText}>{getPartnerName(profile, partnerProfile).toUpperCase()} IS HOT</Text>
                             </View>
                         )}
                     </View>
 
                     <View style={styles.meterContainer}>
                         <LibidoMeter level={partnerLogsToday?.sex_drive || 'medium'} />
-                        <Text style={styles.meterSub}>PARTNER'S DESIRE</Text>
+                        <Text style={styles.meterSub}>{getPartnerName(profile, partnerProfile).toUpperCase()}</Text>
                     </View>
 
                     <View style={styles.sliderWrapper}>
@@ -249,15 +284,14 @@ export function PartnerScreen() {
                         <Gift size={24} color={Colors.dark.amber[400]} />
                         <View style={styles.giftInfo}>
                             <Text style={styles.giftTitle}>Gift Ideas</Text>
-                            <Text style={styles.giftSub}>Based on {partnerProfile?.display_name || 'Partner'}'s wishlist</Text>
+                            <Text style={styles.giftSub}>Based on {getPartnerName(profile, partnerProfile)}'s wishlist</Text>
                         </View>
                         <TouchableOpacity style={styles.viewAllBtn}>
                             <Text style={styles.viewAllText}>VIEW</Text>
                         </TouchableOpacity>
                     </GlassCard>
                 </View>
-
-            </ScrollView>
+            </Animated.ScrollView>
         </View>
     );
 }
@@ -267,36 +301,26 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: 'transparent',
     },
+    stickyHeader: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        pointerEvents: 'box-none',
+    },
     content: {
         flex: 1,
     },
     scrollContent: {
-        paddingBottom: 100,
+        paddingBottom: 160,
         paddingHorizontal: Spacing.sm,
     },
-    section: {
-        marginTop: 20,
-    },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
-        paddingHorizontal: Spacing.xs,
-    },
-    title: {
-        fontSize: 28,
-        fontFamily: Typography.serif,
-        color: 'white',
-    },
+    standardHeader: GlobalStyles.standardHeader,
+    standardTitle: GlobalStyles.standardTitle,
+    standardSubtitle: GlobalStyles.standardSubtitle,
     titleAccent: {
         fontFamily: Typography.serifItalic,
         color: '#a855f7',
-    },
-    resonanceTitle: {
-        fontSize: 18,
-        fontFamily: Typography.serif,
-        color: 'white',
     },
     libidoCard: {
         padding: Spacing.lg,
@@ -334,7 +358,7 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.3)',
         letterSpacing: 2,
-        marginTop: -10,
+        marginTop: 0,
     },
     sliderWrapper: {
         marginTop: 10,
@@ -486,7 +510,6 @@ const styles = StyleSheet.create({
     },
     sectionHeader: { marginBottom: 16, paddingHorizontal: Spacing.xs },
     sectionTitle: { fontSize: 18, fontFamily: Typography.serif, color: 'white' },
-    subtitle: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.4)', letterSpacing: 2, marginTop: 4 },
     monthTitle: { fontSize: 14, fontFamily: Typography.sansBold, color: 'white', letterSpacing: 1.5 },
     eventCard: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: Radius.lg, marginBottom: 12 },
     eventIconBox: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.03)', justifyContent: 'center', alignItems: 'center', marginRight: 16 },

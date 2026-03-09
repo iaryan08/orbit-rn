@@ -13,6 +13,7 @@ interface CelestialSkyProps {
     partnerLon?: number;
     starColor?: number[]; // [r, g, b]
     speed?: number;
+    maxStars?: number;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -46,7 +47,8 @@ export function CelestialSky({
     partnerLat,
     partnerLon,
     starColor = [255, 255, 255],
-    speed = 1
+    speed = 1,
+    maxStars = 80
 }: CelestialSkyProps) {
     const shimmer = useSharedValue(0.5);
 
@@ -84,8 +86,7 @@ export function CelestialSky({
         const phi = skyLat * (Math.PI / 180);
         const lstRad = LST * 15 * (Math.PI / 180);
 
-        // Limit to 80 for mobile performance
-        const starsToRender = BRIGHT_STARS.slice(0, 80);
+        const starsToRender = BRIGHT_STARS.slice(0, maxStars);
         const visibleStars: any[] = [];
 
         starsToRender.forEach(([ra, dec, mag], index) => {

@@ -4,6 +4,7 @@ import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolateColor } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
+import { useOrbitStore } from '../lib/store';
 
 const { width } = Dimensions.get('window');
 const SLIDER_WIDTH = width - (Spacing.md * 4);
@@ -18,6 +19,7 @@ interface LibidoSliderProps {
 }
 
 export function LibidoSlider({ defaultValue, onValueChange }: LibidoSliderProps) {
+    const setPagerScrollEnabled = useOrbitStore(state => state.setPagerScrollEnabled);
     const initialIndex = levels.indexOf(defaultValue) === -1 ? 1 : levels.indexOf(defaultValue);
     const stepWidth = SLIDER_WIDTH / (levels.length - 1);
     const translateX = useSharedValue(initialIndex * stepWidth);
@@ -32,14 +34,20 @@ export function LibidoSlider({ defaultValue, onValueChange }: LibidoSliderProps)
     };
 
     const gesture = Gesture.Pan()
+        .onStart(() => {
+            runOnJS(setPagerScrollEnabled)(false);
+        })
         .onUpdate((event) => {
             const newX = Math.min(Math.max(0, event.translationX + (levelIndex * stepWidth)), SLIDER_WIDTH);
             translateX.value = newX;
         })
         .onEnd(() => {
             const index = Math.round(translateX.value / stepWidth);
-            translateX.value = withSpring(index * stepWidth, { damping: 15, stiffness: 100 });
+            translateX.value = withSpring(index * stepWidth, { damping: 20, stiffness: 120, overshootClamping: true });
             runOnJS(updateValue)(index);
+        })
+        .onFinalize(() => {
+            runOnJS(setPagerScrollEnabled)(true);
         });
 
     const thumbStyle = useAnimatedStyle(() => ({
@@ -47,7 +55,7 @@ export function LibidoSlider({ defaultValue, onValueChange }: LibidoSliderProps)
     }));
 
     const progressStyle = useAnimatedStyle(() => ({
-        width: translateX.value,
+        width: translateX.value < 1 ? 0 : translateX.value,
         backgroundColor: interpolateColor(
             translateX.value,
             [0, stepWidth, stepWidth * 2, stepWidth * 3],

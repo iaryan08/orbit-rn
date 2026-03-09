@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
     View,
     Text,
@@ -20,24 +20,88 @@ import Animated, {
     interpolate,
     Extrapolate
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector, PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { X, Trash2, ShieldAlert, Download, Share2, Edit2 } from 'lucide-react-native';
+import { Gesture, GestureDetector, PanGestureHandler, State, GestureHandlerRootView, ScrollView, TouchableOpacity as GHTouchableOpacity } from 'react-native-gesture-handler';
+import { X, Trash2, ShieldAlert, Download, Share2, Edit2, BookmarkPlus, Heart } from 'lucide-react-native';
+import { savePolaroidToMemories } from '../lib/auth';
 
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOrbitStore } from '../lib/store';
 import { Spacing, Typography, Colors } from '../constants/Theme';
-import { getPublicStorageUrl } from '../lib/storage';
+import { getPublicStorageUrl, isVideoUrl } from '../lib/storage';
 import { db } from '../lib/firebase';
 import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library';
-import * as FileSystem from 'expo-file-system';
-import { doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import * as FileSystem from 'expo-file-system/legacy';
+import { doc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
 const { width, height } = Dimensions.get('window');
 
+const ViewerMedia = React.memo(({
+    url,
+    bucket,
+    idToken,
+    isActive,
+    isOpen,
+    onLoadStart,
+    onLoadEnd,
+}: {
+    url: string;
+    bucket: 'memories' | 'polaroids';
+    idToken: string | null | undefined;
+    isActive: boolean;
+    isOpen: boolean;
+    onLoadStart: () => void;
+    onLoadEnd: () => void;
+}) => {
+    const resolvedUrl = useMemo(() => getPublicStorageUrl(url, bucket, idToken) || undefined, [url, bucket, idToken]);
+    const videoMedia = useMemo(() => isVideoUrl(url), [url]);
+    const player = useVideoPlayer(videoMedia && idToken && isOpen ? (resolvedUrl || '') : '', (p) => {
+        p.loop = true;
+    });
+
+    useEffect(() => {
+        if (!videoMedia || !resolvedUrl || !isOpen) return;
+        try { player.replace({ uri: resolvedUrl }); } catch { }
+    }, [resolvedUrl, videoMedia, player, isOpen]);
+
+    useEffect(() => {
+        if (!videoMedia) return;
+        if (isActive) onLoadEnd();
+        if (isOpen && isActive) {
+            player.play();
+        } else {
+            player.pause();
+        }
+    }, [videoMedia, isOpen, isActive, player, onLoadEnd]);
+
+    if (videoMedia) {
+        return (
+            <VideoView
+                player={player}
+                style={styles.fullImage}
+                contentFit="contain"
+                nativeControls
+                allowsFullscreen
+                allowsPictureInPicture={false}
+            />
+        );
+    }
+
+    return (
+        <Image
+            source={{ uri: resolvedUrl }}
+            style={styles.fullImage}
+            resizeMode="contain"
+            onLoadStart={onLoadStart}
+            onLoadEnd={onLoadEnd}
+        />
+    );
+});
+
 export function MediaViewer() {
-    const { mediaViewerState, closeMediaViewer, idToken, profile, memories, polaroids } = useOrbitStore();
+    const { mediaViewerState, closeMediaViewer, idToken, profile, memories, polaroids, couple } = useOrbitStore();
     const { isOpen, imageUrls, initialIndex, ownerId, mediaId, type } = mediaViewerState;
     const insets = useSafeAreaInsets();
 
@@ -79,7 +143,7 @@ export function MediaViewer() {
                     const item = memories.find(m => m.id === mediaId);
                     if (item) {
                         setEditedTitle(item.title || '');
-                        setEditedCaption(item.description || '');
+                        setEditedCaption(item.content || '');
                     }
                 } else {
                     const item = polaroids.find(p => p.id === mediaId);
@@ -101,53 +165,93 @@ export function MediaViewer() {
         });
     };
 
+    const getMediaDocRef = () => {
+        if (!mediaId || !type || !couple?.id) return null;
+        return doc(db, 'couples', couple.id, type === 'memory' ? 'memories' : 'polaroids', mediaId);
+    };
+
     const handleSaveEdit = async () => {
-        if (!mediaId || !type) return;
+        const mediaRef = getMediaDocRef();
+        if (!mediaRef) {
+            Alert.alert("Error", "Missing couple or media context.");
+            return;
+        }
         try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            const ref = doc(db, type === 'memory' ? 'memories' : 'polaroids', mediaId);
-            const updateData: any = { caption: editedCaption };
+            const updateData: any = { updated_at: serverTimestamp() };
             if (type === 'memory') {
                 updateData.title = editedTitle;
-                updateData.description = editedCaption;
-                delete updateData.caption;
+                updateData.content = editedCaption;
+            } else {
+                updateData.caption = editedCaption;
             }
-            await updateDoc(ref, updateData);
+            await updateDoc(mediaRef, updateData);
             setIsEditing(false);
-        } catch (err) {
-            Alert.alert("Error", "Failed to update.");
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to update: ${err?.message || 'Unknown error'}`);
         }
     };
 
     const handleDownload = async () => {
+        if (isSaving || !imageUrls[currentIndex]) return;
         try {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setIsSaving(true);
             const { status } = await MediaLibrary.requestPermissionsAsync();
             if (status !== 'granted') {
-                Alert.alert("Permission", "Please allow access to your photos.");
+                Alert.alert("Permission", "Please allow gallery access to save media.");
                 return;
             }
+
             const currentUrl = imageUrls[currentIndex];
             const fullUrl = getPublicStorageUrl(currentUrl, type === 'memory' ? 'memories' : 'polaroids', idToken);
-            if (!fullUrl) return;
+            if (!fullUrl) throw new Error("Could not resolve URL");
 
-            const baseDir = (FileSystem as any).documentDirectory ?? (FileSystem as any).cacheDirectory ?? '';
-            const fileName = currentUrl.split('/').pop() || 'image.jpg';
-            const fileUri = `${baseDir}${fileName}`;
+            const extension = isVideoUrl(currentUrl) ? 'mp4' : 'jpg';
+            const fileName = `orbit_${Date.now()}.${extension}`;
+            // @ts-ignore
+            const fileUri = (FileSystem.cacheDirectory || '') + fileName;
+
             const downloadRes = await FileSystem.downloadAsync(fullUrl, fileUri);
+            if (downloadRes.status !== 200) throw new Error("Download failed");
 
             await MediaLibrary.saveToLibraryAsync(downloadRes.uri);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             Alert.alert("Success", "Saved to gallery!");
         } catch (err) {
-            Alert.alert("Error", "Failed to save.");
+            console.error("[MediaViewer] Download error:", err);
+            Alert.alert("Error", "Failed to save media.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSaveMemory = async () => {
+        if (!mediaId || type !== 'polaroid') return;
+        const item = polaroids.find(p => p.id === mediaId);
+        if (!item) return;
+
+        try {
+            setIsSaving(true);
+            const res = await savePolaroidToMemories(item);
+            if (res.success) {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                Alert.alert("Saved!", "This polaroid has been added to your permanent memories archive.");
+            } else {
+                Alert.alert("Error", res.error || "Failed to save memory.");
+            }
+        } catch (err) {
+            Alert.alert("Error", "Something went wrong.");
         } finally {
             setIsSaving(false);
         }
     };
 
     const handleDelete = async () => {
-        if (!mediaId || !type) return;
+        const mediaRef = getMediaDocRef();
+        if (!mediaRef) {
+            Alert.alert("Error", "Missing couple or media context.");
+            return;
+        }
         Alert.alert("Delete", "Permanently delete this memory?", [
             { text: "Cancel", style: "cancel" },
             {
@@ -156,10 +260,10 @@ export function MediaViewer() {
                 onPress: async () => {
                     try {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        const ref = doc(db, type === 'memory' ? 'memories' : 'polaroids', mediaId);
-                        await deleteDoc(ref);
+                        await deleteDoc(mediaRef);
                         handleClose();
-                    } catch (err) {
+                    } catch (err: any) {
+                        Alert.alert("Error", `Failed to delete: ${err?.message || 'Unknown error'}`);
                     }
                 }
             }
@@ -242,23 +346,25 @@ export function MediaViewer() {
         ],
     }));
 
-    const backdropStyle = useAnimatedStyle(() => ({
-        opacity: scale.value > 1.05 ? 1 : interpolate(translateY.value, [-300, 0, 300], [0, 1, 0], Extrapolate.CLAMP),
-    }));
-
     if (!isOpen) return null;
 
     return (
-        <Modal transparent visible animationType="none" onRequestClose={handleClose}>
+        <Modal
+            transparent={false}
+            visible
+            animationType="none"
+            statusBarTranslucent={true}
+            onRequestClose={handleClose}
+        >
             <GestureHandlerRootView style={styles.container}>
-                <Animated.View style={[styles.backdrop, backdropStyle]} />
+                <View style={styles.backdrop} />
 
                 {/* Header Controls */}
                 <View style={[styles.headerBar, { top: insets.top + 4 }]}>
                     <View style={styles.headerLeft} />
-                    <TouchableOpacity style={styles.premiumIconBtn} onPress={handleClose}>
+                    <GHTouchableOpacity style={styles.premiumIconBtn} onPress={handleClose}>
                         <X color="white" size={24} strokeWidth={2.5} />
-                    </TouchableOpacity>
+                    </GHTouchableOpacity>
                 </View>
 
                 <GestureDetector gesture={Gesture.Simultaneous(pinchGesture, panGesture, doubleTapGesture)}>
@@ -279,22 +385,33 @@ export function MediaViewer() {
                             }}
                             style={styles.scrollView}
                         >
-                            {imageUrls.map((url, i) => (
-                                <View key={i} style={styles.slide}>
-                                    <Image
-                                        source={{ uri: getPublicStorageUrl(url, type === 'memory' ? 'memories' : 'polaroids', idToken) || undefined }}
-                                        style={styles.fullImage}
-                                        resizeMode="contain"
-                                        onLoadStart={() => i === currentIndex && setIsLoading(true)}
-                                        onLoadEnd={() => i === currentIndex && setIsLoading(false)}
-                                    />
-                                    {isLoading && i === currentIndex && (
-                                        <View style={styles.loader}>
-                                            <ActivityIndicator color="white" />
-                                        </View>
-                                    )}
-                                </View>
-                            ))}
+                            {imageUrls.map((url, i) => {
+                                // Render only the current, previous, and next image to optimize performance
+                                const shouldRender = Math.abs(i - currentIndex) <= 1;
+                                return (
+                                    <View key={i} style={styles.slide}>
+                                        {shouldRender ? (
+                                            <ViewerMedia
+                                                url={url}
+                                                bucket={type === 'memory' ? 'memories' : 'polaroids'}
+                                                idToken={idToken}
+                                                isActive={i === currentIndex}
+                                                isOpen={isOpen}
+                                                onLoadStart={() => i === currentIndex && setIsLoading(true)}
+                                                onLoadEnd={() => i === currentIndex && setIsLoading(false)}
+                                            />
+                                        ) : (
+                                            // Placeholder for non-rendered images to maintain scroll position
+                                            <View style={[styles.fullImage, { backgroundColor: 'transparent' }]} />
+                                        )}
+                                        {isLoading && i === currentIndex && (
+                                            <View style={styles.loader}>
+                                                <ActivityIndicator color="white" />
+                                            </View>
+                                        )}
+                                    </View>
+                                );
+                            })}
                         </Animated.ScrollView>
                     </Animated.View>
                 </GestureDetector>
@@ -302,33 +419,39 @@ export function MediaViewer() {
                 {/* Footer Controls */}
                 <View style={[styles.footerBar, { bottom: insets.bottom + Spacing.lg }]}>
                     <View style={styles.footerLeft}>
-                        {profile?.id === ownerId && (
+                        {/* Orbit V2: Memories & Polaroids are shared assets; allow both partners to manage them */}
+                        {(profile?.id === ownerId || type === 'memory' || type === 'polaroid') && (
                             <View style={styles.ownerActions}>
-                                <TouchableOpacity style={styles.premiumIconBtn} onPress={() => setIsEditing(true)}>
+                                {type === 'polaroid' && (
+                                    <GHTouchableOpacity
+                                        style={[styles.premiumIconBtn, { backgroundColor: 'rgba(251,113,133,0.1)' }]}
+                                        onPress={handleSaveMemory}
+                                        disabled={isSaving}
+                                    >
+                                        <BookmarkPlus color={Colors.dark.rose[400]} size={20} />
+                                    </GHTouchableOpacity>
+                                )}
+                                <GHTouchableOpacity style={styles.premiumIconBtn} onPress={() => setIsEditing(true)}>
                                     <Edit2 color="white" size={20} />
-                                </TouchableOpacity>
-                                <TouchableOpacity
+                                </GHTouchableOpacity>
+                                <GHTouchableOpacity
                                     style={[styles.premiumIconBtn, { backgroundColor: 'rgba(255,59,48,0.1)' }]}
                                     onPress={handleDelete}
                                 >
                                     <Trash2 color="#FF3B30" size={20} />
-                                </TouchableOpacity>
+                                </GHTouchableOpacity>
                             </View>
                         )}
                     </View>
 
                     <View style={styles.footerRight}>
-                        <TouchableOpacity style={styles.downloadBtn} onPress={handleDownload} disabled={isSaving}>
+                        <GHTouchableOpacity style={styles.downloadBtn} onPress={handleDownload} disabled={isSaving}>
                             <View style={[styles.downloadGlass, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
                                 {isSaving ? <ActivityIndicator size="small" color="white" /> : (
-                                    <>
-                                        <Download color="white" size={18} />
-                                        <Text style={styles.downloadText}>Save</Text>
-                                    </>
+                                    <Download color="white" size={18} />
                                 )}
                             </View>
-                        </TouchableOpacity>
-
+                        </GHTouchableOpacity>
                     </View>
                 </View>
 
@@ -340,7 +463,7 @@ export function MediaViewer() {
                 )}
 
                 {/* Edit Modal */}
-                <Modal visible={isEditing} transparent animationType="fade" onRequestClose={() => setIsEditing(false)}>
+                <Modal visible={isEditing} transparent animationType="fade" statusBarTranslucent={true} onRequestClose={() => setIsEditing(false)}>
                     <View style={styles.editOverlay}>
                         <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.85)' }]} />
                         <TouchableOpacity style={styles.editBackdrop} activeOpacity={1} onPress={() => setIsEditing(false)} />
@@ -425,13 +548,12 @@ const styles = StyleSheet.create({
     },
     downloadBtn: { overflow: 'hidden', borderRadius: 24 },
     downloadGlass: {
-        flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        gap: 8,
+        justifyContent: 'center',
+        width: 48,
+        height: 48,
+        borderRadius: 24,
     },
-    downloadText: { color: 'white', fontFamily: Typography.sansBold, fontSize: 13 },
     mediaContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     scrollView: { flex: 1 },
     slide: { width, height, justifyContent: 'center', alignItems: 'center' },

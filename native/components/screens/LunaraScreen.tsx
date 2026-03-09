@@ -1,23 +1,24 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity,
-    Dimensions, Alert
+    Dimensions, Alert, Pressable, Platform, Switch, Keyboard, PanResponder, Modal, RefreshControl
 } from 'react-native';
 import Animated, {
     useSharedValue, useAnimatedScrollHandler, useAnimatedStyle,
     interpolate, Extrapolate, withTiming, Easing, withSpring,
-    FadeIn
+    FadeIn, FadeInDown, withDelay, withSequence
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Moon, Sparkles, Heart, Calendar, Shield, Flame, Settings, ChevronRight, Info, Droplets } from 'lucide-react-native';
+import { Moon, Sparkles, Heart, Calendar, Shield, Flame, Settings, ChevronRight, Info, Droplets, Image as ImageIconLucide, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { auth, db } from '../../lib/firebase';
+import { auth, db, app } from '../../lib/firebase';
 import {
     doc, updateDoc, setDoc, serverTimestamp,
     collection, query, where, getDocs, orderBy, limit, onSnapshot
 } from 'firebase/firestore';
 import { useOrbitStore } from '../../lib/store';
 import { Colors, Spacing, Typography, Radius } from '../../constants/Theme';
+import { GlobalStyles } from '../../constants/Styles';
 import { GlassCard } from '../../components/GlassCard';
 import { HeaderPill } from '../../components/HeaderPill';
 import { predictNextPeriod, getTodayIST, getCycleDay } from '../../lib/cycle';
@@ -53,6 +54,7 @@ export function LunaraScreen() {
         intimacyForecast,
         isRefreshingForecast,
         refreshForecast,
+        lastForecastRefresh,
     } = useOrbitStore();
     const insets = useSafeAreaInsets();
 
@@ -67,6 +69,24 @@ export function LunaraScreen() {
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (e) => { scrollOffset.value = e.contentOffset.y; }
     });
+
+    // Morphing: Standardized thresholds for professional overlap
+    const titleAnimatedStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollOffset.value, [0, 70], [1, 0], Extrapolate.CLAMP),
+        transform: [
+            { scale: interpolate(scrollOffset.value, [0, 70], [1, 0.95], Extrapolate.CLAMP) },
+            { translateY: interpolate(scrollOffset.value, [0, 70], [0, -12], Extrapolate.CLAMP) }
+        ]
+    }));
+
+    const sublineAnimatedStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollOffset.value, [0, 50], [1, 0], Extrapolate.CLAMP),
+    }));
+
+    const headerPillStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollOffset.value, [30, 80], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [30, 80], [8, 0], Extrapolate.CLAMP) }]
+    }));
 
     const isFemale = profile?.gender === 'female';
     const user = auth.currentUser;
@@ -92,6 +112,13 @@ export function LunaraScreen() {
             return () => { unsubOwn(); unsubPartner(); };
         }
     }, [coupleId, user, partnerId]);
+
+    useEffect(() => {
+        if (!user?.uid) return;
+        const today = getTodayIST();
+        const symptoms = cycleLogs[user.uid]?.[today]?.symptoms || [];
+        setSelectedSymptoms(symptoms);
+    }, [cycleLogs, user?.uid]);
 
     const activeCycle = isFemale ? cycleProfile : partnerCycleProfile;
 
@@ -167,26 +194,17 @@ export function LunaraScreen() {
         );
     };
 
-    const handleToggleSymptom = async (symptom: string) => {
-        if (!coupleId || !user) return;
-        const todayStr = getTodayIST();
+    const handleToggleSymptom = (symptom: string) => {
+        if (!user) return;
+
+        const { logSymptomsOptimistic } = useOrbitStore.getState();
         const next = selectedSymptoms.includes(symptom)
             ? selectedSymptoms.filter(s => s !== symptom)
             : [...selectedSymptoms, symptom];
 
         setSelectedSymptoms(next);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-        try {
-            const logRef = doc(db, 'couples', coupleId, 'cycle_logs', user.uid, 'logs', todayStr);
-            await setDoc(logRef, {
-                log_date: todayStr,
-                symptoms: next,
-                updated_at: serverTimestamp()
-            }, { merge: true });
-        } catch (e) {
-            console.error('Error logging symptom:', e);
-        }
+        logSymptomsOptimistic(user.uid, next);
     };
 
     return (
@@ -196,17 +214,44 @@ export function LunaraScreen() {
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingTop: insets.top + Spacing.md }}
             >
-                <View style={[styles.hero, { paddingTop: insets.top + Spacing.md }]}>
-                    <View style={styles.ritualHeader}>
-                        <Text style={styles.ritualSubtitle}>THE BIOLOGICAL RHYTHM</Text>
-                        <Text style={styles.ritualTitle}>
-                            {phase?.name || 'Orbiting'} <Text style={styles.ritualAccent}>Phase</Text>
-                        </Text>
+                <View style={styles.hero}>
+                    <View style={styles.standardHeader}>
+                        <Animated.Text style={[styles.standardTitle, titleAnimatedStyle]}>
+                            {phase?.name || 'Discovery'}
+                        </Animated.Text>
+                        <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>
+                            BIOLOGICAL · RHYTHM
+                        </Animated.Text>
                     </View>
 
                     {phase && (
                         <PhaseSphere phase={phase.name} intensity={0.7} />
+                    )}
+
+                    {isFemale && (
+                        <View style={styles.centerRitualRow}>
+                            <Pressable
+                                onPress={handleLogPeriod}
+                                disabled={isLogging}
+                                style={({ pressed }) => [
+                                    styles.ritualBtn,
+                                    {
+                                        opacity: pressed ? 0.7 : (isLogging ? 0.4 : 1),
+                                        transform: [{ scale: pressed ? 0.98 : 1 }],
+                                        backgroundColor: 'rgba(251,113,133,0.1)',
+                                        borderColor: 'rgba(251,113,133,0.3)'
+                                    }
+                                ]}
+                            >
+                                <Droplets size={14} color="#f87171" />
+                                <Text style={[styles.ritualBtnText, { color: '#f87171' }]}>
+                                    {isLogging ? 'LOGGING...' : 'LOG PERIOD'}
+                                </Text>
+                            </Pressable>
+                        </View>
                     )}
 
                     {!isFemale && partnerProfile && (
@@ -230,22 +275,17 @@ export function LunaraScreen() {
                         />
                     )}
 
-                    <View style={styles.heroCtaRow}>
-                        {isFemale && (
-                            <TouchableOpacity
-                                style={styles.ritualBtn}
-                                onPress={handleLogPeriod}
-                                disabled={isLogging}
-                            >
-                                <Droplets size={14} color="#f87171" />
-                                <Text style={[styles.ritualBtnText, { color: '#f87171' }]}>
-                                    {isLogging ? 'LOGGING...' : 'LOG PERIOD'}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                            style={styles.ritualBtn}
+                    <View style={styles.centerRitualRow}>
+                        <Pressable
                             onPress={() => {
+                                const COOLDOWN = 7 * 24 * 60 * 60 * 1000;
+                                const lastRefresh = lastForecastRefresh || 0;
+                                if (Date.now() - lastRefresh < COOLDOWN) {
+                                    const daysLeft = Math.ceil((COOLDOWN - (Date.now() - lastRefresh)) / (1000 * 60 * 60 * 24));
+                                    Alert.alert("ORBIT CALIBRATING", `AI Refinement is cooling down. Next alignment available in ${daysLeft} days.`);
+                                    return;
+                                }
+
                                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                                 refreshForecast({
                                     lastPeriodStart: activeCycle?.last_period_start,
@@ -254,12 +294,21 @@ export function LunaraScreen() {
                                 });
                             }}
                             disabled={isRefreshingForecast}
+                            style={({ pressed }) => {
+                                const COOLDOWN = 7 * 24 * 60 * 60 * 1000;
+                                const lastRefresh = lastForecastRefresh || 0;
+                                const isCoolingDown = (Date.now() - lastRefresh < COOLDOWN);
+                                return [
+                                    styles.ritualBtn,
+                                    { opacity: pressed ? 0.7 : (isRefreshingForecast || isCoolingDown ? 0.4 : 1), transform: [{ scale: pressed ? 0.98 : 1 }] }
+                                ];
+                            }}
                         >
                             <Moon size={14} color="#c084fc" />
                             <Text style={styles.ritualBtnText}>
                                 {isRefreshingForecast ? 'REFINING ORBIT...' : 'NEW MOON RITUAL'}
                             </Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                 </View>
 
@@ -338,18 +387,19 @@ export function LunaraScreen() {
                             {suggestedSymptoms.map(symptom => {
                                 const isSelected = selectedSymptoms.includes(symptom);
                                 return (
-                                    <TouchableOpacity
+                                    <Pressable
                                         key={symptom}
                                         onPress={() => handleToggleSymptom(symptom)}
-                                        style={[
+                                        style={({ pressed }) => [
                                             styles.chip,
-                                            isSelected && { backgroundColor: 'rgba(168,85,247,0.25)', borderColor: '#a855f7' }
+                                            isSelected && { backgroundColor: 'rgba(168,85,247,0.25)', borderColor: '#a855f7' },
+                                            { opacity: pressed ? 0.6 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
                                         ]}
                                     >
                                         <Text style={[styles.chipText, isSelected && { color: '#c084fc' }]}>
                                             {symptom}
                                         </Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 );
                             })}
                         </View>
@@ -358,16 +408,32 @@ export function LunaraScreen() {
 
                 <View style={{ height: 120 }} />
             </Animated.ScrollView>
+
+            {/* Sticky Header Pill - Positioned AFTER Scroll for Z-Index Dominance */}
+            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
+                <HeaderPill title={phase?.name || "Discovery"} scrollOffset={scrollOffset} />
+            </Animated.View>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
-    scroll: { paddingHorizontal: Spacing.md },
+    stickyHeader: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        pointerEvents: 'box-none',
+    },
+    standardHeader: GlobalStyles.standardHeader,
+    standardTitle: GlobalStyles.standardTitle,
+    standardSubtitle: GlobalStyles.standardSubtitle,
+    scroll: { flex: 1 },
     // Ritual Hero
-    hero: { marginBottom: Spacing.xl, alignItems: 'center' },
-    ritualHeader: { alignItems: 'center', marginBottom: 20 },
+    hero: { marginBottom: Spacing.xl, alignItems: 'flex-start' },
+    ritualHeader: { alignItems: 'flex-start', marginBottom: 20 },
     ritualSubtitle: {
         fontSize: 9, fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.3)', letterSpacing: 2.5,
@@ -382,7 +448,8 @@ const styles = StyleSheet.create({
         color: '#c084fc',
     },
     partnerFocus: { marginBottom: 20 },
-    heroCtaRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
+    heroCtaRow: { flexDirection: 'row', gap: 12, marginTop: -10, marginBottom: 20 },
+    centerRitualRow: { flexDirection: 'row', gap: 12, marginTop: 10, justifyContent: 'center' },
     ritualBtn: {
         flexDirection: 'row', alignItems: 'center', gap: 8,
         paddingHorizontal: 20, paddingVertical: 12,
@@ -398,6 +465,7 @@ const styles = StyleSheet.create({
     statsGrid: {
         flexDirection: 'row', gap: Spacing.md,
         marginVertical: Spacing.lg,
+        paddingHorizontal: Spacing.md,
     },
     predictionCard: {
         flex: 1, padding: 20, borderRadius: Radius.xl,
@@ -430,6 +498,7 @@ const styles = StyleSheet.create({
 
     // Poetic AI Card
     poeticCard: {
+        marginHorizontal: Spacing.md,
         marginBottom: Spacing.xl, padding: 24,
         borderRadius: Radius.xxl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
         backgroundColor: 'rgba(255,255,255,0.02)',
@@ -468,19 +537,20 @@ const styles = StyleSheet.create({
         fontSize: 16, fontFamily: Typography.sans,
         color: 'rgba(255,255,255,0.85)', lineHeight: 26,
     },
+    missionText: {
+        flex: 1, fontSize: 13, fontFamily: Typography.sans,
+        color: '#c084fc', lineHeight: 20,
+    },
     connectMission: {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         padding: 16, borderRadius: Radius.lg,
         backgroundColor: 'rgba(168,85,247,0.1)',
         borderWidth: 1, borderColor: 'rgba(168,85,247,0.2)',
     },
-    missionText: {
-        flex: 1, fontSize: 13, fontFamily: Typography.sans,
-        color: '#c084fc', lineHeight: 20,
-    },
 
     // Symptoms
     symptomsCard: {
+        marginHorizontal: Spacing.md,
         marginBottom: Spacing.md, padding: Spacing.lg,
         borderRadius: Radius.xl, borderWidth: 1, borderColor: 'rgba(168,85,247,0.1)',
     },

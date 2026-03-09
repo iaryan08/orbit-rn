@@ -2,6 +2,7 @@ import React, { useRef, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { Heart, Thermometer } from 'lucide-react-native';
 import { Colors, Spacing, Typography } from '../constants/Theme';
+import { GlobalStyles, GlobalHitSlops } from '../constants/Styles';
 import { getPublicStorageUrl } from '../lib/storage';
 import { useOrbitStore } from '../lib/store';
 import { ProfileAvatar } from './ProfileAvatar';
@@ -25,22 +26,49 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
     const onlinePulse = useRef(new Animated.Value(0)).current;
     const [isPartnerActive, setIsPartnerActive] = useState(false);
 
-    const partnerName = getPartnerName(profile, partnerProfile);
-    const userName = profile?.display_name || 'You';
+    const partnerName = partnerProfile?.location_city || getPartnerName(profile, partnerProfile);
+    const userName = profile?.location_city || profile?.display_name || 'You';
 
-    // RTDB instantaneous presence instead of last_seen Firestore polling
+    const [serverOffset, setServerOffset] = useState(0);
+
+    // RTDB instantaneous presence with Strict Heartbeat Validation
     useEffect(() => {
-        if (!coupleId || !partnerProfile?.id) return;
-
-        const partnerRef = ref(rtdb, `presence/${coupleId}/${partnerProfile.id}`);
-        const unsub = onValue(partnerRef, (snapshot) => {
-            const data = snapshot.val();
-            // User is online if they are exploring the app or actively in cinema
-            setIsPartnerActive(!!data?.is_online || !!data?.in_cinema);
+        const offsetRef = ref(rtdb, '.info/serverTimeOffset');
+        const unsubOffset = onValue(offsetRef, (snap) => {
+            setServerOffset(snap.val() || 0);
         });
 
-        return unsub;
-    }, [coupleId, partnerProfile?.id]);
+        if (!coupleId || !partnerProfile?.id) return unsubOffset;
+
+        const partnerRef = ref(rtdb, `presence/${coupleId}/${partnerProfile.id}`);
+        let lastData: any = null;
+
+        const validate = () => {
+            if (!lastData) {
+                setIsPartnerActive(false);
+                return;
+            }
+            const now = Date.now() + serverOffset;
+            const lastChanged = lastData.last_changed || 0;
+            // Best-in-Class: 5 minute buffer for background sync stability
+            const diff = Math.abs(now - lastChanged);
+            const isFresh = diff < 300_000;
+            setIsPartnerActive(isFresh && (!!lastData.is_online || !!lastData.in_cinema));
+        };
+
+        const unsub = onValue(partnerRef, (snapshot) => {
+            lastData = snapshot.val();
+            validate();
+        });
+
+        const validator = setInterval(validate, 30000);
+
+        return () => {
+            unsubOffset();
+            unsub();
+            clearInterval(validator);
+        };
+    }, [coupleId, partnerProfile?.id, serverOffset]);
 
     // Remove onlinePulse animation as we are simplifying to solid border/dot
     useEffect(() => {
@@ -75,8 +103,16 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
         if (!coupleId || !profile?.id) return;
 
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 120);
 
-        // Broadcast heartbeat to RTDB (Global Heartbeat)
+        // Broadcast heartbeat to RTDB (Global Heartbeat) - SYNC WITH WEB
+        const vibeRef = ref(rtdb, `vibrations/${coupleId}`);
+        set(vibeRef, {
+            senderId: profile.id,
+            timestamp: Date.now()
+        });
+
+        // Backup Cinema Event for existing Cinema UI
         const broadcastRef = ref(rtdb, `broadcasts/${coupleId}/${profile.id}`);
         set(broadcastRef, {
             event: 'cinema_event',
@@ -96,7 +132,8 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
                 {/* User Avatar (Left, Back) */}
                 <TouchableOpacity
                     style={[styles.avatarWrapper, styles.userAvatarShift]}
-                    onPress={() => setTabIndex(7)}
+                    onPress={() => setTabIndex(7, 'tap')}
+                    hitSlop={GlobalHitSlops.sm}
                 >
                     <ProfileAvatar
                         url={userAvatarUrl}
@@ -112,6 +149,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
                     onPressOut={handlePressOut}
                     onLongPress={handleLongPress}
                     delayLongPress={400}
+                    hitSlop={GlobalHitSlops.md}
                     style={[
                         styles.avatarWrapper,
                         styles.partnerAvatarShift,
@@ -138,13 +176,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
                     <Text style={styles.statusName}>{partnerName.toUpperCase()}</Text>
                     <View style={[styles.statusDot, isPartnerActive && { backgroundColor: '#10b981' }]} />
                     <Thermometer size={12} color={Colors.dark.amber[400]} />
-                    <Text style={styles.statusTemp}>27°C</Text>
-                    {isPartnerActive && (
-                        <>
-                            <View style={[styles.statusDot, { backgroundColor: '#10b981' }]} />
-                            <Text style={styles.activeStatusText}>ACTIVE NOW</Text>
-                        </>
-                    )}
+                    <Text style={styles.statusTemp}>{partnerProfile?.location?.temp ? `${Math.round(partnerProfile.location.temp)}°C` : '27°C'}</Text>
                 </View>
             </View>
         </View>
@@ -153,12 +185,12 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
 
 const styles = StyleSheet.create({
     headerContainer: {
-        alignItems: 'center',
+        alignItems: 'flex-start',
         paddingVertical: Spacing.xl,
     },
     avatarsContainer: {
         flexDirection: 'row',
-        justifyContent: 'center',
+        justifyContent: 'flex-start',
         marginBottom: Spacing.md,
     },
     avatarWrapper: {
@@ -196,39 +228,43 @@ const styles = StyleSheet.create({
         zIndex: -1,
     },
     infoContainer: {
-        alignItems: 'center',
+        alignItems: 'flex-start',
     },
     connectedText: {
-        color: 'rgba(255,255,255,0.6)',
-        fontSize: 14,
-        fontFamily: Typography.serifItalic,
-        marginBottom: 4,
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 10,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 2.5,
+        textTransform: 'uppercase',
+        marginBottom: 8,
     },
     partnerNameText: {
         fontFamily: Typography.serif,
         color: 'white',
         fontSize: 22,
+        letterSpacing: -0.5,
     },
     statusRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
+        marginTop: 6,
     },
     statusName: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
+        color: 'rgba(255,255,255,0.3)',
+        fontSize: 9,
         fontFamily: Typography.sansBold,
-        letterSpacing: 2,
+        letterSpacing: 1.5,
     },
     statusDot: {
-        width: 3,
-        height: 3,
-        borderRadius: 1.5,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: 'rgba(255,255,255,0.1)',
     },
     statusTemp: {
-        color: 'white',
-        fontSize: 11,
+        color: 'rgba(255,255,255,0.6)',
+        fontSize: 10,
         fontFamily: Typography.sansBold,
     },
     activeStatusText: {

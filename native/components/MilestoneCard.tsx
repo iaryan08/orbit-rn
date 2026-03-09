@@ -33,6 +33,7 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
     const [time, setTime] = useState(userTime || existingData?.milestone_time || '');
     const [isSaving, setIsSaving] = useState(false);
     const [hasNewSuccess, setHasNewSuccess] = useState(false);
+    const successTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     React.useEffect(() => {
         if (!isSaving) {
@@ -67,12 +68,22 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
 
         if (result.success) {
             setHasNewSuccess(true);
-            setTimeout(() => setHasNewSuccess(false), 3000);
+            if (successTimerRef.current) clearTimeout(successTimerRef.current);
+            successTimerRef.current = setTimeout(() => setHasNewSuccess(false), 3000);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             toggleExpand();
         }
         setIsSaving(false);
     };
+
+    React.useEffect(() => {
+        return () => {
+            if (successTimerRef.current) {
+                clearTimeout(successTimerRef.current);
+                successTimerRef.current = null;
+            }
+        };
+    }, []);
 
     const animatedContentStyle = useAnimatedStyle(() => ({
         height: expansion.value * 500,

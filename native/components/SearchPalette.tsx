@@ -9,9 +9,10 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
     Search, X, LayoutDashboard, Mail, Image as ImageIcon,
-    Flame, Settings, Moon, Sparkles, Heart, BellRing, Compass,
-    BookOpen, Camera, Calendar, ChevronRight, Zap
+    Flame, Settings, Moon, Sparkles, Heart, BellRing, Compass, Shield,
+    BookOpen, Camera, Calendar, ChevronRight, Zap, Layers
 } from 'lucide-react-native';
+import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { useOrbitStore } from '../lib/store';
 import { Emoji } from './Emoji';
@@ -27,49 +28,49 @@ const STATIC_ITEMS = [
     {
         id: 'dashboard', title: 'Dashboard', subtitle: 'Your private orbit space',
         icon: LayoutDashboard, iconColor: '#f43f5e', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(1); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(1, 'tap'); },
         keywords: ['home', 'main', 'orbit', 'dashboard', 'space'],
     },
     {
         id: 'letters', title: 'Letters', subtitle: 'Write & read messages',
         icon: Mail, iconColor: '#f59e0b', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(2); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(2, 'tap'); },
         keywords: ['letters', 'messages', 'mail', 'write', 'notes', 'inbox'],
     },
     {
         id: 'memories', title: 'Memories', subtitle: 'Photos & polaroids',
         icon: ImageIcon, iconColor: '#34d399', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(3); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(3, 'tap'); },
         keywords: ['memories', 'photos', 'gallery', 'polaroid', 'pictures'],
     },
     {
         id: 'intimacy', title: 'Intimacy', subtitle: 'Milestones & closeness',
         icon: Flame, iconColor: '#fb923c', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(4); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(4, 'tap'); },
         keywords: ['intimacy', 'flame', 'milestones', 'closeness', 'romance', 'timeline'],
     },
     {
         id: 'settings', title: 'Settings', subtitle: 'Profile, atmosphere, security',
         icon: Settings, iconColor: '#94a3b8', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(7); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(7, 'tap'); },
         keywords: ['settings', 'profile', 'account', 'wallpaper', 'atmosphere'],
     },
     {
         id: 'lunara_screen', title: 'Lunara', subtitle: 'Cycle & rhythm dashboard',
         icon: Moon, iconColor: '#a855f7', group: 'Screens',
-        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5); },
+        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5, 'tap'); },
         keywords: ['lunara', 'cycle', 'period', 'rhythm', 'tracking'],
     },
     {
         id: 'mode_lunara', title: 'Switch to Lunara Mode', subtitle: 'Purple theme + cycle tracking',
         icon: Moon, iconColor: '#a855f7', group: 'Modes',
-        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5); },
+        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5, 'tap'); },
         keywords: ['lunara mode', 'purple', 'cycle', 'switch'],
     },
     {
         id: 'mode_moon', title: 'Switch to Moon Mode', subtitle: 'Rose romantic theme',
         icon: Heart, iconColor: '#f43f5e', group: 'Modes',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(1); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(1, 'tap'); },
         keywords: ['moon mode', 'rose', 'romantic', 'switch'],
     },
     {
@@ -81,13 +82,13 @@ const STATIC_ITEMS = [
     {
         id: 'partner_nav', title: 'Partner (Lunara)', subtitle: 'Switch dock to Lunara 3-icon layout',
         icon: Sparkles, iconColor: '#c084fc', group: 'Actions',
-        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5); },
+        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5, 'tap'); },
         keywords: ['partner', 'spark', 'lunara dock', 'three icons'],
     },
     {
         id: 'intimacy_nav', title: 'Intimacy (Moon)', subtitle: 'Switch dock back to Moon layout',
         icon: Flame, iconColor: '#fb923c', group: 'Actions',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(4); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(4, 'tap'); },
         keywords: ['intimacy moon', 'moon dock', 'four icons', 'flame'],
     },
 ];
@@ -109,7 +110,7 @@ function buildDynamicItems(memories: any[], letters: any[], milestones: any, sto
             icon: Camera,
             iconColor: '#34d399',
             group: 'Memories',
-            action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(3); },
+            action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(3, 'tap'); },
             keywords: [
                 'memory', 'photo',
                 (m.title || '').toLowerCase(),
@@ -132,7 +133,7 @@ function buildDynamicItems(memories: any[], letters: any[], milestones: any, sto
             icon: Mail,
             iconColor: '#f59e0b',
             group: 'Letters',
-            action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(2); },
+            action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(2, 'tap'); },
             keywords: [
                 'letter', 'message',
                 (l.content || '').toLowerCase(),
@@ -152,7 +153,7 @@ function buildDynamicItems(memories: any[], letters: any[], milestones: any, sto
             icon: Zap,
             iconColor: '#fb923c',
             group: 'Intimacy',
-            action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(4); },
+            action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(4, 'tap'); },
             keywords: [
                 'milestone', 'intimacy', 'moment',
                 (val.title || key).toLowerCase(),
@@ -283,7 +284,7 @@ export function SearchPalette() {
 
             {/* Panel */}
             <Animated.View style={[styles.panel, { top: insets.top + 12 }, panelStyle]} pointerEvents="box-none">
-                <View style={styles.panelInner}>
+                <BlurView intensity={50} tint="dark" experimentalBlurMethod="dimezisBlurView" style={styles.panelInner}>
                     {/* Input Row */}
                     <View style={styles.inputRow}>
                         <Search size={17} color="rgba(255,255,255,0.4)" />
@@ -345,7 +346,7 @@ export function SearchPalette() {
                             );
                         }}
                     />
-                </View>
+                </BlurView>
             </Animated.View>
         </Modal>
     );
@@ -371,7 +372,7 @@ const styles = StyleSheet.create({
     },
     panelInner: {
         flex: 1,
-        backgroundColor: 'rgba(10,10,20,0.96)',
+        backgroundColor: 'rgba(10,10,20,0.6)',
     },
 
     // Input

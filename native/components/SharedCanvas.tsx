@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Platform, Image, Alert } from 'react-native';
 
-import { Download, Undo2, Redo2, Trash2, Edit2, Shield, ShieldOff, Eraser, Move, Palette, X } from 'lucide-react-native';
+import { Download, Undo2, Redo2, Trash2, Edit2, Shield, ShieldOff, Eraser, Move, X } from 'lucide-react-native';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -10,17 +10,22 @@ import {
     Group,
     Skia,
     SkPath,
+    SkPicture,
     useCanvasRef,
     PaintStyle,
     StrokeCap,
     StrokeJoin,
     BlendMode,
     Picture,
+    LinearGradient,
+    vec,
+    Rect,
+    ImageFormat,
 } from '@shopify/react-native-skia';
 import { useOrbitStore } from '../lib/store';
 import { db, rtdb } from '../lib/firebase';
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, onValue, set as rtdbSet, remove, onDisconnect } from 'firebase/database';
+import { ref, onValue, set as rtdbSet, onDisconnect } from 'firebase/database';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, FadeIn } from 'react-native-reanimated';
@@ -31,14 +36,52 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const LOGICAL_SIZE = 1500;
 const CANVAS_WIDTH = SCREEN_WIDTH;
 const CANVAS_HEIGHT = SCREEN_WIDTH; // Square canvas for perfect web-sync parity
+const SIMPLE_NATIVE_CANVAS = true;
+const FORCE_CANVAS_RESET_ONCE = false;
+const ENABLE_RTDB_CANVAS_SYNC = true;
+// Keep debug instrumentation in codebase, but disabled for production builds.
+const ENABLE_DEBUG_CHIP = false;
+const LIVE_PATH_MAX_JUMP_PX = 42;
+const REDMI12_POINT_MIN_DIST = 0.6;
+const LOW_LATENCY_SYNC_MS = 100; // Optimal balance (10 updates/sec) - Industry standard for stability & battery
+const FIRESTORE_PERSIST_MS = 1000; // Batch Firestore saves faster for background durability
+const JS_POINT_DISPATCH_MS = 16; // 60fps dispatch
+const POINT_PRECISION = 10; // 1 decimal
 
 interface Point { x: number; y: number }
 interface Stroke {
+    id: string;
     points: Point[];
     color: string;
     width: number;
+    tool?: 'pen' | 'eraser';
     isEraser?: boolean;
     skPath?: SkPath; // UI thread cached path
+}
+
+type CanvasMode = 'static' | 'readOnly' | 'draw' | 'pan';
+
+type DeltaEventPayload =
+    | { type: 'start'; id: string; points: Point[]; meta: { color: string; width: number; isEraser: boolean } }
+    | { type: 'points'; id: string; points: Point[] }
+    | { type: 'end'; id: string }
+    | { event: 'drawing-state'; isDrawing: boolean }
+    | { event: 'scroll-sync'; s: number; tx: number; ty: number };
+
+const quantizePoint = (p: Point): Point => ({
+    x: Math.round(p.x * POINT_PRECISION) / POINT_PRECISION,
+    y: Math.round(p.y * POINT_PRECISION) / POINT_PRECISION,
+});
+
+function hueToHex(h: number): string {
+    const s = 0.9, l = 0.58;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => {
+        const k = (n + h / 30) % 12;
+        const b = l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
+        return Math.round(255 * b).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
 }
 
 /**
@@ -48,19 +91,41 @@ interface Stroke {
 export function SharedCanvas() {
     const { couple, profile, partnerProfile } = useOrbitStore();
     const canvasRef = useCanvasRef();
+    const drawingAreaRef = useRef<View | null>(null);
+    const drawingAreaBoundsRef = useRef({ x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT });
     const [strokes, setStrokes] = useState<Stroke[]>([]);
-    const [activeTool, setActiveTool] = useState<'pen' | 'eraser' | 'pan'>('pen');
-    const [isShieldMode, setIsShieldMode] = useState(false);
+    const [canvasMode, setCanvasMode] = useState<CanvasMode>('readOnly');
+    const [activeTool, setActiveTool] = useState<'pen' | 'eraser'>('pen');
     const [redoStrokes, setRedoStrokes] = useState<Stroke[]>([]);
     const [activeColor, setActiveColor] = useState(Colors.dark.rose[400]);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [showColorPicker, setShowColorPicker] = useState(false);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
-    const [partnerActiveStroke, setPartnerActiveStroke] = useState<Stroke | null>(null);
+    const [isPartnerOnline, setIsPartnerOnline] = useState(false);
+    const [debugIsDrawing, setDebugIsDrawing] = useState(false);
+    const [debugTouchEvents, setDebugTouchEvents] = useState(0);
+
+    // Performance Optimization: Moved partnerActiveStroke state to SharedValues to prevent re-renders
+    const partnerPath = useSharedValue(Skia.Path.Make());
+    const partnerPointCount = useSharedValue(0);
+    const partnerMeta = useSharedValue({ color: '#ffffff', width: 3, isEraser: false });
+    const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const latestStrokesRef = useRef<Stroke[]>([]);
+    const pictureCacheRef = useRef<{ picture: SkPicture | null; ids: string[] }>({ picture: null, ids: [] });
+    const lastLocalStrokeAtRef = useRef(0);
+    const isDrawingRef = useRef(false);
+    const lastDrawPointRef = useRef<Point | null>(null);
+    const pendingLocalWriteRef = useRef(false);
+    const currentStrokeIdRef = useRef<string | null>(null);
+    const syncedPointCountRef = useRef(0);
+    const remoteStrokesRef = useRef<Record<string, Stroke>>({});
+    const lastProcessedBySenderRef = useRef<Record<string, number>>({});
 
     // Fast point recording refs
     const currentPoints = useRef<Point[]>([]);
-    const lastSyncAt = useRef(0);
+    const lastDeltaSyncAt = useRef(0);
+    const lastViewportSyncAt = useRef(0);
+    const didAutoResetRef = useRef(false);
 
     const PRESET_COLORS = ['#ffffff', Colors.dark.rose[400], '#a855f7'];
     const rainbowPosition = useSharedValue(0.5); // 0 to 1
@@ -77,12 +142,43 @@ export function SharedCanvas() {
     const activePath = useSharedValue(Skia.Path.Make());
     const isDrawing = useSharedValue(false);
     const isMirroring = useSharedValue(false);
+    const uiLastX = useSharedValue(0);
+    const uiLastY = useSharedValue(0);
+    const uiHasPoint = useSharedValue(false);
+    const lastJsDispatchAt = useSharedValue(0);
+
+    const handleSaveToGallery = async () => {
+        try {
+            const { status } = await MediaLibrary.requestPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert("Permission", "Please allow gallery access to save your drawing.");
+                return;
+            }
+
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            const image = canvasRef.current?.makeImageSnapshot();
+            if (!image) return;
+
+            const base64 = image.encodeToBase64(ImageFormat.PNG, 100);
+            const filename = `${FileSystem.cacheDirectory}orbit_canvas_${Date.now()}.png`;
+
+            await FileSystem.writeAsStringAsync(filename, base64, { encoding: FileSystem.EncodingType.Base64 });
+            await MediaLibrary.saveToLibraryAsync(filename);
+
+            Alert.alert("Saved!", "Your drawing has been saved to your gallery.");
+        } catch (e) {
+            console.error(e);
+            Alert.alert("Error", "Failed to save drawing.");
+        }
+    };
 
     // Fast point recording refs
-    // currentPoints etc are declared above now
-
     const thumbAnimatedStyle = useAnimatedStyle(() => ({
-        left: rainbowPosition.value * 216,
+        transform: [{ translateX: rainbowPosition.value * 140 }], // 140 is track width
+        backgroundColor: activeColor,
+        shadowColor: activeColor,
+        shadowOpacity: 0.6,
+        shadowRadius: 10,
     }));
 
     // Performance Optimization: Capped DPI for budget devices (Redmi 12)
@@ -102,14 +198,41 @@ export function SharedCanvas() {
         return path;
     }, []);
 
-    // Auto-Shield on Mount (Scroll out feel)
+    const isShieldMode = canvasMode !== 'draw';
+    const isPanMode = canvasMode === 'pan' || canvasMode === 'readOnly';
+    const canDraw = canvasMode !== 'readOnly' && canvasMode !== 'pan';
+    const canUseCanvasRTDB = ENABLE_RTDB_CANVAS_SYNC && isPartnerOnline && canvasMode === 'draw';
+
+    // Safety: never stay in non-interactive static mode on native.
     useEffect(() => {
-        setIsShieldMode(false);
-        return () => setIsShieldMode(true);
-    }, []);
+        if (canvasMode === 'static') setCanvasMode('readOnly');
+    }, [canvasMode]);
+
+    useEffect(() => {
+        latestStrokesRef.current = strokes;
+    }, [strokes]);
+
+    useEffect(() => {
+        if (!couple?.id || !partnerProfile?.id) return;
+        const presenceRef = ref(rtdb, `presence/${couple.id}/${partnerProfile.id}`);
+        const unsub = onValue(presenceRef, (snapshot) => {
+            const data = snapshot.val();
+            const lastChanged = typeof data?.last_changed === 'number' ? data.last_changed : 0;
+            const isFresh = lastChanged > 0 && (Date.now() - lastChanged) < 90_000;
+            setIsPartnerOnline((!!data?.is_online || !!data?.in_cinema) && isFresh);
+        });
+        return unsub;
+    }, [couple?.id, partnerProfile?.id]);
 
     // ── Helper: Re-bake background strokes into a single Picture layer ───────────
     const backgroundPicture = React.useMemo(() => {
+        const nextIds = strokes.map(s => s.id);
+        const prevIds = pictureCacheRef.current.ids;
+        const appendOnly =
+            prevIds.length > 0 &&
+            nextIds.length > prevIds.length &&
+            prevIds.every((id, idx) => id === nextIds[idx]);
+
         const recorder = Skia.PictureRecorder();
         const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE));
         const paint = Skia.Paint();
@@ -117,19 +240,29 @@ export function SharedCanvas() {
         paint.setStrokeCap(StrokeCap.Round);
         paint.setStrokeJoin(StrokeJoin.Round);
 
-        strokes.forEach(s => {
-            paint.setColor(Skia.Color(s.color));
-            paint.setStrokeWidth(s.width);
-            if (s.isEraser) {
-                paint.setBlendMode(BlendMode.Clear);
-            } else {
-                paint.setBlendMode(BlendMode.SrcOver);
+        if (appendOnly && pictureCacheRef.current.picture) {
+            canvas.drawPicture(pictureCacheRef.current.picture);
+            for (let i = prevIds.length; i < strokes.length; i++) {
+                const s = strokes[i];
+                paint.setColor(Skia.Color(s.color));
+                paint.setStrokeWidth(s.width);
+                paint.setBlendMode(s.isEraser ? BlendMode.Clear : BlendMode.SrcOver);
+                const path = s.skPath || pointsToPath(s.points);
+                if (path) canvas.drawPath(path, paint);
             }
-            const path = s.skPath || pointsToPath(s.points);
-            if (path) canvas.drawPath(path, paint);
-        });
+        } else {
+            strokes.forEach(s => {
+                paint.setColor(Skia.Color(s.color));
+                paint.setStrokeWidth(s.width);
+                paint.setBlendMode(s.isEraser ? BlendMode.Clear : BlendMode.SrcOver);
+                const path = s.skPath || pointsToPath(s.points);
+                if (path) canvas.drawPath(path, paint);
+            });
+        }
 
-        return recorder.finishRecordingAsPicture();
+        const picture = recorder.finishRecordingAsPicture();
+        pictureCacheRef.current = { picture, ids: nextIds };
+        return picture;
     }, [strokes, pointsToPath]);
 
     // ── Firestore: Load Whole State ──────────────────────────────────────────
@@ -143,11 +276,19 @@ export function SharedCanvas() {
                         const parsed = JSON.parse(data.path_data) as Stroke[];
                         if (Array.isArray(parsed)) {
                             // High Performance: Pre-calculate Skia Paths for whole collection
-                            const withPaths = parsed.map(s => ({
+                            const withPaths = parsed.map((s, idx) => ({
                                 ...s,
+                                id: s.id || `legacy-${idx}-${Date.now()}`,
                                 skPath: pointsToPath(s.points) || undefined
                             }));
-                            setStrokes(withPaths);
+                            setStrokes(prev => {
+                                if (pendingLocalWriteRef.current) return prev;
+                                // Prevent brief server-lag snapshots from wiping fresh local strokes.
+                                if (Date.now() - lastLocalStrokeAtRef.current < 2500 && withPaths.length < prev.length) {
+                                    return prev;
+                                }
+                                return withPaths;
+                            });
                         }
                     } catch (e) {
                         console.error("[SharedCanvas] JSON Parse error:", e);
@@ -158,158 +299,400 @@ export function SharedCanvas() {
             }
         });
         return unsub;
-    }, [couple?.id]);
+    }, [couple?.id, pointsToPath]);
 
     // ── RTDB: Listen for Partner's Active Stroke & Viewport ───────────────────
     useEffect(() => {
-        if (!couple?.id || !partnerProfile?.id) return;
-        const partnerRef = ref(rtdb, `broadcasts/${couple.id}/${partnerProfile.id}`);
-        const unsub = onValue(partnerRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data?.event === 'doodle_delta') {
-                const stroke = data.payload as Stroke;
-                if (stroke?.points) {
-                    stroke.skPath = pointsToPath(stroke.points) || undefined;
+        if (!canUseCanvasRTDB) {
+            partnerPath.value = Skia.Path.Make();
+            partnerPointCount.value = 0;
+            return;
+        }
+        if (!couple?.id || !profile?.id) return;
+        const coupleBroadcastRef = ref(rtdb, `broadcasts/${couple.id}`);
+        const unsub = onValue(coupleBroadcastRef, (snapshot) => {
+            const allData = snapshot.val();
+            if (!allData) return;
+
+            Object.entries(allData).forEach(([senderId, data]: [string, any]) => {
+                if (senderId === profile.id) return;
+                const timestamp = Number(data?.timestamp || 0);
+                if (timestamp <= (lastProcessedBySenderRef.current[senderId] || 0)) return;
+                lastProcessedBySenderRef.current[senderId] = timestamp;
+
+                // Discard stale packets (>1s old) to avoid rubber-banding on weak networks (Redmi 10)
+                if (timestamp && Date.now() - timestamp > 1000) return;
+
+                if (data?.event !== 'doodle_delta') return;
+                const payload = data.payload || {};
+
+                if (payload?.event === 'scroll-sync') {
+                    const { s, tx, ty } = payload;
+                    if (!isMirroring.value && typeof s === 'number' && typeof tx === 'number' && typeof ty === 'number') {
+                        scale.value = withTiming(s, { duration: 100 });
+                        translateX.value = withTiming(tx, { duration: 100 });
+                        translateY.value = withTiming(ty, { duration: 100 });
+                        savedScale.value = s;
+                        savedTranslateX.value = tx;
+                        savedTranslateY.value = ty;
+                    }
+                    return;
                 }
-                setPartnerActiveStroke(stroke);
-            } else if (data?.event === 'viewport_sync') {
-                if (!isMirroring.value) {
-                    const { s, tx, ty } = data.payload;
-                    scale.value = withTiming(s, { duration: 100 });
-                    translateX.value = withTiming(tx, { duration: 100 });
-                    translateY.value = withTiming(ty, { duration: 100 });
-                    savedScale.value = s;
-                    savedTranslateX.value = tx;
-                    savedTranslateY.value = ty;
+
+                if (payload?.event === 'drawing-state' && payload.isDrawing === false) {
+                    partnerPath.value = Skia.Path.Make();
+                    partnerPointCount.value = 0;
+                    return;
                 }
-                setPartnerActiveStroke(null);
-            } else {
-                setPartnerActiveStroke(null);
-            }
+
+                if (payload?.type === 'start') {
+                    const meta = payload.meta || {};
+                    const initialPoints = Array.isArray(payload.points) ? payload.points : [];
+                    if (!payload.id || initialPoints.length === 0) return;
+
+                    const stroke: Stroke = {
+                        id: payload.id,
+                        points: [...initialPoints],
+                        color: meta.color || '#ffffff',
+                        width: Number(meta.width || 3),
+                        tool: meta.isEraser ? 'eraser' : 'pen',
+                        isEraser: !!meta.isEraser,
+                    };
+                    remoteStrokesRef.current[payload.id] = stroke;
+
+                    // UI Thread Path Start
+                    partnerMeta.value = {
+                        color: stroke.color,
+                        width: stroke.width,
+                        isEraser: stroke.isEraser || false
+                    };
+                    const newPath = Skia.Path.Make();
+                    newPath.moveTo(initialPoints[0].x, initialPoints[0].y);
+                    partnerPath.value = newPath;
+                    partnerPointCount.value = 1;
+                    return;
+                }
+
+                if (payload?.type === 'points' && payload.id && remoteStrokesRef.current[payload.id]) {
+                    const nextPoints = Array.isArray(payload.points) ? payload.points : [];
+                    if (nextPoints.length === 0) return;
+                    const target = remoteStrokesRef.current[payload.id];
+                    target.points.push(...nextPoints);
+
+                    // Ultra-fast UI thread path append (Mali-G52 Optimization)
+                    const updatedPath = partnerPath.value.copy();
+                    nextPoints.forEach((p: Point) => {
+                        const last = updatedPath.getLastPt();
+                        const midX = (last.x + p.x) / 2;
+                        const midY = (last.y + p.y) / 2;
+                        updatedPath.quadTo(last.x, last.y, midX, midY);
+                    });
+                    partnerPath.value = updatedPath;
+                    partnerPointCount.value = target.points.length;
+                    return;
+                }
+
+                if (payload?.type === 'end' && payload.id && remoteStrokesRef.current[payload.id]) {
+                    const finalized = remoteStrokesRef.current[payload.id];
+                    delete remoteStrokesRef.current[payload.id];
+
+                    // Reset Active Partner SharedValues
+                    partnerPath.value = Skia.Path.Make();
+                    partnerPointCount.value = 0;
+
+                    setStrokes(prev => {
+                        if (prev.some(s => s.id === finalized.id)) return prev;
+                        return [...prev, {
+                            ...finalized,
+                            skPath: pointsToPath(finalized.points) || undefined
+                        }];
+                    });
+                }
+            });
         });
         return unsub;
-    }, [couple?.id, partnerProfile?.id, pointsToPath]);
+    }, [canUseCanvasRTDB, couple?.id, profile?.id, pointsToPath]);
+
+    const broadcastCanvasEvent = (payload: DeltaEventPayload) => {
+        if (!canUseCanvasRTDB) return;
+        if (!couple?.id || !profile?.id) return;
+        const senderRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
+        rtdbSet(senderRef, {
+            event: 'doodle_delta',
+            payload,
+            timestamp: Date.now(),
+        });
+    };
 
     const broadcastViewport = (s: number, tx: number, ty: number) => {
         if (!couple?.id || !profile?.id) return;
         const now = Date.now();
-        if (now - lastSyncAt.current > 64) {
-            lastSyncAt.current = now;
-            const viewportRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
-            rtdbSet(viewportRef, {
-                event: 'viewport_sync',
-                payload: { s, tx, ty },
-                timestamp: now
-            });
+        if (now - lastViewportSyncAt.current > 120) {
+            lastViewportSyncAt.current = now;
+            broadcastCanvasEvent({ event: 'scroll-sync', s, tx, ty });
         }
     };
 
     // ── Drawing Actions ──────────────────────────────────────────────────────
     useEffect(() => {
+        if (!canUseCanvasRTDB) return;
         if (!couple?.id || !profile?.id) return;
         const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
         onDisconnect(broadcastRef).remove();
-    }, [couple?.id, profile?.id]);
+    }, [canUseCanvasRTDB, couple?.id, profile?.id]);
 
-    const broadcastDelta = (stroke: Stroke | null) => {
-        if (!couple?.id || !profile?.id) return;
-        const deltaRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
-        if (stroke) {
-            rtdbSet(deltaRef, { event: 'doodle_delta', payload: stroke, timestamp: Date.now() });
-        } else {
-            remove(deltaRef);
-        }
+    const broadcastDelta = (payload: DeltaEventPayload) => {
+        broadcastCanvasEvent(payload);
     };
 
+    const persistStrokesNow = useCallback(async (nextStrokes: Stroke[]) => {
+        if (!couple?.id) return;
+        try {
+            await setDoc(doc(db, 'couples', couple.id, 'doodles', 'latest'), {
+                couple_id: couple.id,
+                user_id: profile?.id,
+                path_data: JSON.stringify(nextStrokes),
+                updated_at: serverTimestamp()
+            });
+        } finally {
+            pendingLocalWriteRef.current = false;
+        }
+    }, [couple?.id, profile?.id]);
+
+    const schedulePersist = useCallback((nextStrokes: Stroke[]) => {
+        if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = setTimeout(() => {
+            persistTimerRef.current = null;
+            void persistStrokesNow(nextStrokes);
+        }, FIRESTORE_PERSIST_MS);
+    }, [persistStrokesNow]);
+
+    useEffect(() => {
+        return () => {
+            if (persistTimerRef.current) {
+                clearTimeout(persistTimerRef.current);
+                persistTimerRef.current = null;
+                void persistStrokesNow(latestStrokesRef.current);
+            }
+        };
+    }, [persistStrokesNow]);
+
     const startDrawing = (x: number, y: number) => {
-        if (isShieldMode || activeTool === 'pan') return;
-        currentPoints.current = [{ x, y }];
+        if (!canDraw) return;
+        isDrawingRef.current = true;
+        if (ENABLE_DEBUG_CHIP) setDebugIsDrawing(true);
+        lastDrawPointRef.current = { x, y };
+        const strokeId = `${profile?.id || 'local'}-${Date.now()}`;
+        currentStrokeIdRef.current = strokeId;
+        syncedPointCountRef.current = 1;
+        const firstPoint = { x, y };
+        currentPoints.current = [firstPoint];
+        broadcastDelta({
+            type: 'start',
+            id: strokeId,
+            points: [quantizePoint(firstPoint)],
+            meta: {
+                color: activeTool === 'eraser' ? '#070707' : activeColor,
+                width: activeTool === 'eraser' ? 20 : 3,
+                isEraser: activeTool === 'eraser',
+            },
+        });
+        broadcastDelta({ event: 'drawing-state', isDrawing: true });
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     };
 
     const continueDrawing = (x: number, y: number) => {
-        if (isShieldMode || activeTool === 'pan' || !isDrawing.value) return;
+        if (!canDraw || !isDrawingRef.current) return;
+        if (ENABLE_DEBUG_CHIP) setDebugTouchEvents(prev => prev + 1);
         const last = currentPoints.current[currentPoints.current.length - 1];
         const dist = Math.hypot(x - last.x, y - last.y);
-        if (dist < 1.5) return; // Follow fingertips closer
+        if (dist < REDMI12_POINT_MIN_DIST) return; // Point-density cap for Redmi 12
 
         currentPoints.current.push({ x, y });
+        lastDrawPointRef.current = { x, y };
 
-        // Throttle RTDB broadcasts for fluidity
+        // Throttle RTDB broadcasts for fluidity and bandwidth.
         const now = Date.now();
-        if (now - lastSyncAt.current > 32) {
-            lastSyncAt.current = now;
-            broadcastDelta({
-                points: currentPoints.current,
-                color: activeTool === 'eraser' ? '#070707' : activeColor,
-                width: activeTool === 'eraser' ? 20 : 3,
-                isEraser: activeTool === 'eraser'
-            });
+        if (now - lastDeltaSyncAt.current > LOW_LATENCY_SYNC_MS && currentStrokeIdRef.current) {
+            lastDeltaSyncAt.current = now;
+            const unsyncedPoints = currentPoints.current.slice(syncedPointCountRef.current);
+            if (unsyncedPoints.length > 0) {
+                syncedPointCountRef.current = currentPoints.current.length;
+                broadcastDelta({
+                    type: 'points',
+                    id: currentStrokeIdRef.current,
+                    points: unsyncedPoints.map(quantizePoint),
+                });
+            }
         }
+
     };
 
-    const endDrawing = async () => {
-        if (!isDrawing.value || !couple?.id) return;
+    const flushPendingStrokePoints = () => {
+        if (!currentStrokeIdRef.current) return;
+        const unsyncedPoints = currentPoints.current.slice(syncedPointCountRef.current);
+        if (unsyncedPoints.length === 0) return;
+        syncedPointCountRef.current = currentPoints.current.length;
+        broadcastDelta({
+            type: 'points',
+            id: currentStrokeIdRef.current,
+            points: unsyncedPoints.map(quantizePoint),
+        });
+    };
+
+    const endDrawing = () => {
+        if (!isDrawingRef.current || !couple?.id) return;
+        isDrawingRef.current = false;
+        if (ENABLE_DEBUG_CHIP) setDebugIsDrawing(false);
+        lastDrawPointRef.current = null;
+        flushPendingStrokePoints();
+
+        const strokeId = currentStrokeIdRef.current || `${profile?.id || 'local'}-${Date.now()}`;
         const finalStroke: Stroke = {
+            id: strokeId,
             points: [...currentPoints.current],
             color: activeTool === 'eraser' ? '#070707' : activeColor,
             width: activeTool === 'eraser' ? 20 : 3,
+            tool: activeTool === 'eraser' ? 'eraser' : 'pen',
             isEraser: activeTool === 'eraser',
             skPath: pointsToPath(currentPoints.current) || undefined
         };
 
+        if (finalStroke.points.length < 2) {
+            activePath.value = Skia.Path.Make();
+            currentPoints.current = [];
+            currentStrokeIdRef.current = null;
+            syncedPointCountRef.current = 0;
+            broadcastDelta({ event: 'drawing-state', isDrawing: false });
+            if (ENABLE_DEBUG_CHIP) setDebugIsDrawing(false);
+            return;
+        }
+
         const updated = [...strokes, finalStroke];
+        pendingLocalWriteRef.current = true;
+        lastLocalStrokeAtRef.current = Date.now();
         setStrokes(updated);
-        broadcastDelta(null);
+        broadcastDelta({ type: 'end', id: strokeId });
+        broadcastDelta({ event: 'drawing-state', isDrawing: false });
 
-        // Reset local path state
-        activePath.value = Skia.Path.Make();
-        currentPoints.current = [];
+        // Reset local path state after a short delay to prevent flicker/disappearance
+        // while React re-renders the backgroundPicture with the new stroke.
+        setTimeout(() => {
+            activePath.value = Skia.Path.Make();
+            currentPoints.current = [];
+            currentStrokeIdRef.current = null;
+            syncedPointCountRef.current = 0;
+            if (ENABLE_DEBUG_CHIP) setDebugIsDrawing(false);
+        }, 60);
 
-        // Persist to Firestore
-        await setDoc(doc(db, 'couples', couple.id, 'doodles', 'latest'), {
-            couple_id: couple.id,
-            user_id: profile?.id,
-            path_data: JSON.stringify(updated),
-            updated_at: serverTimestamp()
-        });
+        schedulePersist(updated);
     };
+
+    const mapLocalPointToLogical = (localX: number, localY: number) => {
+        if (SIMPLE_NATIVE_CANVAS) {
+            return {
+                x: Math.max(0, Math.min(CANVAS_WIDTH, localX)),
+                y: Math.max(0, Math.min(480, localY)),
+            };
+        }
+        const s = scale.value * (SCREEN_WIDTH / LOGICAL_SIZE);
+        const logicalX = (localX - translateX.value) / s;
+        const logicalY = (localY - translateY.value) / s;
+        return {
+            x: Math.max(0, Math.min(LOGICAL_SIZE, logicalX)),
+            y: Math.max(0, Math.min(LOGICAL_SIZE, logicalY)),
+        };
+    };
+
+    useEffect(() => {
+        if (SIMPLE_NATIVE_CANVAS) return;
+        if (canvasMode !== 'draw') return;
+        // Keep draw mode deterministic: no inherited viewport offsets.
+        scale.value = 1;
+        savedScale.value = 1;
+        translateX.value = 0;
+        translateY.value = 0;
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+    }, [canvasMode, savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY]);
 
     // ── Gestures: Drawing + Zoom + Pan ───────────────────────────────────────
     const drawingGesture = Gesture.Pan()
-        .enabled(!isShieldMode && activeTool !== 'pan')
+        .enabled(canDraw)
+        .maxPointers(1)
         .onBegin((e) => {
             'worklet';
             isDrawing.value = true;
-            // FIXED Mapping: Inverse of [{scale}, {translateX}, {translateY}]
-            const s = scale.value * (SCREEN_WIDTH / LOGICAL_SIZE);
-            const x = (e.x - translateX.value) / s;
-            const y = (e.y - translateY.value) / s;
+            const x = e.x;
+            const y = e.y;
+            // Always start a fresh live preview path for each new stroke.
+            activePath.value = Skia.Path.Make();
             activePath.value.moveTo(x, y);
+            uiLastX.value = x;
+            uiLastY.value = y;
+            uiHasPoint.value = true;
+            lastJsDispatchAt.value = Date.now();
             runOnJS(startDrawing)(x, y);
         })
         .onUpdate((e) => {
             'worklet';
-            const s = scale.value * (SCREEN_WIDTH / LOGICAL_SIZE);
-            const x = (e.x - translateX.value) / s;
-            const y = (e.y - translateY.value) / s;
+            const x = e.x;
+            const y = e.y;
 
-            // Silky Smooth quadratic curves
-            const last = activePath.value.getLastPt();
-            const midX = (last.x + x) / 2;
-            const midY = (last.y + y) / 2;
-            activePath.value.quadTo(last.x, last.y, midX, midY);
-
-            runOnJS(continueDrawing)(x, y);
+            if (SIMPLE_NATIVE_CANVAS) {
+                if (!uiHasPoint.value) {
+                    const nextPath = activePath.value.copy();
+                    nextPath.moveTo(x, y);
+                    activePath.value = nextPath;
+                    uiHasPoint.value = true;
+                } else {
+                    const dx = x - uiLastX.value;
+                    const dy = y - uiLastY.value;
+                    const jump = Math.hypot(dx, dy);
+                    if (jump > LIVE_PATH_MAX_JUMP_PX) {
+                        const nextPath = activePath.value.copy();
+                        nextPath.moveTo(x, y);
+                        activePath.value = nextPath;
+                    } else {
+                        const nextPath = activePath.value.copy();
+                        nextPath.lineTo(x, y);
+                        activePath.value = nextPath;
+                    }
+                }
+                uiLastX.value = x;
+                uiLastY.value = y;
+            } else {
+                const nextPath = activePath.value.copy();
+                const last = nextPath.getLastPt();
+                const midX = (last.x + x) / 2;
+                const midY = (last.y + y) / 2;
+                nextPath.quadTo(last.x, last.y, midX, midY);
+                activePath.value = nextPath;
+            }
+            const now = Date.now();
+            if (now - lastJsDispatchAt.value >= JS_POINT_DISPATCH_MS) {
+                lastJsDispatchAt.value = now;
+                runOnJS(continueDrawing)(x, y);
+            }
         })
         .onEnd(() => {
             'worklet';
             isDrawing.value = false;
+            uiHasPoint.value = false;
             runOnJS(endDrawing)();
+        })
+        .onFinalize(() => {
+            'worklet';
+            if (isDrawing.value) {
+                isDrawing.value = false;
+                uiHasPoint.value = false;
+                runOnJS(endDrawing)();
+            }
         })
         .minDistance(0);
 
     const pinchGesture = Gesture.Pinch()
+        .enabled(isPanMode)
         .onBegin(() => { isMirroring.value = true; })
         .onUpdate((e) => {
             scale.value = Math.max(0.5, Math.min(5, savedScale.value * e.scale));
@@ -321,7 +704,7 @@ export function SharedCanvas() {
         });
 
     const panGesture = Gesture.Pan()
-        .enabled(activeTool === 'pan')
+        .enabled(isPanMode)
         .onBegin(() => { isMirroring.value = true; })
         .onUpdate((e) => {
             translateX.value = savedTranslateX.value + e.translationX;
@@ -338,57 +721,72 @@ export function SharedCanvas() {
 
     // ── Actions ──────────────────────────────────────────────────────────────
     const handleUndo = async () => {
-        if (isShieldMode || strokes.length === 0 || !couple?.id) return;
+        if (canvasMode === 'readOnly' || strokes.length === 0 || !couple?.id) return;
         const last = strokes[strokes.length - 1];
         setRedoStrokes(prev => [...prev, last]);
         const next = strokes.slice(0, -1);
+        pendingLocalWriteRef.current = true;
+        lastLocalStrokeAtRef.current = Date.now();
         setStrokes(next);
-        await setDoc(doc(db, 'couples', couple.id, 'doodles', 'latest'), {
-            path_data: JSON.stringify(next),
-            updated_at: serverTimestamp()
-        }, { merge: true });
+        if (persistTimerRef.current) {
+            clearTimeout(persistTimerRef.current);
+            persistTimerRef.current = null;
+        }
+        await persistStrokesNow(next);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     };
 
     const handleRedo = async () => {
-        if (isShieldMode || redoStrokes.length === 0 || !couple?.id) return;
+        if (canvasMode === 'readOnly' || redoStrokes.length === 0 || !couple?.id) return;
         const last = redoStrokes[redoStrokes.length - 1];
         setRedoStrokes(prev => prev.slice(0, -1));
         const next = [...strokes, last];
+        pendingLocalWriteRef.current = true;
+        lastLocalStrokeAtRef.current = Date.now();
         setStrokes(next);
-        await setDoc(doc(db, 'couples', couple.id, 'doodles', 'latest'), {
-            path_data: JSON.stringify(next),
-            updated_at: serverTimestamp()
-        }, { merge: true });
+        if (persistTimerRef.current) {
+            clearTimeout(persistTimerRef.current);
+            persistTimerRef.current = null;
+        }
+        await persistStrokesNow(next);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     };
 
     const handleClearCanvas = async () => {
         if (!couple?.id) return;
+        lastLocalStrokeAtRef.current = Date.now();
+        pendingLocalWriteRef.current = true;
         setStrokes([]);
-        // Force complete overwrite instead of merge to clear
-        await setDoc(doc(db, 'couples', couple.id, 'doodles', 'latest'), {
-            couple_id: couple.id,
-            user_id: profile?.id,
-            path_data: JSON.stringify([]),
-            updated_at: serverTimestamp()
-        });
+        if (persistTimerRef.current) {
+            clearTimeout(persistTimerRef.current);
+            persistTimerRef.current = null;
+        }
+        await persistStrokesNow([]);
 
-        // Also clear any active RTDB strokes
-        broadcastDelta(null);
+        // Clear active remote drawing indicator.
+        broadcastDelta({ event: 'drawing-state', isDrawing: false });
 
         setShowClearConfirm(false);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     };
+
+    useEffect(() => {
+        if (!FORCE_CANVAS_RESET_ONCE) return;
+        if (!couple?.id || didAutoResetRef.current) return;
+        didAutoResetRef.current = true;
+        void handleClearCanvas();
+    }, [couple?.id]);
 
     const handleDownload = async () => {
         if (!canvasRef.current) return;
         const image = canvasRef.current.makeImageSnapshot();
         if (image) {
             const base64 = image.encodeToBase64();
+            // @ts-ignore
             const uri = `${FileSystem.cacheDirectory}orbit-doodle-${Date.now()}.png`;
             await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
-            const { status } = await MediaLibrary.requestPermissionsAsync();
+            // Android: request photo/media-image permission only to avoid audio permission rejection.
+            const { status } = await MediaLibrary.requestPermissionsAsync(true);
             if (status === 'granted') {
                 await MediaLibrary.saveToLibraryAsync(uri);
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -407,38 +805,69 @@ export function SharedCanvas() {
     return (
         <View style={styles.container}>
             <GestureDetector gesture={composed}>
-                <View style={styles.drawingArea}>
+                <View
+                    ref={drawingAreaRef}
+                    style={styles.drawingArea}
+                    pointerEvents={canDraw ? "auto" : "none"}
+                    onLayout={() => {
+                        drawingAreaRef.current?.measureInWindow((x, y, width, height) => {
+                            drawingAreaBoundsRef.current = { x, y, width, height };
+                        });
+                    }}
+                >
                     <Canvas ref={canvasRef} style={StyleSheet.absoluteFill}>
-                        <Group transform={useAnimatedStyle(() => ({
-                            transform: [
-                                { translateX: translateX.value },
-                                { translateY: translateY.value },
-                                { scale: scale.value * (SCREEN_WIDTH / LOGICAL_SIZE) },
-                            ]
-                        })).transform}>
-                            {/* Static layers baked into one single GPU operation */}
-                            <Picture picture={backgroundPicture} />
+                        {SIMPLE_NATIVE_CANVAS ? (
+                            <>
+                                <Picture picture={backgroundPicture} />
 
-                            {partnerActiveStroke && (
+                                {/* Partner Active Stroke (Zero Re-render Layer) */}
                                 <Path
-                                    path={partnerActiveStroke.skPath || pointsToPath(partnerActiveStroke.points) || Skia.Path.Make()}
-                                    color={partnerActiveStroke.color}
+                                    path={partnerPath}
+                                    color={partnerMeta.value.color}
                                     style="stroke"
-                                    strokeWidth={partnerActiveStroke.width}
+                                    strokeWidth={partnerMeta.value.width}
                                     strokeCap="round"
                                     strokeJoin="round"
                                 />
-                            )}
 
-                            <Path
-                                path={activePath}
-                                color={activeTool === 'eraser' ? '#070707' : activeColor}
-                                style="stroke"
-                                strokeWidth={activeTool === 'eraser' ? 20 : 3}
-                                strokeCap="round"
-                                strokeJoin="round"
-                            />
-                        </Group>
+                                <Path
+                                    path={activePath}
+                                    color={activeTool === 'eraser' ? '#070707' : activeColor}
+                                    style="stroke"
+                                    strokeWidth={activeTool === 'eraser' ? 20 : 3}
+                                    strokeCap="round"
+                                    strokeJoin="round"
+                                />
+                            </>
+                        ) : (
+                            <Group transform={useAnimatedStyle(() => ({
+                                transform: [
+                                    { translateX: translateX.value },
+                                    { translateY: translateY.value },
+                                    { scale: scale.value * (SCREEN_WIDTH / LOGICAL_SIZE) },
+                                ]
+                            })).transform}>
+                                <Picture picture={backgroundPicture} />
+
+                                <Path
+                                    path={partnerPath}
+                                    color={partnerMeta.value.color}
+                                    style="stroke"
+                                    strokeWidth={partnerMeta.value.width}
+                                    strokeCap="round"
+                                    strokeJoin="round"
+                                />
+
+                                <Path
+                                    path={activePath}
+                                    color={activeTool === 'eraser' ? '#070707' : activeColor}
+                                    style="stroke"
+                                    strokeWidth={activeTool === 'eraser' ? 20 : 3}
+                                    strokeCap="round"
+                                    strokeJoin="round"
+                                />
+                            </Group>
+                        )}
                     </Canvas>
 
                     {isShieldMode && (
@@ -449,6 +878,14 @@ export function SharedCanvas() {
 
                 </View>
             </GestureDetector>
+
+            {ENABLE_DEBUG_CHIP && (
+                <View style={styles.debugChip} pointerEvents="none">
+                    <Text style={styles.debugText}>
+                        {`mode:${canvasMode} tool:${activeTool} draw:${canDraw ? '1' : '0'} pan:${isPanMode ? '1' : '0'} down:${debugIsDrawing ? '1' : '0'} ev:${debugTouchEvents}`}
+                    </Text>
+                </View>
+            )}
 
             {showClearConfirm && (
                 <View style={styles.clearConfirmOverlay}>
@@ -481,7 +918,7 @@ export function SharedCanvas() {
                     <View style={styles.syncDivider} />
                     <TouchableOpacity
                         onPress={() => {
-                            setIsShieldMode(!isShieldMode);
+                            setCanvasMode('pan');
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                         }}
                     >
@@ -501,22 +938,27 @@ export function SharedCanvas() {
                         entering={FadeIn.duration(200)}
                         style={styles.slimSliderContainer}
                     >
-                        <GestureDetector gesture={Gesture.Pan().onUpdate((e) => {
-                            rainbowPosition.value = Math.max(0, Math.min(1, e.x / 180));
-                            const hue = rainbowPosition.value * 360;
-                            runOnJS(setActiveColor)(`hsl(${hue}, 70%, 60%)`);
-                        })}>
-                            <View style={styles.rainbowTrack}>
-                                <View style={[StyleSheet.absoluteFill, { borderRadius: 5, overflow: 'hidden' }]}>
-                                    <Image
-                                        source={require('../assets/rainbow-picker.png')}
-                                        style={{ width: '100%', height: '100%' }}
-                                        resizeMode="stretch"
-                                    />
+                        <View style={styles.sliderRow}>
+                            <View style={[styles.colorPreview, { backgroundColor: activeColor }]} />
+                            <GestureDetector gesture={Gesture.Pan().onUpdate((e) => {
+                                rainbowPosition.value = Math.max(0, Math.min(1, e.x / 140));
+                                const hue = rainbowPosition.value * 359;
+                                runOnJS(setActiveColor)(hueToHex(hue));
+                            })}>
+                                <View style={styles.rainbowTrack}>
+                                    <Canvas style={StyleSheet.absoluteFill}>
+                                        <Rect x={0} y={0} width={140} height={10}>
+                                            <LinearGradient
+                                                start={vec(0, 0)}
+                                                end={vec(140, 0)}
+                                                colors={['#f00', '#ff0', '#0f0', '#0ff', '#00f', '#f0f', '#f00']}
+                                            />
+                                        </Rect>
+                                    </Canvas>
+                                    <Animated.View style={[styles.pickerThumb, thumbAnimatedStyle]} />
                                 </View>
-                                <Animated.View style={[styles.pickerThumb, thumbAnimatedStyle]} />
-                            </View>
-                        </GestureDetector>
+                            </GestureDetector>
+                        </View>
                     </Animated.View>
                 )}
                 <View style={styles.menuContainer}>
@@ -540,7 +982,7 @@ export function SharedCanvas() {
                             <TouchableOpacity
                                 style={styles.menuIconBtn}
                                 onPress={() => {
-                                    if (isShieldMode || !couple?.id) return;
+                                    if (canvasMode === 'readOnly' || !couple?.id) return;
                                     setShowClearConfirm(true);
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                                 }}
@@ -557,17 +999,18 @@ export function SharedCanvas() {
                             </TouchableOpacity>
 
                             <TouchableOpacity
-                                style={[styles.menuIconBtn, (activeTool === 'pen' || activeTool === 'pan') && styles.activeMenuBtn]}
+                                style={[styles.menuIconBtn, canvasMode === 'pan' && styles.activeMenuBtn]}
                                 onPress={() => {
-                                    setActiveTool(activeTool === 'pan' ? 'pen' : 'pan');
-                                    setIsShieldMode(false);
+                                    const nextMode = canvasMode === 'pan' ? 'draw' : 'pan';
+                                    setCanvasMode(nextMode);
+                                    if (nextMode === 'draw') setActiveTool('pen');
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                                 }}
                             >
-                                {activeTool === 'pen' ? (
-                                    <Move size={14} color="white" />
-                                ) : (
+                                {canvasMode === 'pan' ? (
                                     <Edit2 size={14} color="white" />
+                                ) : (
+                                    <Move size={14} color="white" />
                                 )}
                             </TouchableOpacity>
 
@@ -575,7 +1018,7 @@ export function SharedCanvas() {
                                 style={[styles.menuIconBtn, activeTool === 'eraser' && styles.activeMenuBtn]}
                                 onPress={() => {
                                     setActiveTool('eraser');
-                                    setIsShieldMode(false);
+                                    setCanvasMode('draw');
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                                 }}
                             >
@@ -606,7 +1049,7 @@ export function SharedCanvas() {
                                     onPress={() => {
                                         setActiveColor(c);
                                         setActiveTool('pen');
-                                        setIsShieldMode(false);
+                                        setCanvasMode('draw');
                                         setShowColorPicker(false);
                                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                     }}
@@ -617,23 +1060,33 @@ export function SharedCanvas() {
                     )}
 
                     {!isMenuOpen && (
-                        <View style={[styles.fabBlur, { backgroundColor: 'rgba(15,15,15,0.9)' }]}>
-                            <TouchableOpacity
-                                style={styles.mainFab}
-                                onPress={() => {
-                                    if (isShieldMode) {
-                                        setIsShieldMode(false);
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                                    } else {
-                                        setIsMenuOpen(true);
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                    }
-                                }}
-                            >
-                                <Edit2 size={20} color="white" />
-                            </TouchableOpacity>
-                        </View>
+                        <View style={styles.fabColumn}>
+                            <View style={[styles.fabBlur, { backgroundColor: 'rgba(15,15,15,0.9)' }]}>
+                                <TouchableOpacity
+                                    style={styles.mainFab}
+                                    onPress={() => {
+                                        if (canvasMode === 'readOnly') {
+                                            setCanvasMode('draw');
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                                        } else {
+                                            setIsMenuOpen(true);
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                        }
+                                    }}
+                                >
+                                    <Edit2 size={20} color="white" />
+                                </TouchableOpacity>
+                            </View>
 
+                            <View style={[styles.fabBlur, { backgroundColor: 'rgba(15,15,15,0.9)' }]}>
+                                <TouchableOpacity
+                                    style={styles.mainFab}
+                                    onPress={handleSaveToGallery}
+                                >
+                                    <Download size={20} color="white" />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
                     )}
                 </View>
             </View>
@@ -663,6 +1116,11 @@ const styles = StyleSheet.create({
         alignItems: 'flex-end',
         zIndex: 100,
     },
+    fabColumn: {
+        flexDirection: 'column',
+        gap: 12,
+        alignItems: 'center',
+    },
     menuContainer: {
         flexDirection: 'row-reverse',
         alignItems: 'center',
@@ -674,12 +1132,12 @@ const styles = StyleSheet.create({
         gap: 16,
     },
     slimSliderContainer: {
-        width: 180,
+        width: 210,
         backgroundColor: 'rgba(15, 15, 15, 0.95)',
         padding: 12,
         borderRadius: 100,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1.2,
+        borderColor: 'rgba(255,255,255,0.15)',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
@@ -688,31 +1146,40 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         marginRight: 10,
     },
-    pickerTitle: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
-        fontFamily: Typography.sansBold,
-        letterSpacing: 1.5,
+    sliderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    colorPreview: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: 'rgba(255,255,255,0.2)',
     },
     rainbowTrack: {
         height: 10,
-        width: '100%',
+        width: 140,
         borderRadius: 5,
+        overflow: 'hidden',
         backgroundColor: '#333',
-    },
-    rainbowGradient: {
-        flex: 1,
-        backgroundColor: 'transparent',
     },
     pickerThumb: {
         position: 'absolute',
-        top: -5,
-        width: 20,
-        height: 20,
-        borderRadius: 10,
+        top: -6,
+        left: -11, // Centering for 22px width thumb
+        width: 22,
+        height: 22,
+        borderRadius: 11,
         backgroundColor: 'white',
         borderWidth: 2,
-        borderColor: 'black',
+        borderColor: 'white',
+        elevation: 10,
+        shadowColor: 'black',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.4,
+        shadowRadius: 5,
     },
     expandedPill: {
         flexDirection: 'row-reverse',
@@ -860,6 +1327,23 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         zIndex: 20,
+    },
+    debugChip: {
+        position: 'absolute',
+        top: 58,
+        right: 14,
+        zIndex: 300,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.18)',
+        borderRadius: 10,
+        paddingHorizontal: 8,
+        paddingVertical: 5,
+    },
+    debugText: {
+        color: '#fff',
+        fontSize: 10,
+        fontFamily: Typography.sansBold,
     },
     guestbookBlur: {
         borderRadius: 100,

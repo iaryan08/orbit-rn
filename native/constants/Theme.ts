@@ -87,3 +87,29 @@ export const Typography = {
     script: 'PinyonScript_400Regular',
     emoji: 'AppleColorEmoji',
 };
+
+// --- Design System: Uniform Animations ---
+export const Animations = {
+    // Apple-Style Fluid Spring
+    springApple: {
+        damping: 18,
+        stiffness: 120,
+        mass: 1,
+    },
+    // OnePlus-Style Snappy Spring
+    springSnap: {
+        damping: 20,
+        stiffness: 200,
+        mass: 0.8,
+    },
+    // Zero-Latency Timing
+    timingFast: {
+        duration: 250,
+        // Easing.out(Easing.exp) is best for premium feel
+    },
+    // Subtle Micro-timing
+    timingMicro: {
+        duration: 150,
+    }
+};
+

@@ -1,7 +1,8 @@
 import React, { useMemo, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Pressable } from 'react-native';
 import { Typography, Colors, Radius, Spacing } from '../../constants/Theme';
 import { Sparkles, Moon, Flame, Droplets } from 'lucide-react-native';
+import { useOrbitStore } from '../../lib/store';
 
 const { width } = Dimensions.get('window');
 const ITEM_WIDTH = 60;
@@ -23,6 +24,7 @@ interface BiologicalTimelineProps {
 
 export const BiologicalTimeline = React.memo(({ days, selectedDay, onSelectDay }: BiologicalTimelineProps) => {
     const scrollRef = useRef<ScrollView>(null);
+    const setPagerScrollEnabled = useOrbitStore(state => state.setPagerScrollEnabled);
 
     return (
         <View style={styles.container}>
@@ -33,17 +35,24 @@ export const BiologicalTimeline = React.memo(({ days, selectedDay, onSelectDay }
                 contentContainerStyle={styles.scrollContent}
                 snapToInterval={ITEM_WIDTH}
                 decelerationRate="fast"
+                onTouchStart={() => setPagerScrollEnabled(false)}
+                onTouchEnd={() => setPagerScrollEnabled(true)}
+                onTouchCancel={() => setPagerScrollEnabled(true)}
+                onScrollBeginDrag={() => setPagerScrollEnabled(false)}
+                onScrollEndDrag={() => setPagerScrollEnabled(true)}
+                onMomentumScrollEnd={() => setPagerScrollEnabled(true)}
             >
                 {days.map((item, idx) => {
                     const isSelected = selectedDay === item.dayOfCycle;
 
                     return (
-                        <TouchableOpacity
+                        <Pressable
                             key={idx}
                             onPress={() => onSelectDay(item.dayOfCycle)}
-                            style={[
+                            style={({ pressed }) => [
                                 styles.dayItem,
-                                isSelected && styles.dayItemActive
+                                isSelected && styles.dayItemActive,
+                                { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
                             ]}
                         >
                             <Text style={[styles.dayNum, isSelected && styles.textActive]}>
@@ -60,7 +69,7 @@ export const BiologicalTimeline = React.memo(({ days, selectedDay, onSelectDay }
                             </View>
 
                             {isSelected && <View style={styles.activeIndicator} />}
-                        </TouchableOpacity>
+                        </Pressable>
                     );
                 })}
             </ScrollView>

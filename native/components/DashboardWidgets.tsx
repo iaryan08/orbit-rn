@@ -1,12 +1,12 @@
 import React, { useMemo, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Pressable } from 'react-native';
 import { db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { Image } from 'expo-image';
 import { Heart, PenLine, Image as ImageIcon, Flame, Calendar, Quote, Moon, Target, MapPin, Sparkles, Edit2, Lock, Unlock, Camera, ChevronRight, Plus, CalendarHeart, Cake, Minus, Thermometer, Droplets, Wind, Sun, Leaf, Mail, Check, Trophy } from 'lucide-react-native';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
 import { GlassCard } from './GlassCard';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing, LinearTransition } from 'react-native-reanimated';
 import { useOrbitStore } from '../lib/store';
 import * as Haptics from 'expo-haptics';
 import { getTodayIST } from '../lib/utils';
@@ -122,15 +122,15 @@ export const AuraBoard = React.memo(({ profile, partnerProfile, cycleLogs }: any
         getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars', idToken),
         [partnerProfile?.avatar_url, idToken]);
 
-    const myName = profile?.display_name || 'You';
-    const partnerName = partnerProfile?.display_name || 'Partner';
+    const myName = profile?.location_city || profile?.display_name || 'You';
+    const partnerName = partnerProfile?.location_city || partnerProfile?.display_name || 'Partner';
 
     return (
         <GlassCard style={styles.auraCard} intensity={10}>
             <View style={styles.auraHeader}>
                 <View style={styles.auraTitleGroup}>
                     <Sparkles size={18} color={Colors.dark.indigo[400]} />
-                    <Text style={styles.auraTitle}>Mood</Text>
+                    <Text style={styles.auraTitle}>Connections</Text>
                 </View>
                 <TouchableOpacity
                     style={styles.auraUpdateBtn}
@@ -167,13 +167,7 @@ export const AuraBoard = React.memo(({ profile, partnerProfile, cycleLogs }: any
                     {partnerNote ? <Text style={styles.auraNote}>"{partnerNote}"</Text> : null}
                 </View>
 
-                <TouchableOpacity
-                    style={styles.auraBlock}
-                    onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setTabIndex(4);
-                    }}
-                >
+                <View style={styles.auraBlock}>
                     <View style={styles.auraUserRow}>
                         <ProfileAvatar
                             url={myAvatarUrl}
@@ -194,7 +188,7 @@ export const AuraBoard = React.memo(({ profile, partnerProfile, cycleLogs }: any
                         )}
                     </View>
                     {myNote ? <Text style={styles.auraNote}>"{myNote}"</Text> : null}
-                </TouchableOpacity>
+                </View>
             </View>
         </GlassCard>
     );
@@ -265,12 +259,17 @@ export const LocationWidget = React.memo(({ profile, partnerProfile }: any) => {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase();
     };
 
+    const myLoc = profile?.location;
+    const partnerLoc = partnerProfile?.location;
+
     return (
         <GlassCard style={styles.locationCard} intensity={8}>
             <View style={styles.locationGrid}>
                 <View style={styles.locationHalf}>
                     <MapPin size={14} color={Colors.dark.indigo[400]} />
-                    <Text style={styles.locationCity}>Mumbai</Text>
+                    <Text style={styles.locationCity} numberOfLines={1}>
+                        {myLoc?.temp ? `${Math.round(myLoc.temp)}°C` : 'Mumbai'}
+                    </Text>
                     <Text style={styles.locationTime}>{formatTime(currentTime)}</Text>
                     <Text style={styles.locationUser}>YOU</Text>
                 </View>
@@ -284,7 +283,9 @@ export const LocationWidget = React.memo(({ profile, partnerProfile }: any) => {
 
                 <View style={styles.locationHalf}>
                     <MapPin size={14} color={Colors.dark.rose[400]} />
-                    <Text style={styles.locationCity}>Pune</Text>
+                    <Text style={styles.locationCity} numberOfLines={1}>
+                        {partnerLoc?.temp ? `${Math.round(partnerLoc.temp)}°C` : 'Pune'}
+                    </Text>
                     <Text style={styles.locationTime}>{formatTime(currentTime)}</Text>
                     <Text style={styles.locationUser}>{partnerProfile?.display_name?.toUpperCase() || 'PARTNER'}</Text>
                 </View>
@@ -294,8 +295,31 @@ export const LocationWidget = React.memo(({ profile, partnerProfile }: any) => {
 });
 
 export const DailyInspirationWidget = React.memo(() => {
-    const [activeTab, setActiveTab] = React.useState<'quote' | 'notifications'>('quote');
+    const [activeTab, setActiveTab] = React.useState<'quote' | 'challenge' | 'tip'>('quote');
     const [notifEnabled, setNotifEnabled] = React.useState(false);
+
+    const content = useMemo(() => {
+        switch (activeTab) {
+            case 'challenge':
+                return {
+                    title: "GENTLE CHALLENGE",
+                    text: "Write a small note of appreciation and leave it somewhere they'll find it today.",
+                    icon: <Target size={20} color={Colors.dark.rose[400]} />
+                };
+            case 'tip':
+                return {
+                    title: "RELATIONSHIP TIP",
+                    text: "Practicing active listening means hearing the emotions behind the words, not just the words themselves.",
+                    icon: <Sparkles size={20} color={Colors.dark.emerald[400]} />
+                };
+            default:
+                return {
+                    title: "DAILY QUOTE",
+                    text: "Love is not a destination we reach, but the quiet rhythm of our shadows walking in perfect sync.",
+                    icon: <Quote size={20} color={Colors.dark.rose[400]} />
+                };
+        }
+    }, [activeTab]);
 
     return (
         <GlassCard style={styles.inspirationCard} intensity={10}>
@@ -307,7 +331,7 @@ export const DailyInspirationWidget = React.memo(() => {
             {/* Tabs Toggle */}
             <View style={styles.tabToggleHeader}>
                 <View style={styles.tabToggleContainer}>
-                    {(['quote', 'notifications'] as const).map((tab) => {
+                    {(['quote', 'challenge', 'tip'] as const).map((tab) => {
                         const isSelected = activeTab === tab;
                         return (
                             <TouchableOpacity
@@ -321,60 +345,24 @@ export const DailyInspirationWidget = React.memo(() => {
                                     isSelected && styles.tabToggleActive
                                 ]}
                             >
-                                <View style={styles.tabItemWithDot}>
-                                    <Text style={[
-                                        styles.tabToggleText,
-                                        isSelected && styles.tabToggleTextActive
-                                    ]}>
-                                        {tab.toUpperCase()}
-                                    </Text>
-                                    {tab === 'notifications' && !notifEnabled && (
-                                        <View style={styles.notifBadgeDot} />
-                                    )}
-                                </View>
+                                <Text style={[
+                                    styles.tabToggleText,
+                                    isSelected && styles.tabToggleTextActive
+                                ]}>
+                                    {tab.toUpperCase()}
+                                </Text>
                             </TouchableOpacity>
                         );
                     })}
                 </View>
-
-                {!notifEnabled && (
-                    <TouchableOpacity
-                        style={styles.headerActivateBtn}
-                        onPress={() => {
-                            setNotifEnabled(true);
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        }}
-                    >
-                        <View style={styles.miniDot} />
-                        <Text style={styles.headerActivateText}>ACTIVATE</Text>
-                    </TouchableOpacity>
-                )}
             </View>
 
             <View style={styles.inspirationContent}>
-                {activeTab === 'quote' ? (
-                    <Text style={styles.quoteText}>
-                        <Text style={styles.quoteMark}>"</Text>
-                        Love is not a destination we reach, but the quiet rhythm of our shadows walking in perfect sync.
-                        <Text style={styles.quoteMark}>"</Text>
-                    </Text>
-                ) : (
-                    <View style={styles.notifContainer}>
-                        <Text style={styles.notifTitle}>Stay Motivated</Text>
-                        <Text style={styles.notifDesc}>Receive a daily spark of love and relationship wisdom every morning.</Text>
-                        <TouchableOpacity
-                            style={[styles.notifBtn, notifEnabled && styles.notifBtnEnabled]}
-                            onPress={() => {
-                                setNotifEnabled(!notifEnabled);
-                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                            }}
-                        >
-                            <Text style={styles.notifBtnText}>
-                                {notifEnabled ? 'NOTIFICATIONS ACTIVE' : 'ACTIVATE NOTIFICATIONS'}
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
+                <Text style={[styles.quoteText, activeTab !== 'quote' && styles.inspirationTabText]}>
+                    {activeTab === 'quote' && <Text style={styles.quoteMark}>"</Text>}
+                    {content.text}
+                    {activeTab === 'quote' && <Text style={styles.quoteMark}>"</Text>}
+                </Text>
             </View>
         </GlassCard>
     );
@@ -503,25 +491,30 @@ export const BucketListWidget = React.memo(() => {
                 </TouchableOpacity>
             </View>
 
-            <View style={styles.bucketItemsList}>
+            <Animated.View layout={LinearTransition.springify().mass(0.7)} style={styles.bucketItemsList}>
                 {filteredList.slice(0, 3).map(item => (
-                    <TouchableOpacity
-                        key={item.id}
-                        style={[styles.bucketItemRow, item.is_completed && styles.bucketItemCompleted]}
-                        onPress={() => handleToggle(item.id, item.is_completed)}
-                    >
-                        <View style={[styles.itemCheck, item.is_completed && styles.itemCheckActive]}>
-                            {item.is_completed && <Check size={10} color="white" strokeWidth={3} />}
-                        </View>
-                        <Text style={[styles.itemText, item.is_completed && styles.itemTextCompleted]} numberOfLines={1}>
-                            {item.title}
-                        </Text>
-                        {item.is_completed && <Trophy size={14} color={Colors.dark.amber[400]} style={{ opacity: 0.8 }} />}
-                    </TouchableOpacity>
+                    <Animated.View key={item.id} layout={LinearTransition.springify().mass(0.7)}>
+                        <Pressable
+                            onPress={() => handleToggle(item.id, item.is_completed)}
+                            style={({ pressed }) => [
+                                styles.bucketItemRow,
+                                item.is_completed && styles.bucketItemCompleted,
+                                { opacity: pressed ? 0.6 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }
+                            ]}
+                        >
+                            <View style={[styles.itemCheck, item.is_completed && styles.itemCheckActive]}>
+                                {item.is_completed && <Check size={10} color="white" strokeWidth={3} />}
+                            </View>
+                            <Text style={[styles.itemText, item.is_completed && styles.itemTextCompleted]} numberOfLines={1}>
+                                {item.title}
+                            </Text>
+                            {item.is_completed && <Trophy size={14} color={Colors.dark.amber[400]} style={{ opacity: 0.8 }} />}
+                        </Pressable>
+                    </Animated.View>
                 ))}
-            </View>
+            </Animated.View>
 
-            <TouchableOpacity style={styles.viewMoreBtn} onPress={() => setTabIndex(4)}>
+            <TouchableOpacity style={styles.viewMoreBtn} onPress={() => setTabIndex(4, 'tap')}>
                 <Text style={styles.viewMoreText}>VIEW FULL LIST</Text>
             </TouchableOpacity>
         </GlassCard>
@@ -560,7 +553,7 @@ export const LetterPreviewWidget = React.memo(() => {
                     style={styles.readMoreBtn}
                     onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        setTabIndex(1);
+                        setTabIndex(2, 'tap'); // Letters tab is 2
                     }}
                 >
                     <Text style={styles.readMoreText}>READ MORE</Text>
@@ -571,10 +564,10 @@ export const LetterPreviewWidget = React.memo(() => {
 });
 
 const styles = StyleSheet.create({
-    statsCard: { margin: Spacing.sm, borderRadius: Radius.xl, padding: Spacing.lg },
+    statsCard: { margin: Spacing.sm, borderRadius: Radius.xl, padding: Spacing.lg, shadowOpacity: 0, elevation: 0 },
     statsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     heartSection: { width: 60, alignItems: 'center' },
-    heartContainer: { width: 56, height: 56, backgroundColor: 'rgba(225, 29, 72, 0.1)', borderRadius: 28, justifyContent: 'center', alignItems: 'center' },
+    heartContainer: { width: 56, height: 56, backgroundColor: 'transparent', borderRadius: 28, justifyContent: 'center', alignItems: 'center', shadowOpacity: 0, elevation: 0 },
     daysInfoSection: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12 },
     daysNumber: { fontSize: 38, fontFamily: Typography.serif, color: Colors.dark.rose[500], letterSpacing: -1 },
     daysLabels: { justifyContent: 'center' },
@@ -764,8 +757,16 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 18,
         fontFamily: Typography.serifItalic,
-        lineHeight: 30,
-        textAlign: 'left' // Start from left only
+        fontStyle: 'italic',
+        lineHeight: 28,
+        textAlign: 'left',
+    },
+    inspirationTabText: {
+        fontSize: 15,
+        fontFamily: Typography.sans,
+        fontStyle: 'normal',
+        lineHeight: 22,
+        color: 'rgba(255,255,255,0.7)',
     },
 
     menstrualCard: { margin: Spacing.sm, borderRadius: Radius.xl, padding: 24 },

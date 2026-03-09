@@ -30,9 +30,9 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
         const state = get();
         if (state.isRefreshingForecast) return;
 
-        const COOLDOWN = 24 * 60 * 60 * 1000;
+        const COOLDOWN = 7 * 24 * 60 * 60 * 1000;
         if (state.lastForecastRefresh && (Date.now() - state.lastForecastRefresh < COOLDOWN)) {
-            console.log('Gemini Refresh is on cooldown (once per 24h)');
+            console.log('Gemini Refresh is on cooldown (once per 7 days)');
             return;
         }
 

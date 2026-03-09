@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
+import { GlobalStyles } from '../../constants/Styles';
 import { Bell } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
@@ -40,12 +41,12 @@ export function NotificationsScreen() {
             <Animated.ScrollView
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
+                nestedScrollEnabled={true}
                 contentContainerStyle={{ paddingTop: insets.top + Spacing.lg, paddingBottom: 100 }}
             >
-                <View style={styles.header}>
-                    <Bell size={32} color={Colors.dark.foreground} />
-                    <Animated.Text style={[styles.title, titleAnimatedStyle]}>Notifications</Animated.Text>
-                    <Animated.Text style={[styles.subtitle, sublineAnimatedStyle]}>Stay updated with your partner.</Animated.Text>
+                <View style={styles.standardHeader}>
+                    <Animated.Text style={[styles.standardTitle, titleAnimatedStyle]}>Notifications</Animated.Text>
+                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>ALERTS · ACTIVITY</Animated.Text>
                 </View>
 
                 <View style={styles.content}>
@@ -72,40 +73,26 @@ const styles = StyleSheet.create({
         zIndex: 1000,
         pointerEvents: 'box-none',
     },
-    header: {
-        alignItems: 'flex-start',
-        paddingTop: 80, // Moved higher
-        paddingHorizontal: Spacing.sm, // Extreme viewport optimization
-        paddingBottom: Spacing.xl,
-    },
-    title: {
-        fontSize: 48,
-        color: Colors.dark.foreground,
-        marginTop: Spacing.sm,
-        marginBottom: 8,
-        fontFamily: Typography.serif,
-        letterSpacing: -1,
-        textAlign: 'left',
-    },
-    subtitle: {
-        fontSize: 16,
-        color: Colors.dark.mutedForeground,
-        textAlign: 'left',
-    },
+    standardHeader: GlobalStyles.standardHeader,
+    standardTitle: GlobalStyles.standardTitle,
+    standardSubtitle: GlobalStyles.standardSubtitle,
     content: {
         flex: 1,
-        paddingHorizontal: Spacing.lg,
-        paddingTop: Spacing.xl,
+        paddingHorizontal: Spacing.md,
     },
     card: {
         padding: Spacing.xl,
         borderRadius: Radius.xl,
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
     },
     cardText: {
-        color: Colors.dark.mutedForeground,
+        color: 'rgba(255,255,255,0.4)',
         fontSize: 15,
+        fontFamily: Typography.sans,
         lineHeight: 24,
         textAlign: 'center',
     }

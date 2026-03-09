@@ -15,8 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOrbitStore } from '../lib/store';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
-import { submitMood, clearMood } from '../lib/auth';
+import { clearMood } from '../lib/auth';
 import { Emoji } from './Emoji';
+import { getTodayIST } from '../lib/utils';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAWER_HEIGHT = SCREEN_HEIGHT * 0.85;
@@ -43,16 +44,23 @@ const MOOD_EMOJIS: Record<string, string> = {
 
 export function MoodLoggerDrawer() {
     const insets = useSafeAreaInsets();
-    const { isMoodDrawerOpen, setMoodDrawerOpen, cycleLogs, profile, idToken } = useOrbitStore();
+    const { isMoodDrawerOpen, setMoodDrawerOpen, profile, moods } = useOrbitStore();
 
     const [selectedMood, setSelectedMood] = useState<string | null>(null);
     const [note, setNote] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
 
     const translateY = useSharedValue(DRAWER_HEIGHT);
 
     React.useEffect(() => {
         if (isMoodDrawerOpen) {
+            // High-Value: Pre-select today's vibe if it exists
+            const today = getTodayIST();
+            const currentMood = (moods || []).find(m => m.user_id === profile?.id && m.mood_date === today);
+            if (currentMood) {
+                setSelectedMood(currentMood.emoji);
+                setNote(currentMood.mood_text || '');
+            }
+
             translateY.value = withSpring(0, {
                 damping: 20,
                 stiffness: 150,
@@ -90,22 +98,17 @@ export function MoodLoggerDrawer() {
         opacity: interpolate(translateY.value, [0, DRAWER_HEIGHT], [1, 0], Extrapolate.CLAMP),
     }));
 
-    const handleSave = async () => {
-        if (!selectedMood) return;
-        setIsSaving(true);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const handleSave = () => {
+        if (!selectedMood || !profile?.id) return;
 
-        try {
-            await submitMood(selectedMood, note.trim());
-            setMoodDrawerOpen(false);
-            // Reset for next time
-            setSelectedMood(null);
-            setNote('');
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setIsSaving(false);
-        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const { submitMoodOptimistic } = useOrbitStore.getState();
+        submitMoodOptimistic(profile.id, selectedMood, note.trim());
+
+        setMoodDrawerOpen(false);
+        // Reset for next time
+        setSelectedMood(null);
+        setNote('');
     };
 
     const selectMood = (tag: string) => {
@@ -117,25 +120,15 @@ export function MoodLoggerDrawer() {
         }
     };
 
-    const handleClearVibe = async () => {
+    const handleClearVibe = () => {
+        if (!profile?.id) return;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        setIsSaving(true);
-        try {
-            await clearMood();
-            setMoodDrawerOpen(false);
-            setSelectedMood(null);
-            setNote('');
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setIsSaving(false);
-        }
+        const { clearMoodOptimistic } = useOrbitStore.getState();
+        clearMoodOptimistic(profile.id);
+        setMoodDrawerOpen(false);
+        setSelectedMood(null);
+        setNote('');
     };
-
-    if (!isMoodDrawerOpen && !isSaving && selectedMood === null && note === '') {
-        // We can't safely check translateY.value here without a warning.
-        // Instead, we'll rely on the parent's state or just render it hidden.
-    }
 
     return (
         <View style={StyleSheet.absoluteFill} pointerEvents={isMoodDrawerOpen ? 'auto' : 'none'}>
@@ -170,16 +163,20 @@ export function MoodLoggerDrawer() {
                                 {SUGGESTIONS.map(tag => {
                                     const isSelected = selectedMood === tag;
                                     return (
-                                        <TouchableOpacity
+                                        <Pressable
                                             key={tag}
                                             onPress={() => selectMood(tag)}
-                                            style={[styles.tag, isSelected && styles.tagSelected]}
+                                            style={({ pressed }) => [
+                                                styles.tag,
+                                                isSelected && styles.tagSelected,
+                                                { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
+                                            ]}
                                         >
                                             <Emoji symbol={MOOD_EMOJIS[tag]} size={28} />
                                             <Text style={[styles.tagText, isSelected && styles.tagTextSelected]} numberOfLines={2}>
                                                 {tag === 'missing you badly' ? 'Missing You' : tag.charAt(0).toUpperCase() + tag.slice(1)}
                                             </Text>
-                                        </TouchableOpacity>
+                                        </Pressable>
                                     );
                                 })}
                                 <TouchableOpacity
@@ -209,18 +206,14 @@ export function MoodLoggerDrawer() {
                         )}
 
                         <TouchableOpacity
-                            style={[styles.saveBtn, (!selectedMood || isSaving) && styles.saveBtnDisabled]}
+                            style={[styles.saveBtn, !selectedMood && styles.saveBtnDisabled]}
                             onPress={handleSave}
-                            disabled={!selectedMood || isSaving}
+                            disabled={!selectedMood}
                         >
-                            {isSaving ? (
-                                <Text style={styles.saveBtnText}>SYNCING...</Text>
-                            ) : (
-                                <>
-                                    <Check size={20} color="white" />
-                                    <Text style={styles.saveBtnText}>SHARE VIBE</Text>
-                                </>
-                            )}
+                            <>
+                                <Check size={20} color="white" />
+                                <Text style={styles.saveBtnText}>SHARE VIBE</Text>
+                            </>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.clearBtn} onPress={handleClearVibe}>
@@ -248,7 +241,18 @@ function Section({ title, icon, children }: any) {
 
 const styles = StyleSheet.create({
     backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.8)' },
-    drawer: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: Radius.xl * 2, borderTopRightRadius: Radius.xl * 2, overflow: 'hidden', zIndex: 9999 },
+    drawer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        borderTopLeftRadius: Radius.xl * 2,
+        borderTopRightRadius: Radius.xl * 2,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+        overflow: 'hidden',
+        zIndex: 9999
+    },
     drawerBg: {
         backgroundColor: 'rgba(10,10,20,0.95)',
         borderTopWidth: 1,

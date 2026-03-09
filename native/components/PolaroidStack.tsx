@@ -191,7 +191,7 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
                     </View>
                     <View style={styles.captionContainer}>
                         <Text style={styles.caption} numberOfLines={1}>
-                            {data?.caption || 'A moment shared'}
+                            {data?.caption && data.caption !== 'A moment shared' ? data.caption : 'A moment shared'}
                         </Text>
                         <View style={styles.timeWrapper}>
                             <View style={styles.timeDot} />

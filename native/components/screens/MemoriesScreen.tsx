@@ -1,31 +1,57 @@
-import React, { useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, NativeSyntheticEvent, NativeScrollEvent, Modal, TextInput, KeyboardAvoidingView, Platform, RefreshControl, Alert, ActivityIndicator } from 'react-native';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, NativeSyntheticEvent, NativeScrollEvent, Modal, TextInput, Platform, RefreshControl, Alert, ActivityIndicator, PanResponder, Keyboard } from 'react-native';
 import { Image } from 'expo-image';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useOrbitStore } from '../../lib/store';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
+import { GlobalStyles } from '../../constants/Styles';
 import { Pin, Sparkles } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderPill } from '../../components/HeaderPill';
 import { FlashList } from '@shopify/flash-list';
-import { getPublicStorageUrl } from '../../lib/storage';
+import { getPublicStorageUrl, isVideoUrl } from '../../lib/storage';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { getPartnerName } from '../../lib/utils';
 import * as Haptics from 'expo-haptics';
-import { X, Send, Camera as CameraIcon, Image as ImageIconLucide, Calendar as CalendarIcon, Video, AlertCircle, ChevronDown, Plus } from 'lucide-react-native';
+import { X, Send, Camera as CameraIcon, Image as ImageIconLucide, Calendar as CalendarIcon, Video, AlertCircle, ChevronDown, Plus, Volume2, VolumeX, Trash2 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { Video as VideoCompressor } from 'react-native-compressor';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../../lib/firebase';
-import { usePersistentMedia } from '../../lib/media';
+import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, getStorage, type FirebaseStorage } from 'firebase/storage';
+import { app, auth, db, storage, projectId } from '../../lib/firebase';
+import { usePersistentMedia, getPersistentPath } from '../../lib/media';
 
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
+const R2_UPLOAD_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
+const R2_UPLOAD_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
 
 // --- Sub-components to avoid hook violations ---
+async function mapWithConcurrencyLimit<T, R>(
+    items: T[],
+    limit: number,
+    mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let nextIndex = 0;
+
+    const worker = async () => {
+        while (true) {
+            const current = nextIndex++;
+            if (current >= items.length) return;
+            results[current] = await mapper(items[current], current);
+        }
+    };
+
+    const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker());
+    await Promise.all(workers);
+    return results;
+}
 
 const LunarDot = React.memo(({ index, scrollX, activeIndex }: { index: number, scrollX: any, activeIndex: number }) => {
     const dotStyle = useAnimatedStyle(() => {
@@ -52,24 +78,149 @@ const LunarPagination = React.memo(({ imageUrls, scrollX, activeIndex }: { image
     );
 });
 
-const MemoryImage = React.memo(({ url, id, idToken, onPress }: { url: string, id: string, idToken: string | null | undefined, onPress: () => void }) => {
-    const rawUrl = useMemo(() => getPublicStorageUrl(url, 'memories', idToken || ''), [url, idToken]);
-    const persistentSource = usePersistentMedia(id, rawUrl || undefined);
+const MemoryImage = React.memo(({
+    url,
+    id,
+    idToken,
+    onPress,
+    isActive,
+    isParentVisible,
+    isTabActive,
+}: {
+    url: string,
+    id: string,
+    idToken: string | null | undefined,
+    onPress: () => void,
+    isActive: boolean,
+    isParentVisible: boolean,
+    isTabActive: boolean
+}) => {
+    const rawUrl = useMemo(() => {
+        return getPublicStorageUrl(url, 'memories', idToken || '');
+    }, [url, idToken]);
+    const isMediaViewerOpen = useOrbitStore(state => state.mediaViewerState.isOpen);
+    const videoMedia = useMemo(() => isVideoUrl(url), [url]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isMuted, setIsMuted] = useState(true);
+
+    // PERSISTENCE FIX: Track if we have already triggered loading for this item.
+    // Once it loads, we avoid "shifting black" by keeping the source.
+    const [hasTriggered, setHasTriggered] = useState(false);
+    useEffect(() => {
+        if (isActive && isParentVisible && isTabActive) {
+            setHasTriggered(true);
+        }
+    }, [isActive, isParentVisible, isTabActive]);
+
+    const sourceUri = (idToken && hasTriggered) ? (rawUrl || '') : '';
+
+    const player = useVideoPlayer(videoMedia && sourceUri ? sourceUri : '', (p) => {
+        p.loop = true;
+        p.muted = isMuted;
+        p.staysActiveInBackground = false;
+    });
+
+    useEffect(() => {
+        if (!videoMedia || !sourceUri) return;
+        try { player.replace({ uri: sourceUri }); } catch { }
+    }, [sourceUri, videoMedia, player]);
+
+    useEffect(() => {
+        if (!videoMedia) return;
+        const sub = player.addListener('statusChange', (payload: any) => {
+            if (payload?.status === 'playing' || payload?.status === 'readyToPlay') {
+                setIsLoading(false);
+            }
+        });
+        return () => sub.remove();
+    }, [videoMedia, player]);
+
+    useEffect(() => {
+        if (!videoMedia) return;
+        // Optimization: Control playback without clearing the source.
+        if (isActive && isParentVisible && isTabActive && !isMediaViewerOpen) {
+            player.muted = isMuted;
+            player.play();
+        } else {
+            player.pause();
+            player.muted = true;
+        }
+    }, [videoMedia, isMuted, isActive, isParentVisible, isTabActive, isMediaViewerOpen, player]);
+
+    if (videoMedia) {
+        return (
+            <View style={styles.mediaFull}>
+                <VideoView
+                    player={player}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="cover"
+                    nativeControls={false}
+                    allowsFullscreen={false}
+                />
+                <TouchableOpacity
+                    style={styles.videoTapOverlay}
+                    activeOpacity={1}
+                    onPress={onPress}
+                />
+
+                {/* Minimalist Instagram-style Loader */}
+                {isLoading && (
+                    <View style={styles.igLoaderContainer}>
+                        <ActivityIndicator color="rgba(255,255,255,0.4)" size="small" />
+                    </View>
+                )}
+
+                <TouchableOpacity
+                    style={styles.videoMuteButton}
+                    activeOpacity={0.85}
+                    onPress={(e: any) => {
+                        e?.stopPropagation?.();
+                        setIsMuted(prev => !prev);
+                    }}
+                >
+                    {isMuted ? <VolumeX size={14} color="white" /> : <Volume2 size={14} color="white" />}
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     return (
-        <TouchableOpacity activeOpacity={0.9} onPress={onPress}>
+        <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={styles.mediaFull}>
             <Image
-                source={{ uri: persistentSource || undefined }}
-                style={styles.mediaFull}
+                source={{ uri: sourceUri || undefined }}
+                style={StyleSheet.absoluteFill}
                 contentFit="cover"
                 transition={200}
                 cachePolicy="memory-disk"
+                onLoadStart={() => setIsLoading(true)}
+                onLoad={() => setIsLoading(false)}
             />
+            {isLoading && (
+                <View style={styles.igLoaderContainer}>
+                    <ActivityIndicator color="rgba(255,255,255,0.4)" size="small" />
+                </View>
+            )}
         </TouchableOpacity>
     );
 });
 
-const MemoryCard = React.memo(({ item, profile, partnerProfile, idToken, couple }: { item: any, profile: any, partnerProfile: any, idToken: string | null, couple: any }) => {
+const MemoryCard = React.memo(({
+    item,
+    profile,
+    partnerProfile,
+    idToken,
+    couple,
+    isPrimaryVisible,
+    isTabActive,
+}: {
+    item: any,
+    profile: any,
+    partnerProfile: any,
+    idToken: string | null,
+    couple: any,
+    isPrimaryVisible: boolean
+    isTabActive: boolean
+}) => {
     const imageUrls = item.image_urls || (item.image_url ? [item.image_url] : []);
     const pName = getPartnerName(profile, partnerProfile);
     const sName = item.sender_id === profile?.id ? (profile?.display_name?.split(' ')[0] || 'You') : pName;
@@ -91,32 +242,62 @@ const MemoryCard = React.memo(({ item, profile, partnerProfile, idToken, couple 
             setActiveImageIndex(index);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         }
+        isDraggingRef.current = false;
+        unlockPagerDelayed(120);
     };
 
-    const onScrollBeginDrag = () => {
-        // Double-ensure it's locked when scrolling starts on images
+    const unlockTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isDraggingRef = React.useRef(false);
+    const touchStartXRef = React.useRef(0);
+    const touchStartYRef = React.useRef(0);
+    const isHorizontalIntentRef = React.useRef(false);
+    const lockPager = useCallback(() => {
+        if (unlockTimerRef.current) {
+            clearTimeout(unlockTimerRef.current);
+            unlockTimerRef.current = null;
+        }
         setPagerScrollEnabled(false);
-    };
+    }, [setPagerScrollEnabled]);
+    const unlockPagerDelayed = useCallback((delayMs: number = 180) => {
+        if (unlockTimerRef.current) clearTimeout(unlockTimerRef.current);
+        unlockTimerRef.current = setTimeout(() => {
+            setPagerScrollEnabled(true);
+            unlockTimerRef.current = null;
+        }, delayMs);
+    }, [setPagerScrollEnabled]);
 
-    const onScrollEndDrag = () => {
-        // We don't unlock here, we wait for better areas
-    };
+    useEffect(() => {
+        return () => {
+            if (unlockTimerRef.current) clearTimeout(unlockTimerRef.current);
+        };
+    }, []);
 
     // Safety: No specialized touch listeners needed since we disable tab-swiping 
     // globally for this tab in index.tsx for an Instagram-style experience.
     // This makes the text area 100% responsive for vertical scrolling.
 
     return (
-        <View
-            style={styles.memoryItem}
-            onTouchStart={() => setPagerScrollEnabled(true)}
-        >
+        <View style={styles.memoryItem}>
             {/* Media Content - 100vw Immersive Carousel */}
             <View
                 style={styles.mediaFrame}
+                onStartShouldSetResponderCapture={() => false}
+                onMoveShouldSetResponderCapture={() => false}
                 onTouchStart={(e) => {
                     e.stopPropagation();
-                    setPagerScrollEnabled(false);
+                    const { pageX, pageY } = e.nativeEvent;
+                    touchStartXRef.current = pageX;
+                    touchStartYRef.current = pageY;
+                    isHorizontalIntentRef.current = false;
+                }}
+                onTouchMove={(e) => {
+                    const { pageX, pageY } = e.nativeEvent;
+                    const dx = Math.abs(pageX - touchStartXRef.current);
+                    const dy = Math.abs(pageY - touchStartYRef.current);
+                    if (!isHorizontalIntentRef.current && dx > 8 && dx > dy) {
+                        isHorizontalIntentRef.current = true;
+                        lockPager();
+                    }
                 }}
             >
                 <Animated.ScrollView
@@ -128,28 +309,50 @@ const MemoryCard = React.memo(({ item, profile, partnerProfile, idToken, couple 
                     scrollEventThrottle={16}
                     onScroll={onCarouselScroll}
                     onMomentumScrollEnd={onMomentumScrollEnd}
-                    onScrollBeginDrag={onScrollBeginDrag}
-                    onScrollEndDrag={onScrollEndDrag}
+                    onScrollBeginDrag={() => {
+                        isDraggingRef.current = true;
+                        lockPager();
+                    }}
+                    onScrollEndDrag={() => {
+                        // Unlock quickly after drag if there is no significant momentum.
+                        unlockPagerDelayed(120);
+                    }}
+                    onTouchEnd={() => {
+                        if (!isDraggingRef.current && isHorizontalIntentRef.current) unlockPagerDelayed(80);
+                        isHorizontalIntentRef.current = false;
+                    }}
+                    onTouchCancel={() => {
+                        if (isHorizontalIntentRef.current) unlockPagerDelayed(80);
+                        isHorizontalIntentRef.current = false;
+                    }}
                 >
                     {imageUrls.length > 0 ? (
-                        imageUrls.map((url: string, i: number) => (
-                            <MemoryImage
-                                key={i}
-                                url={url}
-                                id={`${item.id}_${i}`} // Unique ID for each image in the memory
-                                idToken={idToken}
-                                onPress={() => {
-                                    openMediaViewer(imageUrls, i, item.sender_id, item.id, 'memory');
-                                    // Mark as read by current user
-                                    if (profile?.id && !item.read_by?.includes(profile.id)) {
-                                        const memoryRef = doc(db, 'couples', couple?.id, 'memories', item.id);
-                                        updateDoc(memoryRef, {
-                                            read_by: arrayUnion(profile.id)
-                                        }).catch(err => console.error("Error marking memory read:", err));
-                                    }
-                                }}
-                            />
-                        ))
+                        imageUrls.map((url: string, i: number) => {
+                            const isRendered = Math.abs(i - activeImageIndex) <= 1;
+                            return isRendered ? (
+                                <MemoryImage
+                                    key={i}
+                                    url={url}
+                                    id={`${item.id}_${i}`} // Unique ID for each image in the memory
+                                    idToken={idToken}
+                                    isActive={i === activeImageIndex}
+                                    isParentVisible={isPrimaryVisible}
+                                    isTabActive={isTabActive}
+                                    onPress={() => {
+                                        openMediaViewer(imageUrls, i, item.sender_id, item.id, 'memory');
+                                        // Mark as read by current user
+                                        if (profile?.id && !item.read_by?.includes(profile.id)) {
+                                            const memoryRef = doc(db, 'couples', couple?.id, 'memories', item.id);
+                                            updateDoc(memoryRef, {
+                                                read_by: arrayUnion(profile.id)
+                                            }).catch(err => console.error("Error marking memory read:", err));
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <View key={i} style={{ width, height: width }} />
+                            );
+                        })
                     ) : (
                         <View style={styles.mediaPlaceholder}>
                             <CameraIcon size={48} color="rgba(255,255,255,0.05)" />
@@ -186,7 +389,32 @@ const MemoryCard = React.memo(({ item, profile, partnerProfile, idToken, couple 
                     {item.content || "A beautiful memory shared together."}
                 </Text>
 
-                <TouchableOpacity style={styles.thoughtsButton} activeOpacity={0.7}>
+                <TouchableOpacity
+                    style={styles.thoughtsButton}
+                    activeOpacity={0.6}
+                    onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+                    onLongPress={() => {
+                        if (item.sender_id === profile?.id) {
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                            Alert.alert(
+                                'Delete Memory?',
+                                'This will permanently remove this moment from Orbit and delete the media files from storage.',
+                                [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                        text: 'Delete',
+                                        style: 'destructive',
+                                        onPress: async () => {
+                                            const deleteMemoryOptimistic = useOrbitStore.getState().deleteMemoryOptimistic;
+                                            deleteMemoryOptimistic(item);
+                                            // The cloud cleanup is handled internally by deleteMemoryOptimistic
+                                        }
+                                    }
+                                ]
+                            );
+                        }
+                    }}
+                >
                     <View style={styles.thoughtBubbleInner}>
                         <Pin size={14} color="rgba(255,255,255,0.4)" style={{ transform: [{ rotate: '45deg' }] }} />
                         <Text style={styles.thoughtsPlaceholder}>Share a thought...</Text>
@@ -198,7 +426,14 @@ const MemoryCard = React.memo(({ item, profile, partnerProfile, idToken, couple 
 });
 
 export function MemoriesScreen() {
-    const { profile, partnerProfile, couple, memories, idToken, fetchData, appMode } = useOrbitStore();
+    const profile = useOrbitStore(state => state.profile);
+    const partnerProfile = useOrbitStore(state => state.partnerProfile);
+    const couple = useOrbitStore(state => state.couple);
+    const memories = useOrbitStore(state => state.memories);
+    const idToken = useOrbitStore(state => state.idToken);
+    const fetchData = useOrbitStore(state => state.fetchData);
+    const appMode = useOrbitStore(state => state.appMode);
+    const syncNow = useOrbitStore(state => state.syncNow);
     const insets = useSafeAreaInsets();
     const [isComposeVisible, setIsComposeVisible] = useState(false);
     const [title, setTitle] = useState('');
@@ -211,6 +446,16 @@ export function MemoriesScreen() {
     const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
     const [isSending, setIsSending] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
+    const [primaryVisibleMemoryId, setPrimaryVisibleMemoryId] = useState<string | null>(null);
+    const activeTabIndex = useOrbitStore(state => state.activeTabIndex);
+    const isMemoriesTabActive = activeTabIndex === 3;
+
+    const flashListRef = React.useRef<any>(null);
+    const scrollOffset = useSharedValue(0);
+
+    const scrollToTop = () => {
+        flashListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    };
 
     const onRefresh = useCallback(async () => {
         if (!profile?.id) return;
@@ -223,25 +468,28 @@ export function MemoriesScreen() {
         }
     }, [profile?.id, fetchData]);
 
-    const scrollOffset = useSharedValue(0);
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
             scrollOffset.value = event.contentOffset.y;
         },
     });
 
+    // Morphing: Standardized thresholds for professional overlap
     const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [85, 125], [1, 0], Extrapolate.CLAMP),
-        transform: [{ scale: interpolate(scrollOffset.value, [85, 125], [1, 0.9], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [0, 70], [1, 0], Extrapolate.CLAMP),
+        transform: [
+            { scale: interpolate(scrollOffset.value, [0, 70], [1, 0.95], Extrapolate.CLAMP) },
+            { translateY: interpolate(scrollOffset.value, [0, 70], [0, -12], Extrapolate.CLAMP) }
+        ]
     }));
 
     const sublineAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [0, 60], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [0, 50], [1, 0], Extrapolate.CLAMP),
     }));
 
     const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [105, 135], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [105, 135], [5, 0], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [30, 80], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [30, 80], [8, 0], Extrapolate.CLAMP) }]
     }));
 
     const pickMedia = async () => {
@@ -281,50 +529,157 @@ export function MemoriesScreen() {
         }
     };
 
-    const uploadFile = async (uri: string, path: string) => {
-        // Robust XHR handling for local URIs in React Native (Android/iOS)
+    const uploadFile = async (uri: string, path: string, onProgress?: (value: number) => void) => {
         const blob: Blob = await new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
-            xhr.onload = function () {
-                resolve(xhr.response);
+            xhr.onerror = () => reject(new Error(`XHR blob conversion failed for URI: ${uri}`));
+            xhr.onload = () => {
+                const converted = xhr.response as Blob | null;
+                if (!converted || typeof converted.size !== 'number' || converted.size <= 0) {
+                    reject(new Error(`Converted blob is empty for URI: ${uri}`));
+                    return;
+                }
+                resolve(converted);
             };
-            xhr.onerror = function (e) {
-                console.error("[MediaUpload] XHR Error:", e);
-                reject(new TypeError("Network request failed"));
-            };
-            xhr.responseType = "blob";
-            xhr.open("GET", uri, true);
-            xhr.send(null);
+            xhr.responseType = 'blob';
+            xhr.open('GET', uri, true);
+            xhr.send();
         });
 
         const fileRef = ref(storage, path);
-        const uploadTask = uploadBytesResumable(fileRef, blob);
+        const ext = path.split('.').pop()?.toLowerCase() || '';
+        const metadata = {
+            contentType:
+                ext === 'webp' ? 'image/webp'
+                    : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+                        : ext === 'png' ? 'image/png'
+                            : ext === 'mp4' ? 'video/mp4'
+                                : undefined,
+        };
 
-        return new Promise<string>((resolve, reject) => {
-            uploadTask.on('state_changed',
-                (snapshot) => {
-                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                    setUploadProgress(progress);
-                },
-                (error) => {
-                    console.error("[FirebaseStorage] Upload Error:", error);
-                    reject(error);
-                },
-                async () => {
-                    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                    resolve(downloadURL);
+        const configuredBucket = (storage as any)?.app?.options?.storageBucket as string | undefined;
+        const bucketCandidates = Array.from(new Set([
+            configuredBucket,
+            `${projectId}.appspot.com`,
+            `${projectId}.firebasestorage.app`,
+        ].filter(Boolean) as string[]));
+
+        const cleanR2Path = path.replace(/^\/+/, '').replace(/^memories\//i, '');
+        const mimeType = metadata.contentType || 'application/octet-stream';
+
+        if (R2_UPLOAD_URL && R2_UPLOAD_SECRET) {
+            try {
+                const r2Url = `${R2_UPLOAD_URL.replace(/\/$/, '')}/memories/${cleanR2Path}`;
+                await new Promise<void>((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('PUT', r2Url, true);
+                    xhr.setRequestHeader('Authorization', `Bearer ${R2_UPLOAD_SECRET}`);
+                    xhr.setRequestHeader('Content-Type', mimeType);
+                    xhr.timeout = 30000;
+                    xhr.upload.onprogress = (event) => {
+                        if (event.lengthComputable) {
+                            const progress = (event.loaded / Math.max(event.total, 1)) * 100;
+                            onProgress?.(Math.max(0, Math.min(100, progress)));
+                        }
+                    };
+                    xhr.onerror = () => reject(new Error('R2 upload network error'));
+                    xhr.ontimeout = () => reject(new Error('R2 upload timed out'));
+                    xhr.onload = () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resolve();
+                            return;
+                        }
+                        reject(new Error(`R2 upload failed (${xhr.status}): ${(xhr.responseText || '').slice(0, 180)}`));
+                    };
+                    xhr.send(blob as any);
+                });
+
+                onProgress?.(100);
+                (blob as any)?.close?.();
+                return cleanR2Path;
+            } catch (r2Error: any) {
+                console.error('[R2Upload] Direct upload failed, falling back to Firebase Storage', {
+                    path: cleanR2Path,
+                    message: r2Error?.message,
+                });
+            }
+        } else if (__DEV__) {
+            console.warn('[R2Upload] Missing EXPO_PUBLIC_UPLOAD_URL or EXPO_PUBLIC_UPLOAD_SECRET; falling back to Firebase');
+        }
+
+        const attemptUpload = async (activeStorage: FirebaseStorage) => {
+            const targetRef = ref(activeStorage, path);
+            try {
+                // Prefer simple upload to avoid resumable edge failures on some Android + RN combos.
+                const snap = await uploadBytes(targetRef, blob, metadata);
+                onProgress?.(100);
+                return await getDownloadURL(snap.ref);
+            } catch (firstError: any) {
+                const firstCode = typeof firstError?.code === 'string' ? firstError.code : '';
+                if (firstCode !== 'storage/unknown') throw firstError;
+
+                // Retry with resumable API for projects/buckets that reject one-shot upload.
+                return await new Promise<string>((resolve, reject) => {
+                    const uploadTask = uploadBytesResumable(targetRef, blob, metadata);
+                    uploadTask.on(
+                        'state_changed',
+                        (snapshot) => {
+                            const progress = (snapshot.bytesTransferred / Math.max(snapshot.totalBytes, 1)) * 100;
+                            onProgress?.(Math.max(0, Math.min(100, progress)));
+                        },
+                        (error) => reject(error),
+                        async () => {
+                            try {
+                                resolve(await getDownloadURL(uploadTask.snapshot.ref));
+                            } catch (e) {
+                                reject(e);
+                            }
+                        }
+                    );
+                });
+            }
+        };
+
+        let lastError: any = null;
+        try {
+            for (const bucket of bucketCandidates) {
+                try {
+                    const bucketStorage = getStorage(app, `gs://${bucket}`);
+                    const url = await attemptUpload(bucketStorage);
+                    (blob as any)?.close?.();
+                    return url;
+                } catch (error: any) {
+                    lastError = error;
+                    console.error('[FirebaseStorage] Upload attempt failed', {
+                        bucket,
+                        path,
+                        code: error?.code,
+                        message: error?.message,
+                        serverResponse: error?.serverResponse,
+                    });
                 }
-            );
-        });
+            }
+
+        } catch (error: any) {
+            lastError = error;
+        }
+
+        (blob as any)?.close?.();
+        throw lastError ?? new Error('Upload failed with unknown storage error.');
     };
 
     const handleSend = async () => {
+        const senderId = profile?.id || auth.currentUser?.uid;
         if (selectedMedia.length === 0) {
             Alert.alert('No Media', 'Please select at least one photo or video.');
             return;
         }
         if (!title.trim()) {
             Alert.alert('Missing Title', 'Please add a title for this memory.');
+            return;
+        }
+        if (!senderId) {
+            Alert.alert('Authentication Error', 'Please re-login and try again.');
             return;
         }
         if (!couple?.id) {
@@ -336,8 +691,27 @@ export function MemoriesScreen() {
         setUploadProgress(0);
 
         try {
-            // Process images to High-Fidelity WebP (Universal Optimization)
-            const uploadPromises = selectedMedia.map(async (media, index) => {
+            // BEST-IN-CLASS: Pre-upload Size Wall Check
+            for (const media of selectedMedia) {
+                const info = await FileSystem.getInfoAsync(media.uri);
+                const sizeMb = info.exists ? info.size / (1024 * 1024) : 0;
+                if (sizeMb > 35) {
+                    Alert.alert('File too large', `One of your ${media.type}s is ${Math.round(sizeMb)}MB. Please keep files under 35MB for stability.`);
+                    setIsSending(false);
+                    return;
+                }
+            }
+
+            const uploadBatchId = Date.now();
+            const totalUploads = Math.max(1, selectedMedia.length);
+            const perFileProgress = new Array<number>(totalUploads).fill(0);
+            const updateOverallProgress = (index: number, value: number) => {
+                perFileProgress[index] = Math.max(0, Math.min(100, value));
+                const avg = perFileProgress.reduce((sum, v) => sum + v, 0) / totalUploads;
+                setUploadProgress(Math.max(0, Math.min(100, avg)));
+            };
+            // Process + upload with bounded concurrency to avoid memory spikes.
+            const imageUrls = await mapWithConcurrencyLimit(selectedMedia, 3, async (media, index) => {
                 let finalUri = media.uri;
                 let extension = media.uri.split('.').pop() || 'jpg';
 
@@ -345,27 +719,43 @@ export function MemoriesScreen() {
                     try {
                         const manipulated = await ImageManipulator.manipulateAsync(
                             media.uri,
-                            [{ resize: { width: 2000 } }], // High-end 2K resolution cap
-                            { compress: 0.95, format: ImageManipulator.SaveFormat.WEBP }
+                            [{ resize: { width: 2200 } }], // Professional 2.2K standardization
+                            { compress: 0.92, format: ImageManipulator.SaveFormat.WEBP }
                         );
                         finalUri = manipulated.uri;
                         extension = 'webp';
                     } catch (e) {
-                        console.error("Compression failed, falling back to original:", e);
+                        console.error("Transcoding failed, falling back to original:", e);
                     }
                 }
 
-                const path = `memories/${couple.id}/${Date.now()}_${index}.${extension}`;
-                return uploadFile(finalUri, path);
-            });
+                if (media.type === 'video') {
+                    try {
+                        const compressed = await VideoCompressor.compress(
+                            media.uri,
+                            {
+                                compressionMethod: 'auto',
+                                // removed minimumFileSizeForCompress to compress everything
+                            }
+                        );
+                        finalUri = compressed;
+                        extension = 'mp4';
+                    } catch (e) {
+                        console.error("Video compression failed, using original:", e);
+                    }
+                }
 
-            const imageUrls = await Promise.all(uploadPromises);
+                const path = `memories/${couple.id}/${uploadBatchId}_${index}.${extension}`;
+                return uploadFile(finalUri, path, (p) => updateOverallProgress(index, p));
+            });
 
             const memoryData = {
                 title: title.trim(),
                 content: content.trim(),
+                image_url: imageUrls[0] || null, // For backwards compatibility & Rules
                 image_urls: imageUrls,
-                sender_id: profile.id,
+                sender_id: senderId,
+                sender_name: profile?.display_name || null,
                 couple_id: couple.id,
                 memory_date: memoryDate,
                 created_at: serverTimestamp(),
@@ -374,15 +764,23 @@ export function MemoriesScreen() {
 
             await addDoc(collection(db, 'couples', couple.id, 'memories'), memoryData);
 
+            // Instantly pull it into the local SQLite store so it renders
+            await syncNow();
+
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setIsComposeVisible(false);
             setTitle('');
             setContent('');
             setSelectedMedia([]);
             setMemoryDate(new Date());
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error saving memory:', error);
-            Alert.alert('Error', 'Failed to save memory.');
+            const code = typeof error?.code === 'string' ? ` (${error.code})` : '';
+            const baseMessage = typeof error?.message === 'string' ? error.message : 'Failed to save memory.';
+            const message = error?.code === 'storage/unknown'
+                ? `${baseMessage}\n\nPlease verify Firebase Storage bucket/rules and retry.`
+                : baseMessage;
+            Alert.alert('Error Saving Memory' + code, message);
         } finally {
             setIsSending(false);
             setUploadProgress(0);
@@ -396,20 +794,103 @@ export function MemoriesScreen() {
             partnerProfile={partnerProfile}
             idToken={idToken}
             couple={couple}
+            isPrimaryVisible={item?.id === primaryVisibleMemoryId}
+            isTabActive={isMemoriesTabActive}
         />
-    ), [profile, partnerProfile, idToken, couple]);
+    ), [profile, partnerProfile, idToken, couple, primaryVisibleMemoryId, isMemoriesTabActive]);
+
+    const viewabilityConfig = useMemo(() => ({
+        itemVisiblePercentThreshold: 60,
+        minimumViewTime: 120,
+    }), []);
+
+    const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: any[] }) => {
+        let nextId: string | null = null;
+        for (const token of viewableItems || []) {
+            if (token?.isViewable && token?.item?.id) {
+                nextId = token.item.id;
+                break;
+            }
+        }
+        setPrimaryVisibleMemoryId(prev => (prev === nextId ? prev : nextId));
+    }).current;
+
+    const keyExtractor = useCallback((item: any) => item.id, []);
+    const getItemType = useCallback(() => 'memory', []);
+    const openComposer = useCallback(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setIsComposeVisible(true);
+    }, []);
+
+    const closeComposer = useCallback(() => {
+        if (isSending) return;
+        Keyboard.dismiss();
+        setIsComposeVisible(false);
+    }, [isSending]);
+
+    const drawerDragStartYRef = useRef(0);
+    const drawerPanResponder = useRef(
+        PanResponder.create({
+            onMoveShouldSetPanResponder: (_, gesture) =>
+                Math.abs(gesture.dy) > Math.abs(gesture.dx) && gesture.dy > 6,
+            onPanResponderGrant: (_, gesture) => {
+                drawerDragStartYRef.current = gesture.moveY;
+            },
+            onPanResponderRelease: (_, gesture) => {
+                const dragDistance = gesture.moveY - drawerDragStartYRef.current;
+                if (gesture.dy > 90 || dragDistance > 90) {
+                    closeComposer();
+                }
+            },
+        })
+    ).current;
+
+    const listHeader = useMemo(() => (
+        <View style={styles.standardHeader}>
+            <Animated.View style={[styles.headerTitleRow, titleAnimatedStyle]}>
+                <Animated.Text style={[styles.standardTitle, appMode === 'lunara' && styles.lunaraPageTitle, { marginRight: 20 }]}>
+                    {appMode === 'lunara' ? 'Discovery' : 'Memories'}
+                </Animated.Text>
+                <TouchableOpacity style={styles.addMemoryBtn} onPress={openComposer}>
+                    <Plus color="white" size={24} strokeWidth={2.5} />
+                </TouchableOpacity>
+            </Animated.View>
+            <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>
+                {appMode === 'lunara' ? 'EXPLORE YOUR BIOLOGICAL CYCLE' : 'A SHARED COLLECTION OF MOMENTS'}
+            </Animated.Text>
+        </View>
+    ), [memories.length, appMode, openComposer, sublineAnimatedStyle, titleAnimatedStyle]);
+
+    const listEmpty = useMemo(() => (
+        <View style={styles.emptyContainer}>
+            <GlassCard style={styles.emptyCard} intensity={12}>
+                <View style={{ alignItems: 'center' }}>
+                    <ImageIconLucide size={40} color="rgba(255,255,255,0.08)" style={{ marginBottom: 24 }} />
+                    <Text style={styles.emptyTitle}>Your gallery is waiting</Text>
+                    <Text style={styles.emptySubtext}>
+                        Capture your first moment together and store it here until eternity.
+                    </Text>
+                </View>
+            </GlassCard>
+        </View>
+    ), []);
 
     return (
         <View style={styles.container}>
             <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
-                <HeaderPill title="Memories" scrollOffset={scrollOffset} count={memories?.length} />
+                <HeaderPill title="Memories" scrollOffset={scrollOffset} count={memories?.length} onPress={scrollToTop} />
             </Animated.View>
 
             <AnimatedFlashList
+                ref={flashListRef}
                 data={memories}
                 renderItem={renderItem}
-                keyExtractor={(item: any) => item.id}
+                keyExtractor={keyExtractor}
+                getItemType={getItemType}
                 estimatedItemSize={450}
+                drawDistance={400}
+                removeClippedSubviews
+                nestedScrollEnabled={true}
                 contentContainerStyle={[styles.listContent, { paddingTop: insets.top + Spacing.md }]}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
@@ -423,63 +904,28 @@ export function MemoriesScreen() {
                         progressViewOffset={insets.top + 20}
                     />
                 }
-                ListHeaderComponent={
-                    <View style={styles.pageHeader}>
-                        <Animated.View style={[styles.galleryBadgeRow, sublineAnimatedStyle]}>
-                            <View style={styles.galleryDot} />
-                            <Text style={styles.galleryBadgeText}>ETERNAL GALLERY</Text>
-                            <Text style={styles.badgeCount}>{memories.length}</Text>
-                        </Animated.View>
-                        <Animated.View style={[styles.headerTitleRow, titleAnimatedStyle]}>
-                            <Text style={[styles.pageTitle, appMode === 'lunara' && styles.lunaraPageTitle]}>
-                                {appMode === 'lunara' ? 'Discovery' : 'Memories'}
-                            </Text>
-                            <TouchableOpacity
-                                style={styles.addMemoryBtn}
-                                onPress={() => {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                    setIsComposeVisible(true);
-                                }}
-                            >
-                                <Plus color="white" size={24} strokeWidth={2.5} />
-                            </TouchableOpacity>
-                        </Animated.View>
-                        <Animated.Text style={[styles.pageSubtitle, sublineAnimatedStyle]}>
-                            A library of your shared time.
-                        </Animated.Text>
-                    </View>
-                }
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <GlassCard style={styles.emptyCard} intensity={12}>
-                            <View style={{ alignItems: 'center' }}>
-                                <ImageIconLucide size={40} color="rgba(255,255,255,0.08)" style={{ marginBottom: 24 }} />
-                                <Text style={styles.emptyTitle}>Your gallery is waiting</Text>
-                                <Text style={styles.emptySubtext}>
-                                    Capture your first moment together and store it here until eternity.
-                                </Text>
-                            </View>
-                        </GlassCard>
-                    </View>
-                }
+                ListHeaderComponent={listHeader}
+                ListEmptyComponent={listEmpty}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={viewabilityConfig}
             />
 
             <Modal
                 visible={isComposeVisible}
                 animationType="slide"
                 transparent={true}
-                onRequestClose={() => !isSending && setIsComposeVisible(false)}
+                statusBarTranslucent={true}
+                onRequestClose={closeComposer}
             >
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={styles.modalOverlay}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-                >
+                <View style={styles.drawerOverlay}>
                     <View style={styles.composerContent}>
-                        <GlassCard style={styles.composerCard} intensity={40}>
+                        <GlassCard style={styles.composerCard} intensity={40} contentStyle={{ flex: 1 }}>
+                            <View style={styles.drawerHandleWrap} {...drawerPanResponder.panHandlers}>
+                                <View style={styles.drawerHandle} />
+                            </View>
                             <View style={styles.modalHeader}>
                                 <TouchableOpacity
-                                    onPress={() => setIsComposeVisible(false)}
+                                    onPress={closeComposer}
                                     style={styles.closeBtn}
                                     disabled={isSending}
                                 >
@@ -582,6 +1028,7 @@ export function MemoriesScreen() {
                                     value={title}
                                     onChangeText={setTitle}
                                     editable={!isSending}
+                                    autoFocus
                                 />
                                 <TextInput
                                     style={styles.contentInput}
@@ -596,7 +1043,7 @@ export function MemoriesScreen() {
                             </ScrollView>
                         </GlassCard>
                     </View>
-                </KeyboardAvoidingView>
+                </View>
             </Modal>
         </View>
     );
@@ -626,15 +1073,53 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.92)',
     },
-    composerContent: {
+    drawerOverlay: {
         flex: 1,
-        marginTop: 60,
+        backgroundColor: 'rgba(0,0,0,0.92)',
+        justifyContent: 'flex-end',
+    },
+    composerContent: {
+        height: '90%',
     },
     composerCard: {
         flex: 1,
         borderTopLeftRadius: Radius.xl,
         borderTopRightRadius: Radius.xl,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
         backgroundColor: 'rgba(20,20,25,0.95)',
+    },
+    drawerHandleWrap: {
+        alignItems: 'center',
+        paddingTop: 8,
+        paddingBottom: 6,
+    },
+    drawerHandle: {
+        width: 54,
+        height: 5,
+        borderRadius: 3,
+        backgroundColor: 'rgba(255,255,255,0.22)',
+    },
+    standardHeader: GlobalStyles.standardHeader,
+    headerTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        marginBottom: 4,
+        width: '100%',
+    },
+    standardTitle: GlobalStyles.standardTitle,
+    lunaraPageTitle: {
+        color: '#d8b4fe',
+    },
+    standardSubtitle: GlobalStyles.standardSubtitle,
+    addMemoryBtn: {
+        width: 44,
+        height: 44,
+        backgroundColor: Colors.dark.rose[600],
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     modalHeader: {
         flexDirection: 'row',
@@ -747,41 +1232,6 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontFamily: Typography.sansBold,
     },
-    pageTitle: {
-        fontSize: 44,
-        fontFamily: Typography.serif,
-        color: Colors.dark.foreground,
-        letterSpacing: -0.5,
-        flex: 1,
-        marginTop: Spacing.xs,
-        marginBottom: 8,
-    },
-    lunaraPageTitle: {
-        fontFamily: Typography.serif,
-        fontSize: 58,
-        letterSpacing: 0,
-        color: '#d8b4fe',
-    },
-    pageSubtitle: {
-        fontSize: 16,
-        color: Colors.dark.mutedForeground,
-        textAlign: 'left',
-    },
-    headerTitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    addMemoryBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-    },
     memoryItem: {
         marginBottom: 60,
         backgroundColor: 'rgba(255,255,255,0.01)',
@@ -807,6 +1257,24 @@ const styles = StyleSheet.create({
         width: width,
         height: '100%',
         resizeMode: 'cover',
+    },
+    videoMuteButton: {
+        position: 'absolute',
+        right: 12,
+        bottom: 12,
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.45)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.14)',
+        zIndex: 20,
+    },
+    videoTapOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        zIndex: 10,
     },
     mediaPlaceholder: {
         flex: 1,
@@ -907,5 +1375,17 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         letterSpacing: 2,
         lineHeight: 18,
+    },
+    loadingOverlay: {
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.1)',
+    },
+    igLoaderContainer: {
+        ...StyleSheet.absoluteFillObject,
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 15,
+        pointerEvents: 'none',
     },
 });

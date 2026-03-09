@@ -4,20 +4,33 @@ export interface PolaroidData {
     caption?: string;
     created_at: any;
     user_id?: string;
+    polaroid_date: string;
 }
 
 export interface MemoryData {
     id: string;
     title: string;
+    content?: string;
     description?: string;
     image_url?: string;
+    image_urls?: string[];
     created_at: any;
+    sender_id?: string;
+    read_by?: string[];
 }
 
 export interface LetterData {
     id: string;
+    title?: string;
     content: string;
     sender_id: string;
+    sender_name?: string;
+    receiver_id?: string;
+    unlock_type?: string;
+    unlock_date?: string | null;
+    is_scheduled?: boolean;
+    scheduled_delivery_time?: number | null;
+    is_vanish?: boolean;
     created_at: any;
     is_read: boolean;
 }

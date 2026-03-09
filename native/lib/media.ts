@@ -1,21 +1,25 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useState, useEffect } from 'react';
 
 /**
- * Signal-Style Persistent Media Engine
- * This handles permanent local storage of media to mimic the "instant" feel
- * of premium apps like WhatsApp and Signal.
+ * Super-stable Media Engine
+ * Priority: 1. Remote Visibility, 2. Background Persistence
  */
 
 // @ts-ignore
-const BASE_DIR = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+const BASE_DIR = FileSystem.documentDirectory || FileSystem.cacheDirectory || '';
 const MEDIA_PATH = `${BASE_DIR}persistent_media/`;
 
 // Ensure directory exists
 const ensureDir = async () => {
-    const dirInfo = await FileSystem.getInfoAsync(MEDIA_PATH);
-    if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(MEDIA_PATH, { intermediates: true });
+    try {
+        if (!BASE_DIR) return;
+        const dirInfo = await FileSystem.getInfoAsync(MEDIA_PATH);
+        if (!dirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(MEDIA_PATH, { intermediates: true });
+        }
+    } catch (e) {
+        // Silently continue
     }
 };
 
@@ -24,42 +28,47 @@ export const getPersistentPath = (id: string) => {
 };
 
 export const ensureMediaPersistent = async (id: string, remoteUrl: string) => {
+    if (!id || !remoteUrl || !BASE_DIR) return remoteUrl;
+
+    const localPath = getPersistentPath(id);
     try {
         await ensureDir();
-        const localPath = getPersistentPath(id);
         const info = await FileSystem.getInfoAsync(localPath);
-
-        if (!info.exists) {
-            console.log(`[MediaEngine] Persisting: ${id}`);
-            await FileSystem.downloadAsync(remoteUrl, localPath);
+        if (info.exists && info.size > 0) {
+            return localPath;
         }
-        return localPath;
+
+        // Just trigger background persistence, don't wait for it
+        FileSystem.downloadAsync(remoteUrl, localPath).catch(() => { });
+        return remoteUrl;
     } catch (e) {
-        console.error(`[MediaEngine] Failed to persist ${id}:`, e);
         return remoteUrl;
     }
 };
 
 export const usePersistentMedia = (id: string | undefined, remoteUrl: string | undefined) => {
+    // START with remoteUrl ALWAYS to ensure the image SHOWS immediately
     const [source, setSource] = useState<string | undefined>(remoteUrl);
 
     useEffect(() => {
-        if (!id || !remoteUrl) {
-            setSource(remoteUrl);
-            return;
-        }
+        // Sync source when remoteUrl changes
+        setSource(remoteUrl);
+
+        if (!id || !remoteUrl || !BASE_DIR) return;
 
         let isMounted = true;
 
         const checkLocal = async () => {
             const localPath = getPersistentPath(id);
-            const info = await FileSystem.getInfoAsync(localPath);
-
-            if (info.exists && isMounted) {
-                setSource(localPath);
-            } else {
-                // Background download for next time
-                ensureMediaPersistent(id, remoteUrl);
+            try {
+                const info = await FileSystem.getInfoAsync(localPath);
+                if (info.exists && info.size > 0) {
+                    if (isMounted) setSource(localPath);
+                } else {
+                    // Try to persist for next session
+                    ensureMediaPersistent(id, remoteUrl);
+                }
+            } catch (e) {
                 if (isMounted) setSource(remoteUrl);
             }
         };

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
+import { GlobalStyles } from '../../constants/Styles';
 import { Flame } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, withTiming } from 'react-native-reanimated';
@@ -11,7 +12,7 @@ import { useOrbitStore } from '../../lib/store';
 import { MilestoneCard } from '../MilestoneCard';
 import { Heart, Sparkles, MapPin, Camera, Music, Gift, Coffee, Star, Plus, Check, Trash2, ChevronDown, ChevronUp, Trophy, Target, Lock, Unlock } from 'lucide-react-native';
 import { addBucketItem, toggleBucketItem, deleteBucketItem } from '../../lib/auth';
-import { TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
+import { TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Path } from 'react-native-svg';
 
@@ -55,58 +56,54 @@ export function IntimacyScreen() {
     const totalCount = bucketList.length;
     const progress = totalCount === 0 ? 0 : (completedCount / totalCount);
 
-    const handleAdd = async () => {
+    const handleAdd = () => {
         if (!newItem.trim()) return;
-        setIsAdding(true);
-        try {
-            await addBucketItem(newItem.trim(), '', isPrivate);
-            setNewItem('');
-            setIsPrivate(false);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setIsAdding(false);
-        }
+        const { addBucketItemOptimistic } = useOrbitStore.getState();
+        addBucketItemOptimistic(newItem.trim(), isPrivate);
+        setNewItem('');
+        setIsPrivate(false);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     };
 
-    const handleToggle = async (id: string, completed: boolean) => {
+    const handleToggle = (id: string, completed: boolean) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        await toggleBucketItem(id, !completed);
+        const { updateBucketItemOptimistic } = useOrbitStore.getState();
+        updateBucketItemOptimistic(id, !completed);
     };
 
-    const handleDelete = async (id: string) => {
+    const handleDelete = (id: string) => {
         Alert.alert(
             "Remove Dream?",
-            "This will remove this item from your shared bucket list. You can always add it back later.",
+            "This will remove this item from your shared bucket list.",
             [
                 { text: "Cancel", style: "cancel" },
                 {
                     text: "Remove",
                     style: "destructive",
-                    onPress: async () => {
+                    onPress: () => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        await deleteBucketItem(id);
+                        const { deleteBucketItemOptimistic } = useOrbitStore.getState();
+                        deleteBucketItemOptimistic(id);
                     }
                 }
             ]
         );
     };
 
-    // Morphing: Title fades and scales down (Delayed)
+    // Morphing: Title fades and scales down (Further Delayed for Premium Dominance)
     const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [10, 60], [1, 0], Extrapolate.CLAMP),
-        transform: [{ scale: interpolate(scrollOffset.value, [10, 60], [1, 0.95], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [80, 130], [1, 0], Extrapolate.CLAMP),
+        transform: [{ scale: interpolate(scrollOffset.value, [80, 130], [1, 0.9], Extrapolate.CLAMP) }]
     }));
 
     const sublineAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [0, 60], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [60, 110], [1, 0], Extrapolate.CLAMP),
     }));
 
-    // Morphing: HeaderPill fades and slides in (Delayed)
+    // Morphing: HeaderPill fades and slides in (Precise sync with title exit)
     const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [65, 110], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [65, 110], [5, 0], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [120, 160], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [120, 160], [8, 0], Extrapolate.CLAMP) }]
     }));
 
     return (
@@ -123,17 +120,13 @@ export function IntimacyScreen() {
             <Animated.ScrollView
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
-                contentContainerStyle={{ paddingTop: insets.top + Spacing.lg, paddingBottom: 160 }}
+                contentContainerStyle={{ paddingTop: insets.top + Spacing.md, paddingBottom: 200 }}
                 keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled={true}
             >
-                <View style={styles.header}>
-                    <View style={styles.badgeRow}>
-                        <View style={styles.badgeDot} />
-                        <Text style={styles.badgeText}>DEEP CONNECTION</Text>
-                        <Text style={styles.badgeCount}>15</Text>
-                    </View>
-                    <Animated.Text style={[styles.title, titleAnimatedStyle]}>Intimacy</Animated.Text>
-                    <Animated.Text style={[styles.subtitle, sublineAnimatedStyle]}>Preserve your most precious milestones.</Animated.Text>
+                <View style={styles.standardHeader}>
+                    <Animated.Text style={[styles.standardTitle, titleAnimatedStyle]}>Intimacy</Animated.Text>
+                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>PRECIOUS · MILESTONES</Animated.Text>
                 </View>
 
                 <View style={styles.content}>
@@ -210,10 +203,14 @@ export function IntimacyScreen() {
 
                             <View style={styles.bucketListContainer}>
                                 {filteredBucket.map((item) => (
-                                    <TouchableOpacity
+                                    <Pressable
                                         key={item.id}
-                                        style={[styles.bucketItem, item.is_completed && styles.bucketItemCompleted]}
                                         onPress={() => handleToggle(item.id, item.is_completed)}
+                                        style={({ pressed }) => [
+                                            styles.bucketItem,
+                                            item.is_completed && styles.bucketItemCompleted,
+                                            { opacity: pressed ? 0.6 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }
+                                        ]}
                                     >
                                         <View style={[styles.itemCheck, item.is_completed && styles.itemCheckActive]}>
                                             {item.is_completed && <Check size={12} color="white" strokeWidth={3} />}
@@ -227,7 +224,7 @@ export function IntimacyScreen() {
                                         <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteBtn}>
                                             <Trash2 size={16} color="rgba(255,255,255,0.2)" />
                                         </TouchableOpacity>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 ))}
                             </View>
                         </View>
@@ -263,11 +260,11 @@ const styles = StyleSheet.create({
         zIndex: 1000,
         pointerEvents: 'box-none',
     },
-    header: {
-        alignItems: 'flex-start',
-        paddingTop: 100,
+    standardHeader: GlobalStyles.standardHeader,
+    headerTitleContainer: {
         paddingHorizontal: Spacing.md,
-        paddingBottom: Spacing.xl,
+        paddingTop: 20,
+        paddingBottom: 2,
     },
     badgeRow: {
         flexDirection: 'row',
@@ -292,20 +289,8 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontFamily: Typography.sansBold,
     },
-    title: {
-        fontSize: 56,
-        color: Colors.dark.foreground,
-        marginTop: Spacing.xs,
-        marginBottom: 8,
-        fontFamily: Typography.serif,
-        letterSpacing: -1,
-        textAlign: 'left',
-    },
-    subtitle: {
-        fontSize: 16,
-        color: Colors.dark.mutedForeground,
-        textAlign: 'left',
-    },
+    standardTitle: GlobalStyles.standardTitle,
+    standardSubtitle: GlobalStyles.standardSubtitle,
     content: {
         flex: 1,
         width: '100%',

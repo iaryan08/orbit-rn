@@ -3,9 +3,12 @@ import { makeMutable } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 
+const WALLPAPER_DIRTY_LOCK_MS = 12000;
+
 export interface AppSlice {
     activeTabIndex: number;
-    setTabIndex: (index: number) => void;
+    navigationSource: 'swipe' | 'tap';
+    setTabIndex: (index: number, source?: 'swipe' | 'tap') => void;
     scrollOffset: any;
     setScrollOffset: (val: number) => void;
     isPagerScrollEnabled: boolean;
@@ -21,8 +24,9 @@ export interface AppSlice {
     wallpaperConfig: {
         mode: 'stars' | 'custom' | 'shared';
         grayscale: boolean;
-        filter: 'Natural' | 'Glass' | 'Tint' | 'Pro';
+        aesthetic: 'Natural' | 'Glass' | 'Ethereal' | 'Obsidian' | 'Cinema';
     };
+    wallpaperConfigDirtyUntil: number;
     setWallpaperConfig: (config: Partial<AppSlice['wallpaperConfig']>) => void;
     isSearchOpen: boolean;
     setSearchOpen: (open: boolean) => void;
@@ -40,12 +44,12 @@ export interface AppSlice {
     toggleLiteMode: () => void;
     cinemaQuality: '360p' | '720p' | '1080p';
     setCinemaQuality: (quality: '360p' | '720p' | '1080p') => void;
+    settingsTargetTab: 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates';
+    setSettingsTargetTab: (tab: 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates') => void;
 }
 
-let lastTabChangeTime = 0;
 
 export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
-    activeTabIndex: 1,
     scrollOffset: makeMutable(1),
     setScrollOffset: (val: number) => {
         const state = get();
@@ -60,8 +64,9 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     wallpaperConfig: {
         mode: 'stars',
         grayscale: false,
-        filter: 'Natural',
+        aesthetic: 'Natural',
     },
+    wallpaperConfigDirtyUntil: 0,
     isSearchOpen: false,
     mediaViewerState: {
         isOpen: false,
@@ -70,12 +75,12 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     },
     isLiteMode: false,
     cinemaQuality: '1080p',
+    settingsTargetTab: 'profile',
 
-    setTabIndex: (index: number) => {
-        const now = Date.now();
-        if (now - lastTabChangeTime < 300) return;
-        lastTabChangeTime = now;
-        set({ activeTabIndex: index });
+    activeTabIndex: 1,
+    navigationSource: 'swipe',
+    setTabIndex: (index: number, source: 'swipe' | 'tap' = 'swipe') => {
+        set({ activeTabIndex: index, navigationSource: source });
     },
     setNotificationDrawerOpen: (open: boolean) => set({ isNotificationDrawerOpen: open }),
     setMoodDrawerOpen: (open: boolean) => set({ isMoodDrawerOpen: open }),
@@ -92,12 +97,23 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         try {
             const savedMode = await AsyncStorage.getItem('orbit_app_mode');
             const savedQuality = await AsyncStorage.getItem('cinema_quality') as any;
-
-            if (savedMode === 'lunara') {
-                set({ appMode: 'lunara', activeTabIndex: 5 }); // Updated index
-            } else {
-                set({ appMode: 'moon', activeTabIndex: 1 });
+            const savedWallpaperRaw = await AsyncStorage.getItem('orbit_wallpaper_config');
+            if (savedWallpaperRaw) {
+                try {
+                    const parsed = JSON.parse(savedWallpaperRaw) as Partial<AppSlice['wallpaperConfig']>;
+                    const nextWallpaper = {
+                        mode: parsed.mode === 'custom' || parsed.mode === 'shared' ? parsed.mode : 'stars',
+                        grayscale: !!parsed.grayscale,
+                        aesthetic: (parsed.aesthetic === 'Glass' || parsed.aesthetic === 'Ethereal' || parsed.aesthetic === 'Obsidian' || parsed.aesthetic === 'Cinema')
+                            ? parsed.aesthetic
+                            : 'Natural',
+                    } as AppSlice['wallpaperConfig'];
+                    set({ wallpaperConfig: nextWallpaper });
+                } catch { }
             }
+
+            // Keep it simple: Always land on Moon Mode / Dashboard (Index 1) on startup
+            set({ appMode: 'moon', activeTabIndex: 1 });
 
             if (savedQuality) {
                 set({ cinemaQuality: savedQuality });
@@ -107,9 +123,14 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
             set({ appMode: 'moon', activeTabIndex: 1 });
         }
     },
-    setWallpaperConfig: (config) => set((state) => ({
-        wallpaperConfig: { ...state.wallpaperConfig, ...config }
-    })),
+    setWallpaperConfig: (config) => set((state) => {
+        const nextConfig = { ...state.wallpaperConfig, ...config };
+        AsyncStorage.setItem('orbit_wallpaper_config', JSON.stringify(nextConfig)).catch(console.error);
+        return {
+            wallpaperConfig: nextConfig,
+            wallpaperConfigDirtyUntil: Date.now() + WALLPAPER_DIRTY_LOCK_MS,
+        };
+    }),
     setSearchOpen: (open: boolean) => set({ isSearchOpen: open }),
     setPagerScrollEnabled: (enabled: boolean) => set({ isPagerScrollEnabled: enabled }),
     openMediaViewer: (imageUrls, initialIndex = 0, ownerId, mediaId, type) => set({
@@ -127,4 +148,5 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         AsyncStorage.setItem('cinema_quality', quality).catch(console.error);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
+    setSettingsTargetTab: (tab) => set({ settingsTargetTab: tab }),
 });

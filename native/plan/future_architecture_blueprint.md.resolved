@@ -1,0 +1,82 @@
+# 🚀 Orbit: The 10-Year Zero-Cost Graphics Blueprint
+
+## 1. The "CODM" Performance Mindset
+In high-end mobile gaming (like *CODM*), we don't just "show images." We manage **pipelines**. To achieve a constant **90-120 FPS** on a budget device, we must treat the phone's screen like a game engine.
+
+### 📊 Current vs. Target (Working Chart)
+
+| Feature | Current "Standard" Tech | Target "CODM Grade" Tech |
+| :--- | :--- | :--- |
+| **Frame Rate** | 60 FPS (Variable) | **90-120 FPS (Constant)** |
+| **Logic Thread** | React Native JS Thread | **Reanimated UI Thread (Isolated)** |
+| **Memory** | Leak-prone (Growing) | **Circular Buffers (Fixed Size)** |
+| **Data Cost** | Growing with time | **Zero (Auto-Purging Architecture)** |
+| **Blur Quality** | Heavy (Lag-inducing) | **Selective GPU-Accelerated Blurs** |
+
+---
+
+## 2. The Tech Explained (For Non-Tech People) 💡
+
+Imagine the phone is a **Chef in a Kitchen**:
+*   **The Processor:** The Chef's speed.
+*   **The Memory:** The size of the counter-top (space to work).
+*   **Lag:** When the Chef has too many orders and starts running around frantically.
+
+### How we achieve 120 FPS:
+Instead of giving the Chef 100 small orders (React renders), we give them **one big recipe book** (the UI Thread). The Chef stays at the stove and never has to look at the waiter (the JS Thread). This keeps the "Food" (the images on your screen) coming out perfectly every 8 milliseconds.
+
+---
+
+## 3. The "10-Year Zero Bill" Financial Strategy 💰
+To run for 10 years without paying a penny to Google/Firebase, we must be **"Digital Janitors."** 
+
+### A. RTDB: The "Disposable Whiteboard"
+RTDB is for things happening **right now** (drawing, moving). 
+*   **Strategy:** Data in RTDB should have a lifespan of **seconds**. 
+*   **Engineering:** When you finish a stroke on the canvas, we save it to the permanent file (Firestore) and **immediately delete** the RTDB version. 
+*   **Result:** The RTDB database always stays almost empty. Empty = Free.
+
+### B. The "Tiered Cloud" Window (No Data Loss)
+*   **Drawing & Text:** These stay in the cloud **forever**. 1GB of free Firestore storage is enough for 10 years of text for one couple.
+*   **Photos & Videos:** These are the "Heavy Data." We keep the **original** in the cloud for 90 days. After that, we keep a **compressed version** (100KB) in the cloud.
+*   **Result:** Your cloud storage stays under the 5GB free limit forever, but the user never loses a memory.
+
+### C. Large Graphics & Blurs
+Even low-end devices can handle blurs IF they are "Static." We use a trick called **GPU-Flattening**. Once a menu opens, we take a "snapshot" of the background and blur *that*, rather than trying to blur a live video feed 120 times a second.
+
+## 4. Account Portability: Switching Phones 📱
+What happens if User A buys a new phone after 2 years?
+1.  **The "Messenger" Clone:** All text and drawings download instantly from Firestore (since they are tiny).
+2.  **The "WhatsApp" Backup:** Once a month, the app creates a "Memory Vault" file and saves it to the user's **personal Google Drive or iCloud**.
+3.  **Self-Healing Sync:** When the new phone connects, it asks the Partner's phone: *"I'm missing some high-res photos from 2024. Can you send them?"* The partner's phone sends them directly, bypassing expensive cloud storage.
+
+---
+
+## 4. Specific Functionality: Future Roadmap
+
+### 🖌️ The Shared Canvas
+*   **Current:** Synchronizes points over the air.
+*   **Future (Zero-Gage):** We will implement **"Predictive Stroking."** If the network is slow, the phone "guesses" where your partner's finger is going based on their speed. When the real data arrives, it adjusts. This makes 120 FPS feel like you are drawing on the same physical table.
+
+### 🧹 Automatic Garbage Collection (GC)
+We will implement a **"Session End" Janitor**:
+1.  **Detect Absence:** If both users are off the app for 5 minutes...
+2.  **Wipe Temp Data:** Clear all active RTDB "drawing-state" and "presence" nodes.
+3.  **Optimize Images:** Compress all uploaded photos locally before they ever reach the cloud.
+
+### 💌 The Letter System
+*   **Current:** Standard text sync.
+*   **Future:** Letters are sent as "Envelopes" in RTDB for instant notification, then moved to Firestore for permanent storage. Once read, the large "content" is moved to local phone storage to keep the cloud light.
+
+---
+
+## 5. Engineering Target: The 120 FPS Checklist
+*   [ ] **Zero Re-renders:** Total removal of `useState` for anything that moves.
+*   [ ] **Skia Offscreen Rendering:** Draw complex parts of the UI once to a "buffer" and reuse it.
+*   [ ] **JSI (JavaScript Interface):** Direct memory access between the graphics and the logic.
+*   [ ] **Aggressive Disconnects:** If the app is in the background, we kill the connection in 5 seconds to save battery and Firebase bandwidth.
+
+---
+
+### 🛡️ Final Verdict
+By moving from a "Save Everything" mindset to a **"Stream Everything / Save Locally"** mindset, this application can scale to millions of hours of use without costing you a single dollar in infrastructure bills. We are moving from a "Cloud-First" app to a **"Local-First, Cloud-Synced"** platform.

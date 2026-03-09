@@ -1,0 +1,68 @@
+# Orbit: Data Flow & Future Scalability Blueprint
+
+## 1. Current Data Flow Analysis 🛰️
+Based on the current codebase ([dataSlice.ts](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/store/dataSlice.ts), [repository.ts](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/repository.ts), and [auth.ts](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/auth.ts)), here is where your data lives and how it moves:
+
+| Data Type | Primary Source | Transit Layer | Local Device (Offline) |
+| :--- | :--- | :--- | :--- |
+| **User Profiles** | Firebase Firestore | `onSnapshot` | SQLite (`profiles` table) |
+| **Live Drawing** | Firebase RTDB | WebSockets | None (Ephemeral) |
+| **Memories (Text)** | Firebase Firestore | Delta Sync | SQLite (`memories` table) |
+| **Memories (Media)** | **Cloudflare R2** | HTTPS / CDN | **Future: Local FileSystem** |
+| **Vibe / Mood** | Firebase Firestore | `onSnapshot` | SQLite (`moods` table) |
+| **Polaroids** | Firebase Firestore | `onSnapshot` | **Future: 3-Day Expiry** |
+
+---
+
+## 2. Phase-Wise Implementation Plan 🚀
+
+### Phase 1: Storage Tiering (Memory & R2)
+*   **Goal:** Move 100% of media to Cloudflare R2 for cost-efficiency.
+*   **Action:** 
+    *   Update `uploadImage` in [auth.ts](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/auth.ts) to exclusively target the R2 bucket.
+    *   Implement **Client-Side Compression** (max 1080p) before upload to save R2 space.
+*   **WhatsApp Strategy:** When a memory is synced, the app scans the `image_urls`. If the image isn't in the `expo-file-system` local cache, it downloads it in the background. Once downloaded, the app never hits R2 again for that image.
+
+### Phase 2: The "Vanish" Engine (Polaroid Expiry)
+*   **Goal:** Automatic cleanup of temporary Polaroids.
+*   **Action:** 
+    *   **Logic:** Every time the app starts, it checks the local `polaroids` table.
+    *   **Cleanup:** Any entry where `Date.now() - created_at > 259200000` (3 days) is flagged for deletion. 
+    *   **Server-Side:** A Firebase Cloud Function (or a lightweight CRON job) runs nightly to delete these files from R2 and the records from Firestore.
+
+### Phase 3: "Self-Healing" Account Portability
+*   **Goal:** Zero-cost phone migration.
+*   **Action:** 
+    *   **Text Restore:** On login, the "Delta Sync" engine pulls all text/metadata from Firestore (Free).
+    *   **Media Restore:** 
+        1.  App fetches high-res images from R2 (Free Egress).
+        2.  If an image is archived (older than 90 days), it triggers a "Peer Request" to the partner's phone to re-upload.
+
+---
+
+## 3. End-to-End Encryption (E2EE) Analysis 🔐
+
+Is it a good idea? **Yes, for a private couple app, it is the gold standard for trust.** However, it changes the engineering completely.
+
+### How E2EE Changes the Flow:
+1.  **Encryption at the Edge:** Before any text (Letter/Memory) leaves the phone, it is encrypted with a "Shared Couple Key."
+2.  **Zero-Knowledge Cloud:** Firebase and R2 see only "Garbage Text" and "Encrypted Blobs." They cannot index or search your data.
+
+### Challenges & Solutions:
+| Problem | E2EE Impact | Solution |
+| :--- | :--- | :--- |
+| **Search** | You can't use Firestore's `where()` to search text. | **Local Search:** All searching must happen inside the SQLite database on the phone. |
+| **Key Loss** | If both lose their phones, the data is gone forever. | **Recovery Kit:** Generate a "Recovery Code" that the user stores offline (e.g., in their safe). |
+| **Partner Sync** | How does the partner get the key? | **Diffie-Hellman Exchange:** A secure handshake that happens via RTDB when they first "Bind" as a couple. |
+
+### Technical Recommendation:
+Do not implement full E2EE for *everything* at once. Start with **"Encrypted Letters"** first. Media (R2) is already hard to breach if your bucket is private. For text, the performance impact is negligible, but the **Recovery Logic** is where 90% of the effort will be.
+
+---
+
+## 4. Implementation Checklist for next 5 years:
+*   [ ] **R2 Integration:** Complete migration of all upload paths to CF R2.
+*   [ ] **Garbage Collector:** Simple script to purge the "3-day Polaroid" bucket.
+*   [ ] **Local Image Cache:** Use `expo-image` with `cachePolicy="disk"` to save on R2 bandwidth.
+*   [ ] **SQL Indexes:** Optimizing SQLite for 10,000+ memories to keep search fast.
+*   [ ] **Encryption POC:** Start a proof-of-concept for encrypting "Letters" using the `react-native-aes-gcm-crypto` or similar library.

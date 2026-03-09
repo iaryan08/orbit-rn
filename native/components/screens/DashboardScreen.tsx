@@ -1,11 +1,16 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, RefreshControl, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, RefreshControl, KeyboardAvoidingView, Platform, Alert, Modal, TextInput } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { auth } from '../../lib/firebase';
+import { auth, db, rtdb } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { ref as dbRef, set } from 'firebase/database';
 import { useOrbitStore } from '../../lib/store';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
-import { Sparkles, Image as ImageIcon, Camera, Lock, Plus, Flame, Heart, Zap, Activity, Smile, Thermometer, Moon } from 'lucide-react-native';
+import { GlobalStyles } from '../../constants/Styles';
+import {
+    LayoutDashboard, Image as ImageIcon, Camera, Lock, Plus, Flame, Heart, Zap, Activity, Smile, Thermometer, Moon, Search, Bell, Sparkles
+} from 'lucide-react-native';
+import { Svg, Defs, LinearGradient as SvgGradient, Stop, Rect as SvgRect } from 'react-native-svg';
 import { PolaroidStack } from '../../components/PolaroidStack';
 import { PartnerHeader } from '../../components/PartnerHeader';
 import {
@@ -21,22 +26,31 @@ import {
 } from '../../components/DashboardWidgets';
 import { GlassCard } from '../../components/GlassCard';
 import * as Haptics from 'expo-haptics';
-import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, withDelay, withTiming, Easing, runOnJS } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, withDelay, withTiming, Easing, runOnJS, LinearTransition, FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderPill } from '../../components/HeaderPill';
 import { getPublicStorageUrl } from '../../lib/storage';
 import { SharedCanvas } from '../../components/SharedCanvas';
-import { getTodayIST } from '../../lib/utils';
+import { getTodayIST, getPartnerName } from '../../lib/utils';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { submitPolaroid } from '../../lib/auth';
+import { storage } from '../../lib/firebase';
+import { ref } from 'firebase/storage';
+import { updateWeatherAndLocation } from '../../lib/weather';
 
 const { width } = Dimensions.get('window');
 
 export function DashboardScreen() {
-    const { profile, partnerProfile, couple, fetchData, polaroids, letters, memories, moods, milestones, cycleLogs, idToken, setTabIndex } = useOrbitStore();
-    // Use auth.currentUser as immediate fallback to avoid blank flash on mount
+    const {
+        profile, partnerProfile, couple, fetchData, polaroids, letters,
+        memories, moods, milestones, cycleLogs, idToken, setTabIndex, activeTabIndex, appMode
+    } = useOrbitStore();
     const [user, setUser] = useState<any>(auth.currentUser);
     const insets = useSafeAreaInsets();
 
     const isFemale = profile?.gender === 'female';
+    const isLunara = appMode === 'lunara';
     const today = getTodayIST();
     const partnerId = partnerProfile?.id;
     const partnerLogsToday = (partnerId && cycleLogs[partnerId]) ? cycleLogs[partnerId][today] : null;
@@ -45,10 +59,114 @@ export function DashboardScreen() {
     const userLogsToday = (profile?.id && cycleLogs[profile.id]) ? cycleLogs[profile.id][today] : null;
     const isOnPeriod = userLogsToday?.is_period === true || userLogsToday?.flow;
 
+    // Polaroid Upload State
+    const [isTitleModalVisible, setIsTitleModalVisible] = useState(false);
+    const [polaroidTitle, setPolaroidTitle] = useState('');
+    const [pendingPolaroidUri, setPendingPolaroidUri] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
+
+    const handlePolaroidUpload = async (useCamera: boolean = false) => {
+        requestAnimationFrame(async () => {
+            try {
+                const permissionFn = useCamera
+                    ? ImagePicker.requestCameraPermissionsAsync
+                    : ImagePicker.requestMediaLibraryPermissionsAsync;
+
+                const { status } = await permissionFn();
+                if (status !== 'granted') {
+                    Alert.alert('Permission Needed', `Please allow ${useCamera ? 'camera' : 'gallery'} access to share Polaroids.`);
+                    return;
+                }
+
+                const launchFn = useCamera
+                    ? ImagePicker.launchCameraAsync
+                    : ImagePicker.launchImageLibraryAsync;
+
+                const result = await launchFn({
+                    mediaTypes: ['images'],
+                    allowsEditing: true,
+                    aspect: [1, 1],
+                    quality: 0.8,
+                });
+
+                if (result.canceled) return;
+
+                // Open Title Modal
+                setPendingPolaroidUri(result.assets[0].uri);
+                setIsTitleModalVisible(true);
+            } catch (error) {
+                console.error('Polaroid upload error:', error);
+                Alert.alert('Upload Failed', 'Could not share your Polaroid right now.');
+            }
+        });
+    };
+    const confirmPolaroidUpload = async () => {
+        if (!pendingPolaroidUri) return;
+
+        setIsUploading(true);
+        try {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+            // 1. Transform for 2.2K WEBP
+            const manipResult = await ImageManipulator.manipulateAsync(
+                pendingPolaroidUri,
+                [{ resize: { width: 2200 } }],
+                { compress: 0.8, format: ImageManipulator.SaveFormat.WEBP }
+            );
+
+            // 2. Upload to R2 (Direct XHR)
+            const cleanPath = `polaroids/${auth.currentUser?.uid}_${getTodayIST()}.webp`;
+            const r2Url = `${process.env.EXPO_PUBLIC_UPLOAD_URL?.replace(/\/$/, '')}/memories/${cleanPath}`;
+
+            const blob = await fetch(manipResult.uri).then(r => r.blob());
+
+            await new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', r2Url, true);
+                xhr.setRequestHeader('Authorization', `Bearer ${process.env.EXPO_PUBLIC_UPLOAD_SECRET}`);
+                xhr.setRequestHeader('Content-Type', 'image/webp');
+
+                xhr.onerror = () => reject(new Error('Network error during Polaroid upload'));
+                xhr.timeout = 45000;
+                xhr.ontimeout = () => reject(new Error('Polaroid upload timed out'));
+
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve();
+                    } else {
+                        reject(new Error(`Upload failed with status: ${xhr.status}`));
+                    }
+                };
+                xhr.send(blob as any);
+            });
+
+            // 3. Save to Firestore
+            await submitPolaroid(cleanPath, polaroidTitle || 'A moment shared');
+
+            // 4. Cleanup
+            setIsTitleModalVisible(false);
+            setPolaroidTitle('');
+            setPendingPolaroidUri(null);
+
+            if (auth.currentUser) {
+                fetchData(auth.currentUser.uid);
+            }
+        } catch (err) {
+            console.error('Polaroid processing error:', err);
+            Alert.alert('Upload Failed', 'Failed to process or upload your image.');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
     const [refreshing, setRefreshing] = useState(false);
 
     // Local scroll tracking
     const scrollOffset = useSharedValue(0);
+    const scrollRef = React.useRef<any>(null);
+    const scrollToTop = () => {
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+    };
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
             scrollOffset.value = event.contentOffset.y;
@@ -60,7 +178,10 @@ export function DashboardScreen() {
         setRefreshing(true);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         try {
-            await fetchData(user.uid);
+            await Promise.all([
+                fetchData(user.uid),
+                updateWeatherAndLocation()
+            ]);
         } finally {
             setRefreshing(false);
         }
@@ -70,26 +191,38 @@ export function DashboardScreen() {
         // Initial user sync
         if (auth.currentUser) {
             setUser(auth.currentUser);
+            // Defer heavy weather update to prevent boot lag
+            setTimeout(() => {
+                updateWeatherAndLocation();
+            }, 1000);
         }
     }, []);
 
-    // Morphing: Title fades and scales down
+    // Morphing: Standardized thresholds for professional overlap
     const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [10, 60], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [0, 70], [1, 0], Extrapolate.CLAMP),
         transform: [
-            { scale: interpolate(scrollOffset.value, [10, 60], [1, 0.9], Extrapolate.CLAMP) }
+            { scale: interpolate(scrollOffset.value, [0, 70], [1, 0.9], Extrapolate.CLAMP) },
+            { translateY: interpolate(scrollOffset.value, [0, 70], [0, -12], Extrapolate.CLAMP) }
         ]
     }));
 
-    // Subline fading (e.g. Partner header/subtitle)
     const sublineAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [20, 100], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [0, 50], [1, 0], Extrapolate.CLAMP),
     }));
 
-    // Morphing: HeaderPill fades and slides up (Swipe up effect)
     const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [65, 110], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [65, 110], [10, 0], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [30, 80], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [30, 80], [10, 0], Extrapolate.CLAMP) }]
+    }));
+
+    // Avatar Morphing Style: Disappear when pill is visible
+    const avatarMorphStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollOffset.value, [20, 80], [1, 0], Extrapolate.CLAMP),
+        transform: [
+            { scale: interpolate(scrollOffset.value, [20, 80], [1, 0.8], Extrapolate.CLAMP) },
+            { translateY: interpolate(scrollOffset.value, [20, 80], [0, -15], Extrapolate.CLAMP) }
+        ]
     }));
 
     // Entry Animations for Widgets
@@ -102,7 +235,7 @@ export function DashboardScreen() {
         widgetTranslateY.value = withDelay(300, withTiming(0, config));
     }, []);
 
-    const widgetEntryStyle = useAnimatedStyle(() => ({
+    const widgetAnimatedStyle = useAnimatedStyle(() => ({
         opacity: widgetOpacity.value,
         transform: [{ translateY: widgetTranslateY.value }]
     }));
@@ -113,18 +246,11 @@ export function DashboardScreen() {
     const myPolaroid = polaroids.find(p => p.user_id === user.uid) || null;
     const partnerPolaroid = polaroids.find(p => p.user_id !== user.uid) || null;
 
-    const supportHistory = [
+    const periodSupportHistory = [
         { id: '1', text: isFemale ? "HE BROUGHT FLOWERS" : "YOU BROUGHT FLOWERS", type: 'gift' },
         { id: '2', text: isFemale ? "HE COOKED DINNER" : "YOU COOKED DINNER", type: 'act' },
         { id: '3', text: "GENTLE MASSAGE", type: 'touch' },
     ];
-
-    const handleSwipe = (translationX: number) => {
-        if (translationX < -100) {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setTabIndex(1); // Open Sync-Cinema
-        }
-    };
 
     return (
         <KeyboardAvoidingView
@@ -132,17 +258,16 @@ export function DashboardScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
-            {/* Sticky Header Pill - FIXED PINNING */}
-            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
-                <HeaderPill title="Space" scrollOffset={scrollOffset} />
-            </Animated.View>
+
 
             <Animated.ScrollView
+                ref={scrollRef}
                 style={styles.content}
                 contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + Spacing.md }]}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
+                nestedScrollEnabled={true}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
@@ -153,21 +278,111 @@ export function DashboardScreen() {
                     />
                 }
             >
-                <View
-                    style={styles.feedScroll}
-                >
+                <View style={styles.feedScroll}>
                     <View style={styles.feedSection}>
-                        <View style={styles.headerTitleContainer}>
-                            <Animated.View style={sublineAnimatedStyle}>
-                                <PartnerHeader
-                                    profile={profile}
-                                    partnerProfile={partnerProfile}
-                                    coupleId={couple?.id}
-                                />
-                            </Animated.View>
+                        <Animated.View style={[styles.headerTitleContainer, avatarMorphStyle]}>
+                            <PartnerHeader
+                                profile={profile}
+                                partnerProfile={partnerProfile}
+                                coupleId={couple?.id}
+                            />
+                        </Animated.View>
+
+                        {/* Quick Actions Row - Premium Gradient Borders */}
+                        <View style={styles.quickActionsContainer}>
+                            <TouchableOpacity
+                                style={styles.quickActionGlass}
+                                onPress={() => {
+                                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                    // Lock logic: Toggle shared canvas interaction lock
+                                    // In a real app, this could also be a biometric lock
+                                    Alert.alert("Canvas Locked", "Drawing is now disabled to protect your shared art.");
+                                }}
+                            >
+                                <Svg style={StyleSheet.absoluteFill}>
+                                    <Defs>
+                                        <SvgGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                                            <Stop offset="0%" stopColor={Colors.dark.rose[400]} stopOpacity="0.4" />
+                                            <Stop offset="100%" stopColor={Colors.dark.indigo[400]} stopOpacity="0.4" />
+                                        </SvgGradient>
+                                    </Defs>
+                                    <SvgRect x="0" y="0" width="100%" height="100%" stroke="url(#grad1)" strokeWidth="2.5" fill="transparent" rx="26" />
+                                </Svg>
+                                <Lock size={20} color="white" />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.quickActionGlass}
+                                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); useOrbitStore.getState().setMoodDrawerOpen(true); }}
+                            >
+                                <Svg style={StyleSheet.absoluteFill}>
+                                    <Defs>
+                                        <SvgGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+                                            <Stop offset="0%" stopColor={Colors.dark.indigo[400]} stopOpacity="0.3" />
+                                            <Stop offset="100%" stopColor={Colors.dark.amber[400]} stopOpacity="0.3" />
+                                        </SvgGradient>
+                                    </Defs>
+                                    <SvgRect x="0" y="0" width="100%" height="100%" stroke="url(#grad2)" strokeWidth="2" fill="transparent" rx="26" />
+                                </Svg>
+                                <Plus size={20} color="white" />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.quickActionGlass}
+                                onPress={() => {
+                                    Alert.alert(
+                                        "Daily Polaroid",
+                                        "Share a moment from today!",
+                                        [
+                                            { text: "Take Photo", onPress: () => handlePolaroidUpload(true) },
+                                            { text: "Choose from Library", onPress: () => handlePolaroidUpload(false) },
+                                            { text: "Cancel", style: "cancel" }
+                                        ]
+                                    );
+                                }}
+                            >
+                                <Svg style={StyleSheet.absoluteFill}>
+                                    <Defs>
+                                        <SvgGradient id="grad3" x1="0%" y1="0%" x2="100%" y2="100%">
+                                            <Stop offset="0%" stopColor={Colors.dark.amber[400]} stopOpacity="0.4" />
+                                            <Stop offset="100%" stopColor={Colors.dark.rose[400]} stopOpacity="0.4" />
+                                        </SvgGradient>
+                                    </Defs>
+                                    <SvgRect x="0" y="0" width="100%" height="100%" stroke="url(#grad3)" strokeWidth="2.5" fill="transparent" rx="26" />
+                                </Svg>
+                                <Camera size={20} color="white" />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.quickActionGlass}
+                                onPress={() => {
+                                    if (!couple?.id || !profile?.id) return;
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                                    // Broadcast Spark event (Heartbeat) - SYNC WITH WEB
+                                    const vibeRef = dbRef(rtdb, `vibrations/${couple.id}`);
+                                    set(vibeRef, {
+                                        senderId: profile.id,
+                                        timestamp: Date.now(),
+                                        type: 'spark'
+                                    });
+                                    // Also show local feedback/navigate
+                                    setTabIndex(3);
+                                }}
+                            >
+                                <Svg style={StyleSheet.absoluteFill}>
+                                    <Defs>
+                                        <SvgGradient id="grad4" x1="0%" y1="0%" x2="100%" y2="100%">
+                                            <Stop offset="0%" stopColor={Colors.dark.rose[400]} stopOpacity="0.5" />
+                                            <Stop offset="100%" stopColor="#fff" stopOpacity="0.2" />
+                                        </SvgGradient>
+                                    </Defs>
+                                    <SvgRect x="0" y="0" width="100%" height="100%" stroke="url(#grad4)" strokeWidth="2.5" fill="transparent" rx="26" />
+                                </Svg>
+                                <Sparkles size={20} color="white" />
+                            </TouchableOpacity>
                         </View>
 
-                        <Animated.View style={[styles.widgetsGrid, widgetEntryStyle]}>
+                        <Animated.View style={[styles.widgetsGrid, widgetAnimatedStyle]}>
                             {/* Passion Alert - Immersive Glass Card */}
                             {partnerLogsToday?.sex_drive === 'very_high' && (
                                 <TouchableOpacity activeOpacity={0.9} style={styles.passionAlertWrapper} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}>
@@ -178,28 +393,13 @@ export function DashboardScreen() {
                                         <View style={styles.passionTextContent}>
                                             <Text style={styles.passionAlertTitle}>Intense Passion</Text>
                                             <Text style={styles.passionAlertSub}>
-                                                {isFemale ? "He's feeling a deep desire for you right now." : "She's feeling a deep desire for you right now."}
+                                                {getPartnerName(profile, partnerProfile)}'s feeling a deep desire for you right now.
                                             </Text>
                                         </View>
                                     </GlassCard>
                                 </TouchableOpacity>
                             )}
 
-                            {/* Quick Actions at the very top */}
-                            <View style={styles.quickActionsContainer}>
-                                <TouchableOpacity style={styles.quickActionGlass} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
-                                    <Lock size={20} color="white" />
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.quickActionGlass} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
-                                    <Plus size={22} color="white" />
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.quickActionGlass} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
-                                    <Camera size={22} color="white" />
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.quickActionGlass} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
-                                    <Sparkles size={20} color="white" />
-                                </TouchableOpacity>
-                            </View>
 
                             <View style={styles.borderBottomWrapper}>
                                 <RelationshipStats
@@ -248,7 +448,7 @@ export function DashboardScreen() {
                                             <Text style={styles.supportTitle}>SUPPORT HISTORY</Text>
                                         </View>
                                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.supportScroll}>
-                                            {supportHistory.map(item => (
+                                            {periodSupportHistory.map(item => (
                                                 <View key={item.id} style={styles.supportChip}>
                                                     <Text style={styles.supportChipText}>{item.text}</Text>
                                                 </View>
@@ -258,10 +458,6 @@ export function DashboardScreen() {
                                 </View>
                             )}
 
-
-                            <View style={styles.borderBottomWrapper}>
-                                <LetterPreviewWidget />
-                            </View>
 
                             <View style={styles.borderBottomWrapper}>
                                 <ImportantDatesCountdown
@@ -291,11 +487,10 @@ export function DashboardScreen() {
                                     </View>
                                     <View style={styles.stackSection}>
                                         <PolaroidStack
-                                            userPolaroid={myPolaroid}
-                                            partnerPolaroid={partnerPolaroid}
+                                            userPolaroid={polaroids.find(p => p.user_id === profile?.id && p.polaroid_date === today) || null}
+                                            partnerPolaroid={polaroids.find(p => p.user_id === partnerProfile?.id && p.polaroid_date === today) || null}
                                             partnerName={partnerProfile?.display_name || 'Partner'}
-                                            onUploadPress={() => { }}
-                                            onPress={() => { }}
+                                            onUploadPress={handlePolaroidUpload}
                                             authToken={idToken}
                                         />
                                     </View>
@@ -328,7 +523,56 @@ export function DashboardScreen() {
                         </View>
                     </Animated.View>
                 </View>
+                <View style={{ height: 120 }} />
             </Animated.ScrollView>
+
+            {/* Sticky Header Pill - Pin to Top with proper Z-Index */}
+            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
+                <HeaderPill title="Space" scrollOffset={scrollOffset} onPress={scrollToTop} />
+            </Animated.View>
+            {/* Premium Dark Title Modal */}
+            {isTitleModalVisible && (
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 99999, justifyContent: 'center', padding: 24 }]}>
+                    <Animated.View entering={FadeIn.duration(400)} style={styles.titleModalCard}>
+                        <Text style={styles.titleModalHeader}>Daily Polaroid</Text>
+                        <Text style={styles.titleModalSub}>Add a title to your shared moment</Text>
+
+                        <View style={styles.titleInputContainer}>
+                            <TextInput
+                                style={styles.titleInput}
+                                placeholder="E.g. Sunday Morning..."
+                                placeholderTextColor="rgba(255,255,255,0.3)"
+                                value={polaroidTitle}
+                                onChangeText={setPolaroidTitle}
+                                maxLength={24}
+                                autoFocus
+                            />
+                        </View>
+
+                        <View style={styles.titleModalActions}>
+                            <TouchableOpacity
+                                style={styles.titleModalCancel}
+                                onPress={() => {
+                                    setIsTitleModalVisible(false);
+                                    setPendingPolaroidUri(null);
+                                    setPolaroidTitle('');
+                                }}
+                            >
+                                <Text style={styles.titleModalCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.titleModalShare, isUploading && { opacity: 0.5 }]}
+                                onPress={confirmPolaroidUpload}
+                                disabled={isUploading}
+                            >
+                                <Text style={styles.titleModalShareText}>
+                                    {isUploading ? 'Uploading...' : 'Share'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Animated.View>
+                </View>
+            )}
         </KeyboardAvoidingView>
     );
 }
@@ -350,8 +594,8 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     scrollContent: {
-        paddingTop: 40, // Extreme push to top
-        paddingBottom: 160,
+        paddingTop: 0,
+        paddingBottom: 200,
     },
     feedSection: {
         width: '100%',
@@ -359,24 +603,20 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
     },
     headerTitleContainer: {
-        paddingHorizontal: Spacing.sm,
-        paddingTop: 40,
-        paddingBottom: 2, // Tightened gap with quick actions
+        paddingHorizontal: Spacing.md,
+        paddingTop: 20,
+        paddingBottom: 2,
     },
-    headerTitle: {
-        fontSize: 40,
-        fontFamily: Typography.serif,
-        color: Colors.dark.foreground,
-        letterSpacing: -0.5,
-        marginBottom: Spacing.xs,
-        display: 'none',
-    },
+    standardHeader: GlobalStyles.standardHeader,
+    standardTitle: GlobalStyles.standardTitle,
+    standardSubtitle: GlobalStyles.standardSubtitle,
     quickActionsContainer: {
         flexDirection: 'row',
-        justifyContent: 'center',
+        justifyContent: 'flex-start',
         gap: 16,
         paddingTop: 8,
         paddingBottom: Spacing.xl,
+        paddingHorizontal: Spacing.md,
     },
     quickActionGlass: {
         width: 52,
@@ -562,5 +802,64 @@ const styles = StyleSheet.create({
     },
     feedScroll: {
         flex: 1,
+    },
+    titleModalCard: {
+        backgroundColor: '#111111',
+        borderRadius: 24,
+        padding: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+        width: '100%',
+    },
+    titleModalHeader: {
+        fontSize: 18,
+        fontFamily: Typography.sansBold,
+        color: 'white',
+        letterSpacing: 0.5,
+    },
+    titleModalSub: {
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.5)',
+        marginTop: 4,
+        marginBottom: 24,
+    },
+    titleInputContainer: {
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 24,
+    },
+    titleInput: {
+        color: 'white',
+        fontSize: 16,
+        fontFamily: Typography.sans,
+    },
+    titleModalActions: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    titleModalCancel: {
+        flex: 1,
+        height: 48,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    titleModalCancelText: {
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 14,
+        fontFamily: Typography.sansBold,
+    },
+    titleModalShare: {
+        flex: 2,
+        height: 48,
+        backgroundColor: Colors.dark.rose[500],
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    titleModalShareText: {
+        color: 'white',
+        fontSize: 14,
+        fontFamily: Typography.sansBold,
     },
 });

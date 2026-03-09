@@ -1,145 +1,258 @@
-import React, { useEffect, useMemo } from 'react';
-import { View, StyleSheet, Dimensions } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing, useDerivedValue } from 'react-native-reanimated';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, useWindowDimensions } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { Canvas, ColorMatrix, Blur, Group, Fill } from '@shopify/react-native-skia';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate, Easing, useDerivedValue } from 'react-native-reanimated';
+import { Canvas, ColorMatrix, Group, Skia, Image, useImage, Fill, RadialGradient, vec } from '@shopify/react-native-skia';
+import { BlurView } from 'expo-blur';
 import { getPublicStorageUrl } from '../lib/storage';
 import { useOrbitStore } from '../lib/store';
 import { CelestialSky } from './background/CelestialSky';
-
 import { getCycleDay } from '../lib/cycle';
-
-const { width, height } = Dimensions.get('window');
+import { Animations } from '../constants/Theme';
 
 const AURA_MAP: Record<string, string> = {
-    'Lavender': 'rgba(168, 85, 247, 0.15)',
-    'Soft Teal': 'rgba(45, 212, 191, 0.12)',
-    'Amber Glow': 'rgba(251, 191, 36, 0.15)',
-    'Dusty Rose': 'rgba(251, 113, 133, 0.12)',
-    'Midnight Blue': 'rgba(30, 64, 175, 0.15)'
+    'Lavender': 'rgba(168, 85, 247, 0.12)',
+    'Soft Teal': 'rgba(45, 212, 191, 0.10)',
+    'Amber Glow': 'rgba(251, 191, 36, 0.12)',
+    'Dusty Rose': 'rgba(251, 113, 133, 0.10)',
+    'Midnight Blue': 'rgba(30, 64, 175, 0.12)'
 };
 
-// Color Matrices for Atmosphere Filters
+const MATRIX_IDENTITY = [
+    1, 0, 0, 0, 0,
+    0, 1, 0, 0, 0,
+    0, 0, 1, 0, 0,
+    0, 0, 0, 1, 0
+];
+
+// Premium Monochrome: Professional Luma weights (0.21, 0.72, 0.07) + slight contrast lift
 const MONOCHROME_MATRIX = [
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
+    0.33, 0.33, 0.33, 0, 0,
+    0.33, 0.33, 0.33, 0, 0,
+    0.33, 0.33, 0.33, 0, 0,
     0, 0, 0, 1, 0
 ];
 
-const TINT_MATRIX = [
-    1.2, 0, 0, 0, 0.1,
-    0, 1.0, 0, 0, 0,
-    0, 0, 1.1, 0, 0.05,
+// Cinema Matrix: Teal & Orange production look, high contrast, warm highlights
+const CINEMA_MATRIX = [
+    1.25, 0, 0, 0, -0.1,
+    0, 1.15, 0, 0, -0.1,
+    0, 0, 1.35, 0, -0.05,
     0, 0, 0, 1, 0
 ];
 
-const PRO_MATRIX = [
-    1.3, 0, 0, 0, -0.1,
-    0, 1.3, 0, 0, -0.1,
-    0, 0, 1.3, 0, -0.1,
+// Obsidian Matrix: Deep crushed blacks, subtle indigo tint, high drama
+const OBSIDIAN_MATRIX = [
+    0.8, 0, 0, 0, -0.2,
+    0, 0.8, 0, 0, -0.25,
+    0, 0, 1.0, 0, -0.15,
+    0, 0, 0, 1, 0
+];
+
+// Ethereal Matrix: Dreamy, desaturated, low contrast, soft pastel lift
+const ETHEREAL_MATRIX = [
+    0.85, 0.1, 0.05, 0, 0.1,
+    0.1, 0.85, 0.05, 0, 0.1,
+    0.05, 0.05, 0.9, 0, 0.15,
     0, 0, 0, 1, 0
 ];
 
 interface DynamicBackgroundProps {
-    mode?: 'stars' | 'custom' | 'shared' | 'theme';
-    customImageUrl?: string | null;
-    partnerImageUrl?: string | null;
-    idToken?: string | null;
-    isGrayscale?: boolean;
-    filter?: 'Natural' | 'Glass' | 'Tint' | 'Pro';
     isPaused?: boolean;
 }
 
-export const DynamicBackground = React.memo(({
-    isPaused = false
-}: DynamicBackgroundProps) => {
+export function DynamicBackground({ isPaused = false }: DynamicBackgroundProps) {
+    const { width, height } = useWindowDimensions();
     const { profile, partnerProfile, appMode, wallpaperConfig, idToken, intimacyForecast, isLiteMode } = useOrbitStore();
-    const { mode, grayscale, filter } = wallpaperConfig;
+    const { mode, grayscale, aesthetic } = wallpaperConfig;
     const isLunara = appMode === 'lunara';
     const starColor = isLunara ? [200, 150, 255] : [255, 255, 255];
 
-    const activeImageUrl = mode === 'custom' ? profile?.custom_wallpaper_url : (mode === 'shared' ? partnerProfile?.custom_wallpaper_url : null);
-    const fullUrl = activeImageUrl ? getPublicStorageUrl(activeImageUrl, 'wallpapers', idToken) : null;
+    const activeImageUrl = useMemo(() => {
+        if (mode === 'custom') return profile?.custom_wallpaper_url;
+        if (mode === 'shared') return partnerProfile?.custom_wallpaper_url;
+        return null;
+    }, [mode, profile?.custom_wallpaper_url, partnerProfile?.custom_wallpaper_url]);
 
-    // Aura Sync Logic - Tints the background based on the intimacy forecast card
-    const auraTint = useMemo(() => {
-        if (!isLunara || !intimacyForecast || !intimacyForecast.length) return 'transparent';
+    const fullUrl = useMemo(() =>
+        activeImageUrl ? getPublicStorageUrl(activeImageUrl, 'wallpapers', idToken) : null,
+        [activeImageUrl, idToken]);
 
-        // Atmosphere follows the woman's cycle
-        const activeCycle = profile?.gender === 'female' ? profile : partnerProfile;
-        if (!activeCycle?.last_period_start) return 'transparent';
+    // Cross-fade State
+    const [displayUrls, setDisplayUrls] = useState<{ current: string | null; previous: string | null }>({
+        current: fullUrl,
+        previous: null,
+    });
+    const transition = useSharedValue(fullUrl ? 1 : 0);
+    const lastUrl = useRef(fullUrl);
 
-        const day = getCycleDay(activeCycle.last_period_start);
-        const card = intimacyForecast[day - 1];
-        return card ? (AURA_MAP[card.aura] || 'transparent') : 'transparent';
-    }, [isLunara, intimacyForecast, profile, partnerProfile]);
+    // Filter Animation Logic
+    const filterLerp = useSharedValue(1);
+    const targetMatrix = useRef(MATRIX_IDENTITY);
+    const prevMatrix = useRef(MATRIX_IDENTITY);
 
-    // Animation values - 300ms for a faster "snappy" feel
-    const transitionConfig = { duration: 300, easing: Easing.out(Easing.exp) };
-    const imageOpacity = useSharedValue(mode === 'stars' ? 0 : 1);
-    const filterOpacity = useSharedValue(mode === 'stars' ? 0 : (grayscale ? 0.85 : 0.4));
+    const currentMatrixArray = useMemo(() => {
+        if (grayscale) return MONOCHROME_MATRIX;
+        if (mode === 'stars') return MATRIX_IDENTITY;
+
+        switch (aesthetic) {
+            case 'Ethereal': return ETHEREAL_MATRIX;
+            case 'Cinema': return CINEMA_MATRIX;
+            case 'Obsidian': return OBSIDIAN_MATRIX;
+            default: return MATRIX_IDENTITY;
+        }
+    }, [grayscale, mode, aesthetic]);
 
     useEffect(() => {
-        if (mode === 'custom' || mode === 'shared') {
-            imageOpacity.value = withTiming(1, transitionConfig);
-            filterOpacity.value = withTiming(grayscale ? 0.85 : 0.4, transitionConfig);
-        } else {
-            imageOpacity.value = withTiming(0, transitionConfig);
-            filterOpacity.value = withTiming(0, transitionConfig);
+        if (fullUrl !== lastUrl.current) {
+            if (!fullUrl) {
+                transition.value = withTiming(0, { duration: 600, easing: Easing.out(Easing.quad) });
+            } else if (!lastUrl.current) {
+                setDisplayUrls({ current: fullUrl, previous: null });
+                transition.value = 0;
+                transition.value = withTiming(1, { duration: 700, easing: Easing.out(Easing.quad) });
+            } else {
+                setDisplayUrls({ current: fullUrl, previous: lastUrl.current });
+                transition.value = 0;
+                transition.value = withTiming(1, { duration: 850, easing: Easing.inOut(Easing.quad) });
+            }
+            lastUrl.current = fullUrl;
         }
-    }, [mode, grayscale]);
+    }, [fullUrl]);
 
-    const imageAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: imageOpacity.value,
+    const currentStyle = useAnimatedStyle(() => ({
+        opacity: transition.value,
+        transform: [{ scale: (grayscale || isLiteMode) ? 1 : interpolate(transition.value, [0, 1], [1.08, 1]) }]
     }));
 
-    const fillColor = useDerivedValue(() => `rgba(0,0,0,${filterOpacity.value * 0.5})`);
+    const previousStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(transition.value, [0, 1], [1, 0]),
+        transform: [{ scale: (grayscale || isLiteMode) ? 1 : interpolate(transition.value, [0, 1], [1, 1.05]) }]
+    }));
 
-    const matrix = useMemo(() => {
-        if (grayscale) return MONOCHROME_MATRIX;
-        if (filter === 'Tint') return TINT_MATRIX;
-        if (filter === 'Pro') return PRO_MATRIX;
-        return null;
-    }, [grayscale, filter]);
+    const monochromePaint = useMemo(() => {
+        const p = Skia.Paint();
+        p.setColorFilter(Skia.ColorFilter.MakeMatrix(MONOCHROME_MATRIX));
+        return p;
+    }, []);
 
-    return (
-        <View style={[StyleSheet.absoluteFillObject, styles.solidBg]}>
-            <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000000' }, imageAnimatedStyle]}>
-                {fullUrl && (
-                    <ExpoImage
-                        source={{ uri: fullUrl || undefined }}
-                        style={StyleSheet.absoluteFillObject}
-                        contentFit="cover"
-                        transition={600} // Smoother image fade
-                        cachePolicy="memory-disk"
-                    />
-                )}
+    const auraTintLayer = useMemo(() => {
+        if (!isLunara || !intimacyForecast?.length || grayscale) return null;
+        const activeCycle = profile?.gender === 'female' ? profile : partnerProfile;
+        if (!activeCycle?.last_period_start) return null;
+        const day = getCycleDay(activeCycle.last_period_start);
+        const card = intimacyForecast[day - 1];
+        if (!card || !AURA_MAP[card.aura]) return null;
+        return AURA_MAP[card.aura];
+    }, [isLunara, intimacyForecast, profile, partnerProfile, grayscale]);
 
-                {/* Visual Filters using Skia */}
+    // Zero-cost Filter Opacity Transitions
+    const currentAestheticOpacity = useDerivedValue(() => {
+        return withTiming(mode !== 'stars' ? 1 : 0, { duration: 400 });
+    });
+
+    const aestheticOverlayStyle = useAnimatedStyle(() => ({
+        opacity: currentAestheticOpacity.value,
+        backgroundColor: grayscale ? 'rgba(0,0,0,0.5)' :
+            (aesthetic as string) === 'Solid' ? 'rgba(0,0,0,0.85)' :
+                aesthetic === 'Obsidian' ? 'rgba(10, 5, 25, 0.58)' :
+                    aesthetic === 'Cinema' ? 'rgba(25, 12, 0, 0.42)' :
+                        aesthetic === 'Ethereal' ? 'rgba(255, 255, 255, 0.08)' :
+                            'rgba(0,0,0,0.42)'
+    }));
+
+    const skImageCurrent = useImage(displayUrls.current);
+    const skImagePrevious = useImage(displayUrls.previous);
+
+    const renderWallpaperLayer = (skImage: any, style: any) => {
+        if (!skImage || mode === 'stars') return null;
+        return (
+            <Animated.View style={[StyleSheet.absoluteFillObject, style]}>
                 <Canvas style={StyleSheet.absoluteFillObject}>
-                    <Group>
-                        {matrix ? <ColorMatrix matrix={matrix} /> : null}
-                        {filter === 'Glass' ? <Blur blur={10} /> : null}
-                        <Fill color={auraTint} />
-                        <Fill color={fillColor} />
+                    <Group layer={grayscale ? monochromePaint : undefined}>
+                        <Image
+                            image={skImage}
+                            x={0}
+                            y={0}
+                            width={width}
+                            height={height}
+                            fit="cover"
+                        />
                     </Group>
+                    {/* Romance-Style Vignette Overlay for Grayscale */}
+                    {grayscale && (
+                        <Fill>
+                            <RadialGradient
+                                c={vec(width / 2, height / 2)}
+                                r={Math.max(width, height) * 0.98}
+                                colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.85)']}
+                            />
+                        </Fill>
+                    )}
                 </Canvas>
             </Animated.View>
+        );
+    };
 
-            {/* Stars layer - static or moving depending on isPaused */}
+    return (
+        <View style={[StyleSheet.absoluteFillObject, styles.bg]}>
+            {/* Stars Layer */}
             <CelestialSky
                 partnerLat={partnerProfile?.latitude || partnerProfile?.location?.latitude}
                 partnerLon={partnerProfile?.longitude || partnerProfile?.location?.longitude}
                 starColor={starColor}
-                speed={isPaused ? 0 : 1}
+                speed={isPaused || grayscale ? 0 : (isLiteMode ? 0.25 : 0.8)}
+                maxStars={grayscale ? 30 : (isLiteMode ? 40 : 80)}
             />
+
+            {/* PREVIOUS Wallpaper Layer */}
+            {skImagePrevious && renderWallpaperLayer(skImagePrevious, previousStyle)}
+
+            {/* CURRENT Wallpaper Layer */}
+            {skImageCurrent && renderWallpaperLayer(skImageCurrent, currentStyle)}
+
+            {/* ZERO-COST OVERLAYS: Avoid overlapping filters when Monochrome is active */}
+            {mode !== 'stars' && !grayscale && (
+                <Animated.View
+                    style={[StyleSheet.absoluteFillObject, aestheticOverlayStyle]}
+                    pointerEvents="none"
+                />
+            )}
+
+            {/* Aura Tint Layer */}
+            {isLunara && auraTintLayer && (
+                <View
+                    style={[StyleSheet.absoluteFillObject, { backgroundColor: auraTintLayer, opacity: 0.2 }]}
+                    pointerEvents="none"
+                />
+            )}
+
+            {/* Global Readability Dimmers: Ensures white text/UI elements are always readable on bright wallpapers */}
+            {mode !== 'stars' && (
+                <View
+                    style={[
+                        StyleSheet.absoluteFillObject,
+                        { backgroundColor: 'rgba(0,0,0,0.25)' } // Strong base dim for all wallpapers
+                    ]}
+                    pointerEvents="none"
+                />
+            )}
+
+            {grayscale && (
+                <View
+                    style={[
+                        StyleSheet.absoluteFillObject,
+                        { backgroundColor: 'rgba(0,0,0,0.25)' } // Deeper wash for Monochrome/Bedtime readability
+                    ]}
+                    pointerEvents="none"
+                />
+            )}
         </View>
     );
-});
+}
 
 const styles = StyleSheet.create({
-    solidBg: {
+    bg: {
         backgroundColor: '#000000',
     }
 });

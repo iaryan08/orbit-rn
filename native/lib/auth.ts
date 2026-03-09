@@ -1,5 +1,9 @@
-import { auth, db } from './firebase';
+import { auth, db, storage } from './firebase';
 import { doc, setDoc, addDoc, collection, serverTimestamp, getDocs, query, where, deleteDoc } from 'firebase/firestore';
+import { ref, deleteObject, uploadBytes } from 'firebase/storage';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { Image as ImageCompressor } from 'react-native-compressor';
+import { updateDoc as firestoreUpdateDoc } from 'firebase/firestore';
 // useOrbitStore is imported dynamically inside functions to avoid circular dependency with store.ts
 
 import { getTodayIST } from './utils';
@@ -15,7 +19,6 @@ export async function submitMood(mood: string, note?: string) {
     if (!coupleId) return { error: 'No couple ID' };
 
     const today = getTodayIST();
-
     try {
         const moodData = {
             user_id: user.uid,
@@ -23,10 +26,12 @@ export async function submitMood(mood: string, note?: string) {
             emoji: mood,
             mood_text: note || null,
             mood_date: today,
-            created_at: serverTimestamp()
+            created_at: serverTimestamp(),
+            updated_at: serverTimestamp()
         };
 
-        await addDoc(collection(db, 'couples', coupleId, 'moods'), moodData);
+        const moodId = `${user.uid}_${today}`;
+        await setDoc(doc(db, 'couples', coupleId, 'moods', moodId), moodData, { merge: true });
 
         if (state.partnerProfile?.id) {
             await sendNotification({
@@ -227,12 +232,14 @@ export async function addBucketItem(title: string, description: string = '', is_
     const state = useOrbitStore.getState();
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple found' };
+    const normalizedTitle = (title || '').trim();
+    if (!normalizedTitle) return { error: 'Title is required' };
 
     try {
         const itemData = {
             couple_id: coupleId,
             created_by: user.uid,
-            title,
+            title: normalizedTitle,
             description,
             is_completed: false,
             is_private: is_private,
@@ -248,7 +255,7 @@ export async function addBucketItem(title: string, description: string = '', is_
                 actorId: user.uid,
                 type: 'bucket_list',
                 title: 'New Bucket List Item 📝',
-                message: `${state.profile?.display_name || 'Your partner'} added "${title}" to your bucket list.`,
+                message: `${state.profile?.display_name || 'Your partner'} added "${normalizedTitle}" to your bucket list.`,
                 actionUrl: `/dashboard?bucketItemId=${encodeURIComponent(docRef.id)}`,
                 metadata: { bucket_item_id: docRef.id },
             });
@@ -315,3 +322,278 @@ export async function deleteBucketItem(id: string) {
         return { error: error.message };
     }
 }
+
+export async function updateLetterReadStatus(id: string, isRead: boolean) {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = state.profile?.couple_id;
+    if (!coupleId) return { error: 'No couple found' };
+
+    try {
+        const itemRef = doc(db, 'couples', coupleId, 'letters', id);
+        await setDoc(itemRef, {
+            is_read: isRead,
+            updated_at: serverTimestamp()
+        }, { merge: true });
+        return { success: true };
+    } catch (error: any) {
+        return { error: error.message };
+    }
+}
+
+export async function deleteMemory(memory: any) {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = state.profile?.couple_id;
+    if (!coupleId) return { error: 'No couple found' };
+
+    const R2_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
+    const R2_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
+
+    try {
+        // 1. Delete from Firestore
+        await deleteDoc(doc(db, 'couples', coupleId, 'memories', memory.id));
+
+        // 2. Best-in-Class: Total Storage Cleanup
+        const urls = memory.image_urls || (memory.image_url ? [memory.image_url] : []);
+        for (const url of urls) {
+            if (!url || url.startsWith('http')) continue;
+
+            const cleanPath = url.replace(/^\/+/, '').replace(/^memories\//i, '');
+            const fullPath = `memories/${cleanPath}`;
+
+            // Cleanup R2 (Primary Storage)
+            if (R2_URL && R2_SECRET) {
+                try {
+                    const r2DeleteUrl = `${R2_URL.replace(/\/$/, '')}/memories/${cleanPath}`;
+                    await fetch(r2DeleteUrl, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${R2_SECRET}` }
+                    });
+                } catch (e) {
+                    console.error("[StorageCleanup] R2 delete failed:", e);
+                }
+            }
+
+            // Cleanup Firebase Storage (Backup Storage)
+            try {
+                await deleteObject(ref(storage, fullPath));
+            } catch (e: any) {
+                if (e.code !== 'storage/object-not-found') {
+                    console.error("[StorageCleanup] Firebase delete failed:", e);
+                }
+            }
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("deleteMemory error:", error);
+        return { error: error.message };
+    }
+}
+
+export async function submitPolaroid(imageUrl: string, caption?: string) {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = state.profile?.couple_id;
+    if (!coupleId) return { error: 'No couple found' };
+
+    const today = getTodayIST();
+    try {
+        const polaroidData = {
+            user_id: user.uid,
+            couple_id: coupleId,
+            image_url: imageUrl,
+            caption: caption || 'A moment shared',
+            created_at: serverTimestamp(),
+            polaroid_date: today
+        };
+
+        // We use a fixed ID per user per day to ensure only ONE polaroid exists daily
+        const polaroidId = `${user.uid}_${today}`;
+        const polaroidRef = doc(db, 'couples', coupleId, 'polaroids', polaroidId);
+
+        // Delete old one if exists (to manage R2 costs/cleanup)
+        // In a real app we might want to keep them, but here we strictly follow "Daily Polaroid"
+        await setDoc(polaroidRef, polaroidData);
+
+        if (state.partnerProfile?.id) {
+            await sendNotification({
+                recipientId: state.partnerProfile.id,
+                actorId: user.uid,
+                type: 'moment',
+                title: 'New Polaroid! 📸',
+                message: `${state.profile?.display_name || 'Your partner'} just shared a daily Polaroid.`,
+                actionUrl: '/dashboard'
+            });
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("submitPolaroid error:", error);
+        return { error: error.message };
+    }
+}
+
+export async function uploadWallpaper(uri: string) {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = state.profile?.couple_id;
+    if (!coupleId) return { error: 'No couple found' };
+
+    const R2_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
+    const R2_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
+
+    try {
+        // 1. Process Image (Resize and Convert to WebP)
+        const manipulated = await ImageManipulator.manipulateAsync(
+            uri,
+            [{ resize: { width: 2000 } }],
+            { compress: 0.8, format: ImageManipulator.SaveFormat.WEBP }
+        );
+
+        // 2. Further compression if needed
+        const finalUri = await ImageCompressor.compress(manipulated.uri, {
+            compressionMethod: 'auto',
+            maxWidth: 2000,
+        });
+
+        const timestamp = Date.now();
+        const fileName = `${user.uid}_${timestamp}.webp`;
+        const storagePath = `wallpapers/${fileName}`;
+
+        // 3. Upload to R2 (Primary)
+        if (R2_URL && R2_SECRET) {
+            const r2TargetUrl = `${R2_URL.replace(/\/$/, '')}/wallpapers/${fileName}`;
+            const response = await fetch(finalUri);
+            const blob = await response.blob();
+
+            await fetch(r2TargetUrl, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${R2_SECRET}`,
+                    'Content-Type': 'image/webp'
+                },
+                body: blob
+            });
+        }
+
+        // 4. Upload to Firebase (Backup/Meta)
+        const storageRef = ref(storage, storagePath);
+        const response = await fetch(finalUri);
+        const blob = await response.blob();
+        await uploadBytes(storageRef, blob);
+
+        // 5. Update Profile
+        const userRef = doc(db, 'users', user.uid);
+        await firestoreUpdateDoc(userRef, {
+            custom_wallpaper_url: storagePath,
+            wallpaper_mode: 'custom'
+        });
+
+        return { success: true, url: storagePath };
+    } catch (error: any) {
+        console.error("uploadWallpaper error:", error);
+        return { error: error.message };
+    }
+}
+
+export async function deleteWallpaper() {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const currentWallpaper = state.profile?.custom_wallpaper_url;
+
+    const R2_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
+    const R2_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
+
+    try {
+        // 1. Update Profile first (Optimistic for user)
+        const userRef = doc(db, 'users', user.uid);
+        await firestoreUpdateDoc(userRef, {
+            custom_wallpaper_url: null,
+            wallpaper_mode: 'stars'
+        });
+
+        // 2. Cleanup Storage
+        if (currentWallpaper) {
+            const cleanPath = currentWallpaper.replace(/^\/+/, '').replace(/^wallpapers\//i, '');
+            const fullPath = `wallpapers/${cleanPath}`;
+
+            // R2 Cleanup
+            if (R2_URL && R2_SECRET) {
+                try {
+                    const r2DeleteUrl = `${R2_URL.replace(/\/$/, '')}/wallpapers/${cleanPath}`;
+                    await fetch(r2DeleteUrl, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${R2_SECRET}` }
+                    });
+                } catch (e) {
+                    console.error("[WallpaperCleanup] R2 delete failed:", e);
+                }
+            }
+
+            // Firebase Cleanup
+            try {
+                await deleteObject(ref(storage, fullPath));
+            } catch (e: any) {
+                if (e.code !== 'storage/object-not-found') {
+                    console.error("[WallpaperCleanup] Firebase delete failed:", e);
+                }
+            }
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("deleteWallpaper error:", error);
+        return { error: error.message };
+    }
+}
+
+export async function savePolaroidToMemories(polaroid: any) {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = state.profile?.couple_id;
+    if (!coupleId) return { error: 'No couple found' };
+
+    try {
+        const memoryData = {
+            couple_id: coupleId,
+            user_id: user.uid,
+            title: 'Daily Polaroid',
+            content: polaroid.caption || 'A moment shared',
+            image_url: polaroid.image_url,
+            type: 'image',
+            created_at: serverTimestamp(),
+            updated_at: serverTimestamp(),
+            is_favorite: false,
+            source: 'polaroid'
+        };
+
+        const { collection, addDoc } = await import('firebase/firestore');
+        await addDoc(collection(db, 'couples', coupleId, 'memories'), memoryData);
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("savePolaroidToMemories error:", error);
+        return { error: error.message };
+    }
+}
+

@@ -1,10 +1,11 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Switch, ScrollView, KeyboardAvoidingView, Platform, Pressable, RefreshControl } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Switch, ScrollView, Platform, Pressable, RefreshControl, PanResponder, Keyboard } from 'react-native';
 import { useOrbitStore } from '../../lib/store';
-import { db } from '../../lib/firebase';
+import { auth, db } from '../../lib/firebase';
 import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
-import { Mail, MailOpen, Sparkles, X, Send, EyeOff, Calendar, Clock, ChevronDown } from 'lucide-react-native';
+import { GlobalStyles } from '../../constants/Styles';
+import { Mail, MailOpen, Sparkles, X, Send, EyeOff, Calendar, Clock, ChevronDown, Plus } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,9 +19,13 @@ const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
 
 export function LettersScreen() {
-    const { profile, partnerProfile, letters, couple } = useOrbitStore();
+    const profile = useOrbitStore(state => state.profile);
+    const partnerProfile = useOrbitStore(state => state.partnerProfile);
+    const letters = useOrbitStore(state => state.letters);
+    const couple = useOrbitStore(state => state.couple);
+    const flashListRef = React.useRef<any>(null);
     const insets = useSafeAreaInsets();
-    const partnerName = getPartnerName(profile, partnerProfile);
+    const partnerName = React.useMemo(() => getPartnerName(profile, partnerProfile), [profile, partnerProfile]);
 
     const [selectedLetter, setSelectedLetter] = useState<any>(null);
     const [isComposeVisible, setIsComposeVisible] = useState(false);
@@ -32,6 +37,7 @@ export function LettersScreen() {
     const [content, setContent] = useState('');
     const [isOptionsExpanded, setIsOptionsExpanded] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const [isComposing, setIsComposing] = useState(false);
 
     const onRefresh = useCallback(async () => {
         if (!profile?.id) return;
@@ -67,23 +73,58 @@ export function LettersScreen() {
     });
 
     const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [85, 125], [1, 0], Extrapolate.CLAMP),
-        transform: [{ scale: interpolate(scrollOffset.value, [85, 125], [1, 0.95], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [0, 70], [1, 0], Extrapolate.CLAMP),
+        transform: [
+            { scale: interpolate(scrollOffset.value, [0, 70], [1, 0.95], Extrapolate.CLAMP) },
+            { translateY: interpolate(scrollOffset.value, [0, 70], [0, -12], Extrapolate.CLAMP) }
+        ]
     }));
 
     const sublineAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [0, 60], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [0, 50], [1, 0], Extrapolate.CLAMP),
     }));
 
     const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [105, 135], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [105, 135], [10, 0], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [30, 80], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [30, 80], [8, 0], Extrapolate.CLAMP) }]
     }));
+
+    const normalizeScheduleMs = (item: any): number | null => {
+        if (typeof item?.scheduled_delivery_time === 'number') return item.scheduled_delivery_time;
+        if (typeof item?.unlock_date === 'string') {
+            const ts = Date.parse(item.unlock_date);
+            return Number.isFinite(ts) ? ts : null;
+        }
+        return null;
+    };
+
+    const visibleLetters = useMemo(() => {
+        const now = Date.now();
+        const me = profile?.id;
+        return (letters || []).filter((item: any) => {
+            const releaseAt = normalizeScheduleMs(item);
+            const scheduled = !!item?.is_scheduled || item?.unlock_type === 'scheduled';
+            const isSender = !!me && item?.sender_id === me;
+            const isReceiver = !!me && item?.receiver_id === me;
+
+            if (scheduled && releaseAt && releaseAt > now) {
+                // Sender can see pending scheduled messages; receiver cannot until release.
+                return isSender;
+            }
+
+            // Hide consumed one-time letters for receiver.
+            if (item?.unlock_type === 'one_time' && item?.is_read && isReceiver) {
+                return false;
+            }
+
+            return true;
+        });
+    }, [letters, profile?.id]);
 
     const renderItem = useCallback(({ item }: { item: any }) => {
         const isRead = item.is_read;
-        const pName = getPartnerName(profile, partnerProfile);
-        const sName = item.sender_id === profile?.id ? 'You' : pName;
+        const sName = item.sender_id === profile?.id ? 'You' : partnerName;
+        const titleText = item.title || item.subject || 'Untitled Letter';
 
         return (
             <TouchableOpacity
@@ -95,8 +136,14 @@ export function LettersScreen() {
 
                     // Mark as read if it's from partner and unread
                     if (item.sender_id !== profile?.id && !item.is_read) {
+                        const { updateLetterReadOptimistic } = useOrbitStore.getState();
+                        updateLetterReadOptimistic(item.id, true);
+
                         const letterRef = doc(db, 'couples', couple?.id, 'letters', item.id);
-                        updateDoc(letterRef, { is_read: true }).catch(err => console.error("Error marking letter read:", err));
+                        updateDoc(letterRef, {
+                            is_read: true,
+                            updated_at: serverTimestamp()
+                        }).catch(err => console.error("Error marking letter read (remote):", err));
                     }
                 }}
             >
@@ -112,13 +159,9 @@ export function LettersScreen() {
                                 <Mail size={16} color={Colors.dark.rose[400]} />
                             )}
                         </View>
-                        <Text style={styles.letterTitle} numberOfLines={1}>
-                            {item.title || "Untitled Letter"}
-                        </Text>
+                        <Text style={styles.letterTitle} numberOfLines={1}>{titleText}</Text>
                     </View>
-                    <Text style={styles.letterPreview} numberOfLines={3}>
-                        "{item.content}"
-                    </Text>
+                    <Text style={styles.letterPreview} numberOfLines={3}>"{item.content}"</Text>
                     <View style={styles.cardFooter}>
                         <View style={styles.footerRow}>
                             <Text style={styles.footerLabel}>FROM</Text>
@@ -134,21 +177,87 @@ export function LettersScreen() {
                 </GlassCard>
             </TouchableOpacity>
         );
-    }, [profile, partnerProfile]);
+    }, [profile, partnerName, couple?.id]);
+
+    const keyExtractor = useCallback((item: any) => item.id, []);
+    const getItemType = useCallback(() => 'letter', []);
+    const newestLetter = visibleLetters && visibleLetters.length > 0 ? visibleLetters[0] : null;
+
+    const listHeader = useMemo(() => (
+        <View style={styles.standardHeader}>
+            <Animated.View style={[styles.headerTitleRow, titleAnimatedStyle]}>
+                <Animated.Text style={[styles.standardTitle, { marginRight: 20 }]}>Letters</Animated.Text>
+                <TouchableOpacity
+                    style={styles.addLetterBtn}
+                    onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        setIsComposeVisible(true);
+                    }}
+                >
+                    <Plus color="white" size={24} strokeWidth={2.5} />
+                </TouchableOpacity>
+            </Animated.View>
+            <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>MESSAGES · CONNECTION</Animated.Text>
+        </View>
+    ), [visibleLetters, newestLetter, profile?.id, partnerName, sublineAnimatedStyle, titleAnimatedStyle]);
+
+    const scrollToTop = () => {
+        flashListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    };
+
+    const listEmpty = useMemo(() => (
+        <View style={styles.emptyContainer}>
+            <GlassCard style={styles.emptyCard} intensity={10}>
+                <View style={{ alignItems: 'center' }}>
+                    <Mail size={40} color="rgba(255,255,255,0.08)" style={{ marginBottom: 24 }} />
+                    <Text style={styles.emptyTitle}>The shared path is quiet</Text>
+                    <Text style={styles.emptySubtext}>
+                        Your shared space is waiting for its first letter. Bridge the distance with a heartfelt message.
+                    </Text>
+                </View>
+            </GlassCard>
+        </View>
+    ), []);
+
+    const closeCompose = useCallback(() => {
+        Keyboard.dismiss();
+        setIsComposeVisible(false);
+    }, []);
+
+    const drawerDragStartYRef = React.useRef(0);
+    const drawerPanResponder = React.useRef(
+        PanResponder.create({
+            onMoveShouldSetPanResponder: (_, gesture) =>
+                Math.abs(gesture.dy) > Math.abs(gesture.dx) && gesture.dy > 6,
+            onPanResponderGrant: (_, gesture) => {
+                drawerDragStartYRef.current = gesture.moveY;
+            },
+            onPanResponderRelease: (_, gesture) => {
+                const dragDistance = gesture.moveY - drawerDragStartYRef.current;
+                if (gesture.dy > 90 || dragDistance > 90) closeCompose();
+            },
+        })
+    ).current;
 
     const handleSend = async () => {
-        if (!content.trim() || !profile?.id || !couple?.id) return;
+        const senderId = profile?.id || auth.currentUser?.uid;
+        if (!content.trim() || !senderId || !couple?.id) return;
 
         try {
+            setIsComposing(true);
             const lettersRef = collection(db, 'couples', couple?.id, 'letters');
 
-            const deliveryDelayMs = (customDeliveryDate ? customDeliveryDate.getTime() - Date.now() : (deliveryDelay || 0) * 60 * 60 * 1000);
-            const scheduledDeliveryTime = isScheduled ? Date.now() + deliveryDelayMs : null;
+            const delayMs = customDeliveryDate
+                ? Math.max(0, customDeliveryDate.getTime() - Date.now())
+                : Math.max(0, (deliveryDelay || 0) * 60 * 60 * 1000);
+            const scheduledDeliveryTime = isScheduled ? Date.now() + delayMs : null;
+            const unlockType = isVanishMode ? 'one_time' : (isScheduled ? 'scheduled' : 'instant');
 
             const letterData = {
                 content: content.trim(),
                 title: title.trim() || 'Untitled Letter',
-                sender_id: profile.id,
+                sender_id: senderId,
+                sender_name: profile?.display_name || null,
                 receiver_id: partnerProfile?.id || '',
                 created_at: serverTimestamp(),
                 updated_at: serverTimestamp(),
@@ -156,12 +265,14 @@ export function LettersScreen() {
                 is_vanish: isVanishMode,
                 is_scheduled: isScheduled,
                 scheduled_delivery_time: scheduledDeliveryTime,
+                unlock_type: unlockType,
+                unlock_date: scheduledDeliveryTime ? new Date(scheduledDeliveryTime).toISOString() : null,
             };
 
             await addDoc(lettersRef, letterData);
 
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setIsComposeVisible(false);
+            closeCompose();
             setTitle('');
             setContent('');
             setIsVanishMode(false);
@@ -169,21 +280,27 @@ export function LettersScreen() {
             setDeliveryDelay(null);
         } catch (error) {
             console.error("Error sending letter:", error);
+        } finally {
+            setIsComposing(false);
         }
     };
 
     return (
         <View style={styles.container}>
             <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
-                <HeaderPill title="Letters" scrollOffset={scrollOffset} count={letters?.length} />
+                <HeaderPill title="Letters" scrollOffset={scrollOffset} onPress={scrollToTop} />
             </Animated.View>
 
             <AnimatedFlashList
-                data={letters as any}
+                ref={flashListRef}
+                data={visibleLetters as any}
                 renderItem={renderItem}
-                keyExtractor={(item: any) => item.id}
+                keyExtractor={keyExtractor}
                 estimatedItemSize={180}
-                contentContainerStyle={[styles.listContent, { paddingTop: insets.top + Spacing.lg }]}
+                drawDistance={700}
+                removeClippedSubviews
+                nestedScrollEnabled={true}
+                contentContainerStyle={[styles.listContent, { paddingTop: insets.top + Spacing.md, paddingBottom: 200 }]}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
@@ -196,59 +313,15 @@ export function LettersScreen() {
                         progressViewOffset={insets.top + 20}
                     />
                 }
-                ListHeaderComponent={
-                    <View style={styles.pageHeader}>
-                        <Animated.View style={[styles.badgeRow, sublineAnimatedStyle]}>
-                            <View style={styles.badgeDot} />
-                            <Text style={styles.badgeText}>SHARED CORRESPONDENCE</Text>
-                            <Text style={styles.badgeCount}>{letters ? letters.length : 0}</Text>
-                        </Animated.View>
-                        <Animated.Text style={[styles.headerTitle, titleAnimatedStyle]}>Letters</Animated.Text>
-                        <Animated.Text style={[styles.headerSubtitle, sublineAnimatedStyle]}>Bridge the Distance</Animated.Text>
-
-                        {letters && letters.length > 0 && (
-                            <Animated.View entering={FadeInDown.delay(200)} style={styles.featuredContainer}>
-                                <GlassCard style={styles.featuredCard} intensity={10}>
-                                    <View style={styles.featuredTag}>
-                                        <Text style={styles.featuredTagText}>NEWEST MESSAGE</Text>
-                                    </View>
-                                    <Text style={styles.featuredLetterSubtitle}>"{letters[0].content}"</Text>
-                                    <View style={styles.featuredFooter}>
-                                        <Text style={styles.featuredFrom}>FROM {letters[0].sender_id === profile?.id ? 'YOU' : partnerName.toUpperCase()}</Text>
-                                        <TouchableOpacity
-                                            style={styles.featuredBtn}
-                                            onPress={() => {
-                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                                setSelectedLetter(letters[0]);
-                                            }}
-                                        >
-                                            <Text style={styles.featuredBtnText}>READ FULL</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                </GlassCard>
-                            </Animated.View>
-                        )}
-                    </View>
-                }
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <GlassCard style={styles.emptyCard} intensity={10}>
-                            <View style={{ alignItems: 'center' }}>
-                                <Mail size={40} color="rgba(255,255,255,0.08)" style={{ marginBottom: 24 }} />
-                                <Text style={styles.emptyTitle}>The shared path is quiet</Text>
-                                <Text style={styles.emptySubtext}>
-                                    Your shared space is waiting for its first letter. Bridge the distance with a heartfelt message.
-                                </Text>
-                            </View>
-                        </GlassCard>
-                    </View>
-                }
+                ListHeaderComponent={listHeader}
+                ListEmptyComponent={listEmpty}
             />
 
             <Modal
                 visible={!!selectedLetter}
                 animationType="fade"
                 transparent={true}
+                statusBarTranslucent={true}
                 onRequestClose={() => setSelectedLetter(null)}
             >
                 <View style={styles.modalOverlay}>
@@ -279,22 +352,24 @@ export function LettersScreen() {
                 visible={isComposeVisible}
                 animationType="slide"
                 transparent={true}
-                onRequestClose={() => setIsComposeVisible(false)}
+                statusBarTranslucent={true}
+                onRequestClose={closeCompose}
             >
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={styles.modalOverlay}
-                >
-                    <Animated.View entering={ZoomIn} style={styles.modalContent}>
+                <View style={styles.drawerOverlay}>
+                    <View style={styles.drawerContent}>
                         <GlassCard style={styles.composerCard} contentStyle={{ flex: 1 }} intensity={10}>
+                            <View style={styles.drawerHandleWrap} {...drawerPanResponder.panHandlers}>
+                                <View style={styles.drawerHandle} />
+                            </View>
                             <View style={styles.modalHeader}>
-                                <TouchableOpacity onPress={() => setIsComposeVisible(false)} style={styles.closeBtn}>
+                                <TouchableOpacity onPress={closeCompose} style={styles.closeBtn}>
                                     <X size={24} color="white" />
                                 </TouchableOpacity>
                                 <Text style={styles.modalLabel}>COMPOSE</Text>
                                 <TouchableOpacity
                                     onPress={handleSend}
-                                    style={styles.sendBtn}
+                                    style={[styles.sendBtn, isComposing && { opacity: 0.6 }]}
+                                    disabled={isComposing}
                                 >
                                     <Send size={20} color="white" />
                                 </TouchableOpacity>
@@ -313,6 +388,7 @@ export function LettersScreen() {
                                         onChangeText={setTitle}
                                         selectionColor={Colors.dark.rose[400]}
                                         autoFocus
+                                        editable={!isComposing}
                                     />
                                     <View style={styles.contentInputWrapper}>
                                         <TextInput
@@ -325,6 +401,7 @@ export function LettersScreen() {
                                             blurOnSubmit={false}
                                             selectionColor={Colors.dark.rose[400]}
                                             textAlignVertical="top"
+                                            editable={!isComposing}
                                         />
                                     </View>
                                 </ScrollView>
@@ -454,19 +531,9 @@ export function LettersScreen() {
                                 </View>
                             </View>
                         </GlassCard>
-                    </Animated.View>
-                </KeyboardAvoidingView>
+                    </View>
+                </View>
             </Modal>
-
-            <TouchableOpacity
-                style={[styles.fab, { bottom: 100 }]}
-                onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    setIsComposeVisible(true);
-                }}
-            >
-                <Sparkles size={24} color="white" />
-            </TouchableOpacity>
         </View>
     );
 }
@@ -474,13 +541,6 @@ export function LettersScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
     stickyHeader: { position: 'absolute', left: 0, right: 0, zIndex: 1000, pointerEvents: 'box-none' },
-    pageHeader: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.xl, paddingTop: 100 },
-    badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-    badgeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.dark.rose[500] },
-    badgeText: { color: 'rgba(255,255,255,0.4)', fontSize: 9, fontFamily: Typography.sansBold, letterSpacing: 2.5 },
-    badgeCount: { color: 'rgba(255,255,255,0.2)', fontSize: 10, fontFamily: Typography.sansBold },
-    headerTitle: { fontSize: 44, fontFamily: Typography.serif, color: Colors.dark.foreground, letterSpacing: -1, marginTop: Spacing.xs, marginBottom: 8 },
-    headerSubtitle: { fontSize: 16, color: Colors.dark.mutedForeground, marginTop: 2 },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', padding: 20 },
     modalBlur: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,12,0.8)' },
     modalContent: { flex: 0.9, width: '100%' },
@@ -494,7 +554,18 @@ const styles = StyleSheet.create({
     viewerContent: { fontSize: 18, fontFamily: Typography.serif, color: 'rgba(255,255,255,0.85)', lineHeight: 30 },
     viewerFooter: { marginTop: 48, alignItems: 'flex-end' },
     viewerAuthor: { fontSize: 16, fontFamily: Typography.serifItalic, color: Colors.dark.rose[400] },
-    composerCard: { flex: 1, backgroundColor: '#070709' },
+    composerCard: {
+        flex: 1,
+        backgroundColor: '#070709',
+        borderTopLeftRadius: Radius.xl,
+        borderTopRightRadius: Radius.xl,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+    },
+    drawerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'flex-end' },
+    drawerContent: { height: '90%' },
+    drawerHandleWrap: { alignItems: 'center', paddingTop: 8, paddingBottom: 6 },
+    drawerHandle: { width: 54, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.22)' },
     sendBtn: { width: 44, height: 44, backgroundColor: Colors.dark.rose[600], borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
     composerBody: { flex: 1 },
     composerScroll: { flex: 1 },
@@ -525,24 +596,47 @@ const styles = StyleSheet.create({
     dateDay: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1 },
     dateNum: { fontSize: 18, fontFamily: Typography.serif, color: 'white' },
     dateMonth: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)' },
+    standardHeader: GlobalStyles.standardHeader,
+    standardTitle: GlobalStyles.standardTitle,
+    standardSubtitle: GlobalStyles.standardSubtitle,
+    headerTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        marginBottom: 4,
+        width: '100%',
+    },
+    addLetterBtn: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: Colors.dark.rose[500],
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: Colors.dark.rose[500],
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
+    },
     listContent: { padding: Spacing.md, paddingBottom: 160 },
     cardWrapper: { marginBottom: Spacing.lg },
-    letterCard: { padding: 24, backgroundColor: 'rgba(18,18,22,0.6)' },
+    letterCard: { padding: 24, backgroundColor: 'rgba(18,18,22,0.88)' },
     unreadBorder: { borderColor: 'rgba(251,113,133,0.3)' },
     iconContainer: { width: 32, height: 32, borderRadius: 8, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
     readIconBg: { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' },
     unreadIconBg: { backgroundColor: 'rgba(251,113,133,0.1)', borderColor: 'rgba(251,113,133,0.2)' },
-    letterTitle: { flex: 1, color: Colors.dark.foreground, fontSize: 18, fontWeight: '600', letterSpacing: -0.5 },
-    letterPreview: { color: 'rgba(255,255,255,0.7)', fontSize: 15, lineHeight: 24, fontStyle: 'italic', marginBottom: Spacing.lg },
+    letterTitle: { flex: 1, color: Colors.dark.foreground, fontSize: 18, fontFamily: Typography.sansBold, letterSpacing: -0.5 },
+    letterPreview: { color: 'rgba(255,255,255,0.7)', fontSize: 15, lineHeight: 24, fontFamily: Typography.serifItalic, marginBottom: Spacing.lg },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', paddingTop: 16 },
     footerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    footerLabel: { fontSize: 9, fontWeight: '900', color: 'rgba(255,255,255,0.25)', letterSpacing: 1.5 },
-    footerValue: { fontSize: 11, color: 'rgba(255,255,255,0.8)' },
-    footerValueDate: { fontSize: 10, color: 'rgba(255,255,255,0.55)' },
+    footerLabel: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.25)', letterSpacing: 1.5 },
+    footerValue: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.8)' },
+    footerValueDate: { fontSize: 10, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.55)' },
     emptyContainer: { marginTop: 40, paddingHorizontal: Spacing.md },
     emptyCard: { padding: 40, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
     emptyTitle: { color: Colors.dark.foreground, fontSize: 22, fontFamily: Typography.serif, marginBottom: Spacing.sm },
-    emptySubtext: { color: 'rgba(255,255,255,0.4)', fontSize: 13, fontFamily: Typography.serif, fontStyle: 'italic', textAlign: 'center', lineHeight: 20 },
+    emptySubtext: { color: 'rgba(255,255,255,0.4)', fontSize: 13, fontFamily: Typography.serifItalic, textAlign: 'center', lineHeight: 20 },
     featuredContainer: { marginTop: 32, marginBottom: 10 },
     featuredCard: { padding: 24, borderRadius: Radius.xl, backgroundColor: 'rgba(251,113,133,0.05)', borderWidth: 1, borderColor: 'rgba(251,113,133,0.2)' },
     featuredTag: { alignSelf: 'flex-start', backgroundColor: Colors.dark.rose[500], paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginBottom: 16 },

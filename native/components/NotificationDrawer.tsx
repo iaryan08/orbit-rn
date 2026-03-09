@@ -25,7 +25,7 @@ export function NotificationDrawer() {
     const insets = useSafeAreaInsets();
     const { isNotificationDrawerOpen, setNotificationDrawerOpen } = useOrbitStore();
 
-    const translateY = useSharedValue(DRAWER_HEIGHT);
+    const translateY = useSharedValue(SCREEN_HEIGHT);
 
     // Close helper: animates first, THEN sets state — no mid-animation re-render
     const closeDrawer = React.useCallback(() => {
@@ -68,10 +68,6 @@ export function NotificationDrawer() {
     const backdropStyle = useAnimatedStyle(() => ({
         opacity: interpolate(translateY.value, [0, DRAWER_HEIGHT], [1, 0], Extrapolate.CLAMP),
     }));
-
-    if (!isNotificationDrawerOpen) {
-        // Safe to check isNotificationDrawerOpen state instead of translateY.value
-    }
 
     return (
         // Keep always rendered — pointerEvents driven by animated backdrop opacity, not state
@@ -140,6 +136,8 @@ const styles = StyleSheet.create({
         right: 0,
         borderTopLeftRadius: Radius.xl * 2,
         borderTopRightRadius: Radius.xl * 2,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
         overflow: 'hidden',
         zIndex: 9999,
     },
@@ -148,6 +146,8 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(10,10,20,0.92)',
         borderTopLeftRadius: Radius.xl * 2,
         borderTopRightRadius: Radius.xl * 2,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
         borderTopWidth: 1,
         borderLeftWidth: 1,
         borderRightWidth: 1,

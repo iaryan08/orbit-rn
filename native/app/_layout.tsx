@@ -11,6 +11,7 @@ import { NotificationDrawer } from "../components/NotificationDrawer";
 import { MoodLoggerDrawer } from "../components/MoodLoggerDrawer";
 import { MediaViewer } from "../components/MediaViewer";
 import { SearchPalette } from "../components/SearchPalette";
+import { ConnectionSync } from "../components/ConnectionSync";
 import {
     useFonts,
     Outfit_400Regular,
@@ -33,21 +34,19 @@ import { useOrbitStore } from '../lib/store';
 import { auth } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter } from 'expo-router';
+import { registerForPushNotificationsAsync, setupNotificationListeners } from '../lib/push';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
-    const {
-        profile,
-        partnerProfile,
-        couple,
-        idToken,
-        isNotificationDrawerOpen,
-        mediaViewerState,
-        loading,
-        activeTabIndex
-    } = useOrbitStore();
+    const profile = useOrbitStore(state => state.profile);
+    const partnerProfile = useOrbitStore(state => state.partnerProfile);
+    const idToken = useOrbitStore(state => state.idToken);
+    const isNotificationDrawerOpen = useOrbitStore(state => state.isNotificationDrawerOpen);
+    const mediaViewerState = useOrbitStore(state => state.mediaViewerState);
+    const loading = useOrbitStore(state => state.loading);
+    const activeTabIndex = useOrbitStore(state => state.activeTabIndex);
 
 
     const pathname = usePathname();
@@ -70,6 +69,17 @@ function RootLayoutNav() {
             router.replace('/login');
         }
     }, [authUser, pathname]);
+
+    // Push Notifications Setup
+    useEffect(() => {
+        if (authUser) {
+            registerForPushNotificationsAsync();
+            const cleanup = setupNotificationListeners((notification) => {
+                console.log('[Notification] Received:', notification);
+            });
+            return cleanup;
+        }
+    }, [!!authUser]);
 
     const [fontsLoaded, fontError] = useFonts({
         Outfit_400Regular,
@@ -110,7 +120,7 @@ function RootLayoutNav() {
     // We let activeTabIndex === 0 (Sync Cinema) animate the dock out inside NavbarDock.tsx itself
     const isAuthenticated = !!authUser;
     const isAppLoading = loading && isAuthenticated;
-    const hideDock = pathname === '/login' || !isAuthenticated || isAppLoading;
+    const hideDock = pathname === '/login' || !isAuthenticated || isAppLoading || activeTabIndex === 0;
 
 
     return (
@@ -118,11 +128,6 @@ function RootLayoutNav() {
         <GestureHandlerRootView style={{ flex: 1 }}>
             <ThemeProvider value={CustomDarkTheme}>
                 <DynamicBackground
-                    mode={profile?.wallpaper_mode || 'stars'}
-                    customImageUrl={profile?.custom_wallpaper_url}
-                    partnerImageUrl={partnerProfile?.custom_wallpaper_url}
-                    idToken={idToken}
-                    isGrayscale={!!profile?.wallpaper_grayscale}
                     isPaused={isOverlayOpen}
                 />
                 <Stack
@@ -139,6 +144,7 @@ function RootLayoutNav() {
                 {isAuthenticated && <MoodLoggerDrawer />}
                 {isAuthenticated && <MediaViewer />}
                 {isAuthenticated && <SearchPalette />}
+                {isAuthenticated && <ConnectionSync />}
                 <StatusBar style="light" />
             </ThemeProvider>
         </GestureHandlerRootView>

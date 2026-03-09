@@ -23,6 +23,11 @@ export function ProfileAvatar({
     children,
 }: ProfileAvatarProps) {
     const radius = size / 2;
+    const [imgUrl, setImgUrl] = React.useState<string | undefined>(url ?? undefined);
+
+    React.useEffect(() => {
+        setImgUrl(url ?? undefined);
+    }, [url]);
 
     return (
         <View
@@ -38,13 +43,21 @@ export function ProfileAvatar({
                 style,
             ]}
         >
-            {url ? (
+            {imgUrl ? (
                 <Image
-                    source={{ uri: url }}
+                    source={{ uri: imgUrl }}
                     style={{ width: '100%', height: '100%', borderRadius: radius }}
                     contentFit="cover"
-                    transition={200}
-                    cachePolicy="disk"
+                    transition={0}
+                    cachePolicy="memory-disk"
+                    onError={(e) => {
+                        console.warn(`[ProfileAvatar] Error loading image:`, e.error);
+                        // If the cached image is a corrupted 401, force bypass the disk cache once
+                        if (url && imgUrl === url) {
+                            console.log(`[ProfileAvatar] Bypassing corrupted cache for avatar`);
+                            setImgUrl(`${url}${url.includes('?') ? '&' : '?'}reload=${Date.now()}`);
+                        }
+                    }}
                 />
             ) : (
                 <Text style={styles.fallbackText}>{fallbackText.charAt(0).toUpperCase()}</Text>

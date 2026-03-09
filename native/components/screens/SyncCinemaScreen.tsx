@@ -1,254 +1,651 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TouchableOpacity, View, Text, StyleSheet, Dimensions, Platform, Alert, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSequence, runOnJS, withDelay } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSequence, runOnJS, withDelay, withRepeat, Easing, interpolate } from 'react-native-reanimated';
 import { ANIM_FADE_IN, ANIM_FADE_OUT, ANIM_MICRO } from '../../constants/Animation';
 import { BlurView } from 'expo-blur';
 import { getPartnerName } from '../../lib/utils';
 import { useOrbitStore } from '../../lib/store';
 import { getPublicStorageUrl } from '../../lib/storage';
 import { rtdb } from '../../lib/firebase';
-import { ref, update, set, onDisconnect, onValue } from 'firebase/database';
+import { ref, update, set, onDisconnect, onValue, serverTimestamp } from 'firebase/database';
+import { repository } from '../../lib/repository';
 import * as Haptics from 'expo-haptics';
-import { Film, X, Plus, Play, Pause, Sparkles as SparklesIcon, RotateCcw, RotateCw, SkipBack, SkipForward, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { Film, X, Plus, Sparkles as SparklesIcon, Music, Search, Play, Pause, SkipForward, SkipBack, Heart, Trash2, ListMusic } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { Emoji } from '../Emoji';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { Canvas, Blur, ColorMatrix, Group, Paint, Circle } from '@shopify/react-native-skia';
+import { ScrollView, ActivityIndicator } from 'react-native';
+
+import { Canvas, Blur, ColorMatrix, Group, Paint, Circle, Fill } from '@shopify/react-native-skia';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
+import { GlobalStyles } from '../../constants/Styles';
 import { GlassCard } from '../GlassCard';
+
+// Optimized Marquee Component for long names
+function MarqueeText({ text, style }: { text: string, style: any }) {
+    const textWidth = useSharedValue(0);
+    const containerWidth = useSharedValue(0);
+    const translateX = useSharedValue(0);
+
+    useEffect(() => {
+        if (textWidth.value > containerWidth.value && containerWidth.value > 0) {
+            translateX.value = 0;
+            translateX.value = withRepeat(
+                withTiming(-(textWidth.value + 20), {
+                    duration: text.length * 150,
+                    easing: Easing.linear
+                }),
+                -1,
+                false
+            );
+        } else {
+            translateX.value = 0;
+        }
+    }, [text, textWidth.value, containerWidth.value]);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: translateX.value }],
+    }));
+
+    return (
+        <View
+            style={{ overflow: 'hidden', flex: 1 }}
+            onLayout={(e) => containerWidth.value = e.nativeEvent.layout.width}
+        >
+            <Animated.View style={[{ flexDirection: 'row' }, animatedStyle]}>
+                <Text
+                    style={style}
+                    onLayout={(e) => textWidth.value = e.nativeEvent.layout.width}
+                    numberOfLines={1}
+                >
+                    {text}
+                </Text>
+                {textWidth.value > containerWidth.value && (
+                    <Text style={[style, { marginLeft: 20 }]}>{text}</Text>
+                )}
+            </Animated.View>
+        </View>
+    );
+}
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const INITIAL_VIDEO = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-const MOVIE_LIBRARY = [
-    { title: 'Big Buck Bunny', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' },
-    { title: 'Elephant Dream', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4' },
-    { title: 'Sintel', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4' },
-];
-
 type ReactionType = 'laugh' | 'heartbeat' | 'tap' | 'emoji-preset';
 
-const BASE_EMOJIS = ['💗', '🥺', '😘', '🍿'];
+const BASE_EMOJIS = ['💗', '🥺', '😘'];
 
 
 export function SyncCinemaScreen() {
-    const { profile, couple, activeTabIndex, setTabIndex, partnerProfile, idToken } = useOrbitStore();
+    const { profile, couple, activeTabIndex, partnerProfile, idToken } = useOrbitStore();
     const isFocused = activeTabIndex === 0;
     const insets = useSafeAreaInsets();
 
-    const [videoSource, setVideoSource] = useState(INITIAL_VIDEO);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [showLibrary, setShowLibrary] = useState(false);
-
-    const player = useVideoPlayer(isFocused ? videoSource : '', (p) => {
-        p.loop = true;
-    });
-
-    // Keep audio/play state synced with focus
-    useEffect(() => {
-        if (!isFocused) {
-            player.pause();
-            player.muted = true;
-        } else {
-            // Re-mute based on user settings if needed, but for now just unmute
-            player.muted = false;
-            if (isPlaying) player.play();
-        }
-    }, [isFocused, player, isPlaying]);
     const [partnerInCinema, setPartnerInCinema] = useState(false);
+    const [partnerOnline, setPartnerOnline] = useState(false);
     const [incomingReaction, setIncomingReaction] = useState<{ type: ReactionType; emoji?: string; senderName?: string; senderId?: string } | null>(null);
     const [selectedEmoji, setSelectedEmoji] = useState(BASE_EMOJIS[0]);
-    const [customEmojis, setCustomEmojis] = useState<string[]>([]);
 
+    const isMountedRef = useRef(true);
     const partnerName = getPartnerName(profile, partnerProfile);
 
     const partnerAvatarUrl = React.useMemo(() =>
         getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars', idToken),
         [partnerProfile?.avatar_url, idToken]);
 
-    const myAvatarUrl = React.useMemo(() =>
-        getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
-        [profile?.idToken, profile?.avatar_url]);
-
-
     const reactionScale = useSharedValue(0);
     const reactionOpacity = useSharedValue(0);
+    const auraPulse = useSharedValue(1);
 
-    // Emoji tray entrance animation matching NavbarDock's ANIM_FADE_IN
+    // Music State
+    const [showMusicSearch, setShowMusicSearch] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [isLoadingMusic, setIsLoadingMusic] = useState(false);
+    const [currentSong, setCurrentSong] = useState<any>(null);
+    const [showFullPlayer, setShowFullPlayer] = useState(false);
+    const [playbackPosition, setPlaybackPosition] = useState(0);
+    const [playbackDuration, setPlaybackDuration] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
+
+    // Dynamic UI Shared Values
+    const miniPlayerTranslateX = useSharedValue(0);
+    const trayShiftY = useSharedValue(0);
+    const isSeeking = useSharedValue(false);
+    const seekProgressValue = useSharedValue(0);
+    const miniPlayerOpacity = useSharedValue(1);
     const trayTranslationY = useSharedValue(150);
     const trayOpacity = useSharedValue(0);
     const instructionsOpacity = useSharedValue(0);
 
-    // Custom Emoji Modal State
-    const [showEmojiModal, setShowEmojiModal] = useState(false);
-    const [emojiInput, setEmojiInput] = useState('');
+    const progressFillStyle = useAnimatedStyle(() => ({
+        width: `${(isSeeking.value ? seekProgressValue.value : (playbackPosition / (playbackDuration || 1))) * 100}%`
+    }));
+
+    const thumbStyle = useAnimatedStyle(() => ({
+        left: `${(isSeeking.value ? seekProgressValue.value : (playbackPosition / (playbackDuration || 1))) * 100}%`,
+        opacity: withTiming(isSeeking.value ? 1 : 0.6, { duration: 150 }),
+        transform: [{ scale: isSeeking.value ? 1.5 : 1 }]
+    }));
+    const [musicTab, setMusicTab] = useState<'search' | 'queue' | 'tape'>('search');
+    const [sharedQueue, setSharedQueue] = useState<any[]>([]);
+    const [sharedTape, setSharedTape] = useState<any[]>([]);
+    const [backgroundEnabled, setBackgroundEnabled] = useState(true);
+
+    const player = useVideoPlayer(null, (p) => {
+        p.loop = true;
+        // Disable by default to avoid binder race conditions on boot
+        p.showNowPlayingNotification = false;
+    });
+
+    const [hasBeenFocused, setHasBeenFocused] = useState(false);
+
+    useEffect(() => {
+        if (isFocused && !hasBeenFocused) {
+            setHasBeenFocused(true);
+        }
+    }, [isFocused]);
+
+    const sharedQueueRef = useRef<any[]>([]);
+    const sharedTapeRef = useRef<any[]>([]);
+    useEffect(() => { sharedQueueRef.current = sharedQueue; }, [sharedQueue]);
+    useEffect(() => { sharedTapeRef.current = sharedTape; }, [sharedTape]);
+
+    useEffect(() => {
+        if (!couple?.id) return;
+
+        const restoreState = async () => {
+            const saved = await repository.getMusicState(couple.id);
+            if (saved && !currentSong && hasBeenFocused) {
+                console.log("[Music] Restoring state from SQLite:", saved.current_track?.name);
+                setCurrentSong(saved.current_track);
+                setSharedQueue(saved.queue || []);
+                setSharedTape(saved.playlist || []);
+
+                if (saved.current_track?.downloadUrl) {
+                    const url = saved.current_track.downloadUrl[saved.current_track.downloadUrl.length - 1]?.url;
+                    if (url) {
+                        try {
+                            player.replace({ uri: url });
+                            player.currentTime = (saved.progress_ms || 0) / 1000;
+                            if (saved.is_playing) {
+                                // Enable notification only when actually starting playback
+                                player.showNowPlayingNotification = true;
+                                player.play();
+                                setIsPlaying(true);
+                            }
+                        } catch (e) {
+                            console.error("[Music] Error restoring player source:", e);
+                        }
+                    }
+                }
+            }
+        };
+        restoreState();
+    }, [couple?.id, hasBeenFocused]);
+
+    // Optimized Local Persistence (Debounced)
+    const lastLocalSave = useRef(0);
+    useEffect(() => {
+        if (!couple?.id || !currentSong) return;
+
+        const saveToLocal = () => {
+            const now = Date.now();
+            if (now - lastLocalSave.current < 2000) return; // Debounce 2s
+
+            repository.saveMusicState(couple.id, {
+                current_track: currentSong,
+                queue: sharedQueue,
+                playlist: sharedTape,
+                is_playing: player.playing,
+                progress_ms: player.currentTime * 1000,
+            });
+            lastLocalSave.current = now;
+        };
+
+        const interval = setInterval(saveToLocal, 5000);
+        return () => clearInterval(interval);
+    }, [couple?.id, currentSong, isPlaying, sharedQueue, sharedTape]);
+
+    useEffect(() => {
+        trayShiftY.value = withTiming(currentSong ? -75 : 0, { duration: 400 });
+    }, [currentSong]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (player.playing && !isSeeking.value) {
+                runOnJS(setPlaybackPosition)(player.currentTime);
+                runOnJS(setPlaybackDuration)(player.duration);
+            }
+        }, 500);
+        return () => clearInterval(interval);
+    }, [player]);
+
+    const broadcastMusicAction = (action: 'play' | 'pause') => {
+        if (!couple?.id || !profile?.id) return;
+
+        // 1. Optimistic Local Save
+        repository.saveMusicState(couple.id, { is_playing: action === 'play', progress_ms: player.currentTime * 1000 });
+
+        // 2. Clear literal: Don't waste RTDB if partner isn't connected
+        if (!partnerInCinema) return;
+
+        const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
+        set(broadcastRef, {
+            event: 'music_control',
+            timestamp: Date.now(),
+            payload: { action, senderId: profile.id }
+        });
+
+        // Also sync the global session state
+        update(ref(rtdb, `couples/${couple.id}/music/active_track`), {
+            isPlaying: action === 'play',
+            timestamp: Date.now()
+        });
+    };
+
+    const broadcastSong = (song: any) => {
+        if (!couple?.id || !profile?.id || !partnerInCinema) return;
+        const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
+        const cleanSong = JSON.parse(JSON.stringify(song));
+        set(broadcastRef, {
+            event: 'music_event',
+            timestamp: Date.now(),
+            payload: { song: cleanSong, senderId: profile.id, position: player.currentTime }
+        });
+    };
+
+    const broadcastSeek = (position: number) => {
+        if (!couple?.id || !profile?.id || !partnerInCinema) return;
+        const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
+        set(broadcastRef, {
+            event: 'music_seek',
+            timestamp: Date.now(),
+            payload: { position, senderId: profile.id }
+        });
+
+        // Update persistence
+        update(ref(rtdb, `couples/${couple.id}/music/active_track`), {
+            position,
+            timestamp: Date.now()
+        });
+    };
+
+
+    const addToQueue = (song: any) => {
+        if (!couple?.id) return;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        const entry = {
+            id: String(song.id),
+            name: song.name,
+            artists: song.artists,
+            image: song.image,
+            downloadUrl: song.downloadUrl
+        };
+
+        setSharedQueue(prev => {
+            if (prev.some(s => String(s.id) === entry.id)) return prev;
+            const updated = [...prev, entry].slice(-25);
+
+            // 1. Save to SQLite always
+            repository.saveMusicState(couple.id, { queue: updated });
+
+            // 2. Sync to RTDB ONLY if partner is connected
+            if (partnerInCinema) {
+                const cleanData = JSON.parse(JSON.stringify(updated));
+                set(ref(rtdb, `couples/${couple.id}/music/queue`), cleanData);
+            }
+            return updated;
+        });
+    };
+
+    const removeFromQueue = (songId: string) => {
+        if (!couple?.id) return;
+        setSharedQueue(prev => {
+            const updated = prev.filter(s => String(s.id) !== String(songId));
+
+            // 1. Save locally
+            repository.saveMusicState(couple.id, { queue: updated });
+
+            // 2. RTDB only if shared
+            if (partnerInCinema) {
+                set(ref(rtdb, `couples/${couple.id}/music/queue`), updated);
+            }
+            return updated;
+        });
+    };
+
+    const addToTape = (song: any) => {
+        if (!couple?.id) return;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        const entry = {
+            id: String(song.id),
+            name: song.name,
+            artists: song.artists,
+            image: song.image,
+            downloadUrl: song.downloadUrl
+        };
+
+        setSharedTape(prev => {
+            const listWithoutCurrent = prev.filter(s => String(s.id) !== entry.id);
+            const updated = [entry, ...listWithoutCurrent].slice(0, 50);
+
+            // 1. Save locally
+            repository.saveMusicState(couple.id, { playlist: updated });
+
+            // 2. RTDB only if shared
+            if (partnerInCinema) {
+                const cleanData = JSON.parse(JSON.stringify(updated));
+                set(ref(rtdb, `couples/${couple.id}/music/tape`), cleanData);
+            }
+            return updated;
+        });
+    };
+
+    const removeFromTape = (songId: string) => {
+        if (!couple?.id) return;
+        setSharedTape(prev => {
+            const updated = prev.filter(s => String(s.id) !== String(songId));
+
+            // 1. Save locally
+            repository.saveMusicState(couple.id, { playlist: updated });
+
+            // 2. RTDB only if shared
+            if (partnerInCinema) {
+                set(ref(rtdb, `couples/${couple.id}/music/tape`), updated);
+            }
+            return updated;
+        });
+    };
+
+    const nextSong = () => {
+        if (sharedQueueRef.current.length > 0) {
+            const song = sharedQueueRef.current[0];
+            removeFromQueue(song.id);
+            selectSong(song);
+        } else {
+            // Shake the player if empty
+            miniPlayerTranslateX.value = withSequence(
+                withTiming(-10, { duration: 50 }),
+                withTiming(10, { duration: 50 }),
+                withTiming(0, { duration: 50 })
+            );
+        }
+    };
+
+    const prevSong = () => {
+        // Simple logic for now: restart current or do nothing if no history
+        player.currentTime = 0;
+    };
+
+    const handleSearch = async () => {
+        if (!searchQuery.trim()) return;
+        setIsLoadingMusic(true);
+        const API_URLS = [
+            `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(searchQuery)}`,
+            `https://jiosaavn-api-beta.vercel.app/api/search/songs?query=${encodeURIComponent(searchQuery)}`
+        ];
+
+        let lastError = null;
+        for (const url of API_URLS) {
+            try {
+                const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                const json = await res.json();
+                const results = json.data?.results || json.data || [];
+                if (results.length > 0) {
+                    setSearchResults(results);
+                    setIsLoadingMusic(false);
+                    return;
+                }
+            } catch (error) {
+                console.error(`Search failed with ${url}:`, error);
+                lastError = error;
+            }
+        }
+
+        setIsLoadingMusic(false);
+        if (lastError) {
+            Alert.alert("VOID ERROR", "COULD NOT PIERCE THE MUSIC STREAM. TRY ANOTHER QUERY.");
+        }
+    };
+
+    const selectSong = (song: any) => {
+        const url = song.downloadUrl?.[song.downloadUrl.length - 1]?.url;
+
+        if (!url) {
+            Alert.alert("VOID WARNING", "STREAM NOT FOUND FOR THIS TRACK.");
+            return;
+        }
+
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        // Clean song for persistence
+        const entry = {
+            id: String(song.id),
+            name: song.name,
+            artists: song.artists,
+            image: song.image,
+            downloadUrl: song.downloadUrl
+        };
+
+        // Save at couple level so it persists even if one partner leaves
+        if (couple?.id) {
+            // 1. Save to local SQLite always
+            repository.saveMusicState(couple.id, { current_track: entry, is_playing: true, progress_ms: 0 });
+
+            // 2. Clear literal: Don't waste RTDB if partner isn't connected
+            if (partnerInCinema) {
+                const cleanSong = JSON.parse(JSON.stringify(entry));
+                set(ref(rtdb, `couples/${couple.id}/music/active_track`), {
+                    song: cleanSong,
+                    senderId: profile?.id,
+                    timestamp: Date.now()
+                });
+            }
+        }
+
+        setCurrentSong(entry);
+        setPlaybackDuration(0);
+        player.showNowPlayingNotification = true;
+        player.replace({ uri: url });
+        player.play();
+        broadcastSong(entry);
+        setShowMusicSearch(false);
+    };
+
+    // Aura Breathing loop
+    useEffect(() => {
+        if (isFocused) {
+            auraPulse.value = withRepeat(
+                withTiming(1.15, { duration: 3000, easing: Easing.inOut(Easing.quad) }),
+                -1,
+                true
+            );
+        }
+    }, [isFocused]);
+
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     const lastBroadcastAt = useRef(0);
 
-    // Track presence
+
+    const safeSetIncomingReaction = useCallback((value: any) => {
+        if (!isMountedRef.current) return;
+        setIncomingReaction(value);
+    }, []);
+
+    // Presence & Broadcast logic — Restored for pure light communication
     useEffect(() => {
-        if (!isFocused || !couple?.id || !profile?.id) return;
+        if (!couple?.id || !profile?.id) return;
 
         const presenceRef = ref(rtdb, `presence/${couple.id}/${profile.id}`);
         const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
 
         const updatePresence = () => {
+            // is_online is global for the app (active session)
+            // in_cinema is EXCLUSIVE to this screen being focused
             update(presenceRef, {
-                in_cinema: true,
+                in_cinema: isFocused ? true : null,
                 is_online: true,
-                last_changed: Date.now()
+                last_changed: serverTimestamp()
             });
         };
 
         updatePresence();
         const heartbeat = setInterval(updatePresence, 60000);
 
+        // onDisconnect strictly handles app closure/crash
         onDisconnect(presenceRef).update({
             in_cinema: null,
-            is_online: false
+            is_online: false,
+            last_changed: serverTimestamp()
         });
-
-        // Zero-cost storage scaling: Tell Firebase servers to securely delete our ephemeral event node memory when we leave
         onDisconnect(broadcastRef).remove();
-
 
         return () => {
             clearInterval(heartbeat);
-            // Add a small delay so rapid tab switching doesn't accidentally clear the state
-            // after it was just re-established.
-            setTimeout(() => {
-                const currentTab = useOrbitStore.getState().activeTabIndex;
-                if (currentTab !== 0) { // 0 is SyncCinema
-                    update(presenceRef, {
-                        in_cinema: null,
-                        last_changed: Date.now()
-                    }).catch(() => { });
-                }
-            }, 1000);
+            // When leaving this screen, we explicitly clear in_cinema but keep is_online: true
+            update(presenceRef, { in_cinema: null, last_changed: serverTimestamp() }).catch(() => { });
         };
-
     }, [isFocused, couple?.id, profile?.id]);
 
-    // Listen for partner presence and events
+    const [serverOffset, setServerOffset] = useState(0);
+
     useEffect(() => {
-        if (!couple?.id || !partnerProfile?.id) return;
+        if (!couple?.id || !partnerProfile?.id || !isFocused) return;
 
-        // Guard: Only listen if focused to prevent background noise/sync
-        if (!isFocused) return;
-
-        // Presence listener
-        const presenceRef = ref(rtdb, `presence/${couple.id}/${partnerProfile.id}`);
-        const unsubPresence = onValue(presenceRef, (snap) => {
-            setPartnerInCinema(!!snap.val()?.in_cinema);
+        const offsetRef = ref(rtdb, '.info/serverTimeOffset');
+        const unsubOffset = onValue(offsetRef, (snap) => {
+            setServerOffset(snap.val() || 0);
         });
 
-        // Broadcasts listener (for reactions)
+        const presenceRef = ref(rtdb, `presence/${couple.id}/${partnerProfile.id}`);
+        let lastPresenceData: any = null;
+
+        const validatePresence = () => {
+            if (!lastPresenceData) {
+                setPartnerInCinema(false);
+                setPartnerOnline(false);
+                return;
+            }
+            const now = Date.now() + serverOffset;
+            const lastChanged = lastPresenceData.last_changed || 0;
+            // Best-in-Class: 5 minute buffer + Server Offset Correction
+            // Robust check against local clock drift
+            const diff = Math.abs(now - lastChanged);
+            const isFresh = diff < 300_000;
+
+            setPartnerOnline(isFresh && !!lastPresenceData.is_online);
+            setPartnerInCinema(isFresh && !!lastPresenceData.in_cinema);
+        };
+
+        const unsubPresence = onValue(presenceRef, (snap) => {
+            lastPresenceData = snap.val();
+            validatePresence();
+        });
+
+        const presenceValidator = setInterval(validatePresence, 30000);
+
+        return () => {
+            unsubOffset();
+            unsubPresence();
+            clearInterval(presenceValidator);
+        };
+    }, [isFocused, couple?.id, partnerProfile?.id, serverOffset]);
+
+    // 1. Transient Broadcasts (Seeks, Reactions, Heartbeats)
+    // High frequency — only listen if partner is actually online
+    useEffect(() => {
+        if (!couple?.id || !partnerProfile?.id || !isFocused) return;
+
         const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${partnerProfile.id}`);
         const unsubBroadcasts = onValue(broadcastRef, (snap) => {
             const data = snap.val();
-            if (!data) return;
-
-            // Must be a cinema_event within the last 5 seconds to prevent stale popups
-            if (data.event === 'cinema_event' && data.timestamp && (Date.now() - data.timestamp < 5000)) {
-                // Determine if this is a new event (very rough debounce based on time, ideally we'd use event IDs)
+            if (data?.event === 'cinema_event' && (Date.now() - data.timestamp < 5000)) {
                 handleIncomingEvent(data.payload);
+            } else if (data?.event === 'music_event' && (Date.now() - data.timestamp < 10000)) {
+                handleMusicSync(data.payload);
+            } else if (data?.event === 'music_control' && (Date.now() - data.timestamp < 5000)) {
+                handleMusicControl(data.payload);
+            } else if (data?.event === 'music_seek' && (Date.now() - data.timestamp < 5000)) {
+                handleMusicSeek(data.payload);
             }
         });
 
-        // Listen for playback sync
-        const playbackRef = ref(rtdb, `playback/${couple.id}`);
-        const unsubPlayback = onValue(playbackRef, (snap) => {
-            const data = snap.val();
-            if (!data || data.senderId === profile?.id) return;
+        return () => unsubBroadcasts();
+    }, [isFocused, couple?.id, partnerProfile?.id]);
 
-            if (data.action === 'play') {
-                player.play();
-                setIsPlaying(true);
-            } else if (data.action === 'pause') {
-                player.pause();
-                setIsPlaying(false);
-            } else if (data.action === 'source_change') {
-                setVideoSource(data.url);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } else if (data.action === 'seek' && Math.abs(player.currentTime - data.time) > 2) {
-                player.currentTime = data.time;
+    // Shared Space Listeners (Queue, Tape, & Active Track)
+    useEffect(() => {
+        if (!couple?.id || !isFocused) return;
+
+        // Shared spaces (Queue/Tape) should sync regardless of partner online status
+        // so that users can edit playlists and tape while waiting for partner.
+
+        const queueRef = ref(rtdb, `couples/${couple.id}/music/queue`);
+        const tapeRef = ref(rtdb, `couples/${couple.id}/music/tape`);
+        const activeTrackRef = ref(rtdb, `couples/${couple.id}/music/active_track`);
+
+        const unsubQueue = onValue(queueRef, (snap) => setSharedQueue(snap.val() || []));
+        const unsubTape = onValue(tapeRef, (snap) => setSharedTape(snap.val() || []));
+
+        const unsubActive = onValue(activeTrackRef, (snap) => {
+            const data = snap.val();
+            if (data?.song) {
+                // Determine if we need to sync based on local state vs global state
+                const isExternalChange = data.senderId !== profile?.id;
+                const isNewSong = currentSong?.id !== String(data.song.id);
+
+                if (isNewSong) {
+                    setCurrentSong(data.song);
+                    const url = data.song.downloadUrl?.[data.song.downloadUrl.length - 1]?.url;
+                    if (url) {
+                        player.showNowPlayingNotification = true;
+                        player.replace({ uri: url });
+                        if (data.position) player.currentTime = data.position;
+                        if (data.isPlaying) player.play();
+                        setIsPlaying(!!data.isPlaying);
+                    }
+                } else if (isExternalChange) {
+                    // Sync play/pause/seek for the same song
+                    if (data.isPlaying !== undefined && data.isPlaying !== player.playing) {
+                        data.isPlaying ? player.play() : player.pause();
+                        setIsPlaying(data.isPlaying);
+                    }
+                    if (data.position !== undefined && Math.abs(data.position - player.currentTime) > 2) {
+                        player.currentTime = data.position;
+                    }
+                }
             }
         });
 
         return () => {
-            unsubPresence();
-            unsubBroadcasts();
-            unsubPlayback();
+            unsubQueue();
+            unsubTape();
+            unsubActive();
         };
-    }, [isFocused, couple?.id, partnerProfile?.id, player]);
-
-    const togglePlayback = () => {
-        const next = !isPlaying;
-        setIsPlaying(next);
-        if (next) player.play();
-        else player.pause();
-
-        if (couple?.id && partnerInCinema) {
-            const playbackRef = ref(rtdb, `playback/${couple.id}`);
-            update(playbackRef, {
-                action: next ? 'play' : 'pause',
-                time: player.currentTime,
-                senderId: profile?.id,
-                timestamp: Date.now()
-            });
-        }
-    };
+    }, [couple?.id, isFocused, currentSong?.id, partnerOnline]);
 
     const handleIncomingEvent = (event: any) => {
         if (!event || event.senderId === profile?.id) return;
+        const type = event.type || 'tap';
 
-        let type = event.type || event.event;
-        let emoji = event.emoji;
-
-        // Handle Web-style 'navigation' events (swipes, double taps)
-        if (event.event === 'navigation') {
-            type = 'tap';
-            emoji = event.navEvent === 'double_tap' ? '✨' : (event.direction === 'up' ? '😂' : '😢');
-        }
-
-        if (event.event === 'reaction' || event.event === 'emoji-preset' || event.event === 'navigation') {
-            setIncomingReaction({
-                type,
-                emoji,
-                senderId: event.senderId,
-                senderName: partnerName
-            });
-
-            reactionScale.value = 0;
-            reactionOpacity.value = 1;
-
-            reactionScale.value = withSequence(
-                withTiming(1.2, { duration: 200 }),
-                withTiming(1, { duration: 100 })
-            );
-
-            reactionOpacity.value = withDelay(2000, withTiming(0, { duration: 400 }, (finished) => {
-                if (finished) runOnJS(setIncomingReaction)(null);
-            }));
-
-            if (type === 'heartbeat') {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            } else {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }
-        }
-    };
-
-
-    const showReaction = (type: ReactionType, emoji?: string) => {
         setIncomingReaction({
             type,
-            emoji,
-            senderId: profile?.id,
-            senderName: profile?.display_name
+            emoji: event.emoji,
+            senderId: event.senderId,
+            senderName: partnerName
         });
+
         reactionScale.value = 0;
         reactionOpacity.value = 1;
 
@@ -258,477 +655,556 @@ export function SyncCinemaScreen() {
         );
 
         reactionOpacity.value = withDelay(2000, withTiming(0, { duration: 400 }, (finished) => {
-            if (finished) {
-                runOnJS(setIncomingReaction)(null);
-            }
+            if (finished) runOnJS(safeSetIncomingReaction)(null);
         }));
+
+        Haptics.impactAsync(type === 'heartbeat' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light);
+    };
+
+    const handleMusicSync = (payload: any) => {
+        if (!payload.song || payload.senderId === profile?.id) return;
+        setCurrentSong(payload.song);
+        setPlaybackDuration(0); // Reset duration for synced song
+        const url = payload.song.downloadUrl?.[payload.song.downloadUrl.length - 1]?.url;
+        if (url) {
+            player.showNowPlayingNotification = true;
+            player.replace({ uri: url });
+            if (payload.position) {
+                player.currentTime = payload.position;
+            }
+            player.play();
+            setIsPlaying(true);
+        }
+    };
+
+    const handleMusicSeek = (payload: any) => {
+        if (payload.senderId === profile?.id) return;
+        player.currentTime = payload.position;
+    };
+
+    const handleMusicControl = (payload: any) => {
+        if (payload.senderId === profile?.id) return;
+        if (payload.action === 'play') {
+            player.play();
+            setIsPlaying(true);
+        } else if (payload.action === 'pause') {
+            player.pause();
+            setIsPlaying(false);
+        }
+    };
+
+    const togglePlay = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        if (player.playing) {
+            player.pause();
+            setIsPlaying(false);
+            broadcastMusicAction('pause');
+        } else {
+            player.showNowPlayingNotification = true;
+            player.play();
+            setIsPlaying(true);
+            broadcastMusicAction('play');
+        }
+    };
+
+    const handleSeek = (position: number) => {
+        if (!player.duration) return;
+        const bounded = Math.max(0, Math.min(position, player.duration));
+        player.currentTime = bounded;
+        setPlaybackPosition(bounded);
+        broadcastSeek(bounded);
     };
 
     const handleAction = (type: ReactionType, emoji?: string) => {
-        if (type === 'heartbeat') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        } else {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        }
-        showReaction(type, emoji);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-        // Throttle network broadcast (max 1 DB write every 500ms per user) to drastically reduce DB cost
-        // Visuals and haptics continue to be instantaneous, but network respects bounds.
+        setIncomingReaction({
+            type,
+            emoji,
+            senderId: profile?.id,
+            senderName: profile?.display_name
+        });
+
+        reactionScale.value = 0;
+        reactionOpacity.value = 1;
+
+        // Visual feedback inside Skia Aura
+        auraPulse.value = withSequence(withTiming(1.3, { duration: 200 }), withTiming(1, { duration: 200 }));
+
+        reactionScale.value = withSequence(withTiming(1.2, { duration: 200 }), withTiming(1, { duration: 100 }));
+        reactionOpacity.value = withDelay(2000, withTiming(0, { duration: 400 }, (f) => f && runOnJS(safeSetIncomingReaction)(null)));
+
         const now = Date.now();
-        if (now - lastBroadcastAt.current < 500) return;
-        lastBroadcastAt.current = now;
-
-        // Only broadcast reactions if partner is actually here to see them, saving DB resources
-        if (couple?.id && profile?.id && partnerInCinema) {
+        if (couple?.id && profile?.id && (now - lastBroadcastAt.current > 1000)) {
+            lastBroadcastAt.current = now;
             const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
             set(broadcastRef, {
                 event: 'cinema_event',
-                timestamp: Date.now(),
-                payload: {
-                    event: type === 'emoji-preset' ? 'emoji-preset' : 'reaction',
-                    type: type,
-                    emoji: emoji || null,
-                    senderId: profile.id,
-                    senderName: profile.display_name // Include senderName for cross-platform visibility
-                }
-            });
+                timestamp: now,
+                payload: { type, emoji: emoji || null, senderId: profile.id, senderName: profile.display_name }
+            }).catch(() => { });
         }
-
-        // Instantly hide instructions on any action
         instructionsOpacity.value = 0;
     };
 
-
-    const SINGLE_EMOJI_REGEX = /^\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*$/u;
-
-    const handleAddEmojiPrompt = () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setEmojiInput('');
-        setShowEmojiModal(true);
-    };
-
-    const submitCustomEmoji = () => {
-        const trimmed = emojiInput.trim();
-        if (SINGLE_EMOJI_REGEX.test(trimmed)) {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            // Only add if it's a valid single emoji
-            setCustomEmojis(prev => {
-                const next = [trimmed, ...prev.filter(e => e !== trimmed)].slice(0, 3);
-                return next;
-            });
-            setSelectedEmoji(trimmed);
-            handleAction('emoji-preset', trimmed);
-            setShowEmojiModal(false);
-            setEmojiInput('');
-        } else {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            Alert.alert("Invalid Emoji", "You must enter exactly 1 emoji character.");
-        }
-    };
-
-
-    const doubleTapGesture = Gesture.Tap()
-        .enabled(partnerInCinema)
-        .numberOfTaps(2)
-        .maxDuration(180)
-        .onEnd(() => {
-            runOnJS(handleAction)('tap', '✨');
-        });
-
-    const tapGesture = Gesture.Tap()
-        .enabled(partnerInCinema)
-        .maxDuration(180)
-        .requireExternalGestureToFail(doubleTapGesture)
-        .onEnd(() => {
-            runOnJS(handleAction)('tap', selectedEmoji);
-        });
-
-
-    const longPressGesture = Gesture.LongPress()
-        .enabled(partnerInCinema)
-        .minDuration(250)
-        .onBegin(() => {
-            runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
-        })
-        .onStart(() => {
+    const composed = Gesture.Exclusive(
+        Gesture.LongPress().minDuration(250).onStart(() => {
             runOnJS(handleAction)('heartbeat');
-        });
-
-    const swipeGesture = Gesture.Pan()
-        .enabled(partnerInCinema)
-        .activeOffsetY([-10, 10]) // Only capture vertical swipes. Let horizontal swipes fall through to PagerView.
-        .onEnd((e: any) => {
-            if (e.translationY < -50) {
-                runOnJS(handleAction)('laugh');
-            } else if (e.translationY > 50) {
-                runOnJS(handleAction)('tap', '😢');
-            }
-        });
-
-    // CRITICAL: LongPress MUST come before Swipe in Exclusive for it to trigger DURING the press.
-    // If Swipe (Pan) is first, it waits until the finger is lifted to fail.
-    const composed = Gesture.Exclusive(longPressGesture, swipeGesture, doubleTapGesture, tapGesture);
-
-    const animatedReactionStyle = useAnimatedStyle(() => ({
-        opacity: reactionOpacity.value,
-        transform: [{ scale: reactionScale.value }]
-    }));
-
-    const animatedTrayStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: trayTranslationY.value }],
-        opacity: trayOpacity.value,
-    }));
+        }),
+        Gesture.Pan().activeOffsetY([-10, 10]).onEnd((e) => {
+            if (e.translationY < -50) runOnJS(handleAction)('laugh');
+            else if (e.translationY > 50) runOnJS(handleAction)('tap', '😢');
+        }),
+        Gesture.Tap().numberOfTaps(2).onEnd(() => runOnJS(handleAction)('tap', '✨')),
+        Gesture.Tap().onEnd(() => runOnJS(handleAction)('tap', selectedEmoji))
+    );
 
     const animatedInstructionsStyle = useAnimatedStyle(() => ({
         opacity: instructionsOpacity.value,
+        transform: [{ translateY: interpolate(instructionsOpacity.value, [0, 1], [10, 0]) }]
+    }));
+
+    const animatedTrayStyle = useAnimatedStyle(() => ({
+        transform: [
+            { translateY: trayTranslationY.value },
+            { translateY: trayShiftY.value }
+        ],
+        opacity: trayOpacity.value,
     }));
 
     useEffect(() => {
         if (isFocused) {
             trayTranslationY.value = withDelay(100, withTiming(0, ANIM_MICRO));
             trayOpacity.value = withDelay(100, withTiming(1, ANIM_MICRO));
-            instructionsOpacity.value = 0.5;
-            instructionsOpacity.value = withDelay(4000, withTiming(0, { duration: 1000 }));
+            instructionsOpacity.value = withSequence(withTiming(0.5, { duration: 1000 }), withDelay(3000, withTiming(0, { duration: 1000 })));
         } else {
-            trayTranslationY.value = 150; // instant exit to match dock
-            trayOpacity.value = 0;
-            instructionsOpacity.value = 0;
+            trayTranslationY.value = 150; trayOpacity.value = 0;
+            // Aggressive resource cleanup on blur if background play is disabled
+            // Added tick delay to avoid binder conflicts during fast navigation
+            if (!backgroundEnabled && isMountedRef.current) {
+                setTimeout(() => {
+                    if (!isFocused && isMountedRef.current) {
+                        player.pause();
+                        setIsPlaying(false);
+                    }
+                }, 100);
+            }
         }
-    }, [isFocused]);
-
-    // if (!isFocused) return null; // MOVED: Now we keep it mounted to preserve player state
-
-
-    const handleSeek = (seconds: number) => {
-        const newTime = Math.max(0, Math.min(player.duration, player.currentTime + seconds));
-        player.currentTime = newTime;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-        if (couple?.id && partnerInCinema) {
-            const playbackRef = ref(rtdb, `playback/${couple.id}`);
-            update(playbackRef, {
-                action: 'seek',
-                time: newTime,
-                senderId: profile?.id,
-                timestamp: Date.now()
-            });
-        }
-    };
-
-    const handleSourceChange = (url: string) => {
-        setVideoSource(url);
-        setShowLibrary(false);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-
-        if (couple?.id && profile?.id && partnerInCinema) {
-            const playbackRef = ref(rtdb, `playback/${couple.id}`);
-            update(playbackRef, {
-                action: 'source_change',
-                url,
-                senderId: profile.id,
-                timestamp: Date.now()
-            });
-        }
-    };
+    }, [isFocused, backgroundEnabled]);
 
     const formatTime = (seconds: number) => {
-        if (!seconds || isNaN(seconds)) return "00:00";
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
     };
 
-    // Auto-resume on focus if it was playing
-    useEffect(() => {
-        if (isFocused && isPlaying) {
-            player.play();
-        }
-    }, [isFocused]);
 
-    if (!isFocused) return <View style={styles.container} />; // Strict dead-code policy for background tabs
+    useEffect(() => {
+        const timeSub = player.addListener('timeUpdate', (event) => {
+            // Force status to playing if time is moving
+            if (event.currentTime > 0 && !isPlaying && player.playing) {
+                setIsPlaying(true);
+            }
+
+            setPlaybackPosition(event.currentTime);
+
+            if (player.duration > 0) {
+                setPlaybackDuration(player.duration);
+            }
+            // Auto-play next in queue using Ref to avoid dependency loop
+            if (player.duration > 0 && event.currentTime >= player.duration - 0.8) {
+                if (sharedQueueRef.current.length > 0) {
+                    const nextSong = sharedQueueRef.current[0];
+                    removeFromQueue(nextSong.id);
+                    selectSong(nextSong);
+                }
+            }
+        });
+        const statusSub = player.addListener('playingChange', (event) => {
+            setIsPlaying(event.isPlaying);
+        });
+        const metaSub = player.addListener('statusChange', () => {
+            if (player.duration > 0) {
+                setPlaybackDuration(player.duration);
+            }
+        });
+
+        // Fallback interval for timer if timeUpdate is inconsistent
+        const interval = setInterval(() => {
+            if (player.playing) {
+                setPlaybackPosition(player.currentTime);
+            }
+        }, 1000);
+
+        return () => {
+            timeSub.remove();
+            statusSub.remove();
+            metaSub.remove();
+            clearInterval(interval);
+        };
+    }, [player]);
+
+    useEffect(() => {
+        if (!isFocused || !couple?.id || !partnerProfile?.id) return;
+
+        const presenceRef = ref(rtdb, `presence/${couple.id}/${partnerProfile.id}`);
+        const unsubOffset = onValue(ref(rtdb, '.info/serverTimeOffset'), (snap) => {
+            setServerOffset(snap.val() || 0);
+        });
+
+        let lastPresenceData: any = null;
+
+        const validatePresence = () => {
+            if (!lastPresenceData) return;
+
+            const now = Date.now() + serverOffset;
+            const lastChanged = lastPresenceData.last_changed || 0;
+
+            // Best-in-Class: 10 minute buffer + Server Offset Correction
+            // Robust check against local clock drift
+            const diff = Math.abs(now - lastChanged);
+            const isFresh = diff < 600_000;
+
+            setPartnerOnline(isFresh && !!lastPresenceData.is_online);
+            setPartnerInCinema(isFresh && !!lastPresenceData.in_cinema);
+        };
+
+        const unsubPresence = onValue(presenceRef, (snap) => {
+            lastPresenceData = snap.val();
+            validatePresence();
+        });
+
+        const presenceValidator = setInterval(validatePresence, 30000);
+
+        return () => {
+            unsubOffset();
+            unsubPresence();
+            clearInterval(presenceValidator);
+        };
+    }, [isFocused, couple?.id, partnerProfile?.id, serverOffset]);
 
     return (
         <View style={styles.container}>
-            <VideoView
-                player={player}
-                style={StyleSheet.absoluteFill}
-                contentFit="contain"
-                nativeControls={false}
-                allowsFullscreen={false}
-                allowsPictureInPicture={false}
-            />
-
-            {/* Tap/Interaction Layer - Only captures if not on a button */}
-            <GestureDetector gesture={composed}>
-                <View style={StyleSheet.absoluteFill}>
-                    {/* Dark overlay to make UI readable */}
-                    <View style={[StyleSheet.absoluteFill, { backgroundColor: isFocused ? 'rgba(0,0,0,0.4)' : 'black' }]} pointerEvents="none" />
-                </View>
-            </GestureDetector>
-
             {isFocused && (
                 <>
-                    {/* Playback Controls Layer - Outside the GestureDetector to ensure button priority */}
-                    <View style={styles.playbackControlsRow} pointerEvents="box-none">
-                        <TouchableOpacity style={styles.controlSmallBtn} onPress={() => handleSeek(-15)}>
-                            <RotateCcw size={24} color="white" />
-                            <Text style={styles.skipText}>15</Text>
-                        </TouchableOpacity>
+                    {/* Hidden Player Engine - 10px anchor to keep Android thread priority high */}
+                    <VideoView player={player} style={{ width: 10, height: 10, opacity: 0.01, position: 'absolute', top: -100 }} />
 
-                        <TouchableOpacity
-                            style={styles.playBtn}
-                            onPress={() => {
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                togglePlayback();
-                            }}
-                        >
-                            {isPlaying ? <Pause size={32} color="white" /> : <Play size={32} color="white" />}
-                        </TouchableOpacity>
+                    {/* The Infinite Void - Assertive Pure Black */}
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: 'black' }]} />
 
-                        <TouchableOpacity style={styles.controlSmallBtn} onPress={() => handleSeek(15)}>
-                            <RotateCw size={24} color="white" />
-                            <Text style={styles.skipText}>15</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <GestureDetector gesture={composed}>
+                        <View style={StyleSheet.absoluteFill} />
+                    </GestureDetector>
 
-                    {/* Timeline HUD */}
-                    <View style={[styles.timelineContainer, { bottom: insets.bottom + 80 }]} pointerEvents="none">
-                        <View style={styles.progressBarBg}>
-                            <View style={[styles.progressBarFill, { width: `${(player.currentTime / (player.duration || 1)) * 100}%` }]} />
-                        </View>
-                        <View style={styles.timeRow}>
-                            <Text style={styles.timeLabel}>{formatTime(player.currentTime)}</Text>
-                            <Text style={styles.timeLabel}>{formatTime(player.duration)}</Text>
-                        </View>
-                    </View>
 
-                    {/* Top Controls */}
-                    <View style={[styles.topActions, { top: insets.top + 12 }]}>
-                        <TouchableOpacity
-                            style={styles.libraryBtn}
-                            onPress={() => {
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                setShowLibrary(true);
-                            }}
-                        >
-                            <Film size={20} color="white" />
-                        </TouchableOpacity>
-                    </View>
 
-                    {/* HUD */}
-                    <View style={styles.hudContainer} pointerEvents="none">
-                        <View style={styles.partnerInfo}>
-                            {partnerAvatarUrl ? (
-                                <Image source={{ uri: partnerAvatarUrl }} style={styles.avatar} />
-                            ) : (
-                                <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                                    <Text style={styles.avatarText}>{partnerName.charAt(0)}</Text>
-                                </View>
-                            )}
-                            {partnerInCinema ? (
-                                <View style={styles.presenceTag}>
-                                    <Text style={styles.presenceText}>{partnerName} in Cinema</Text>
-                                </View>
-                            ) : (
-                                <View style={{ marginLeft: 16 }}>
-                                    <Text style={styles.watchingAloneText}>Watching Alone</Text>
-                                </View>
-                            )}
-                        </View>
+                    {/* Music Icon Toggle */}
+                    <TouchableOpacity
+                        testID="music-search-toggle"
+                        style={[styles.musicToggle, { top: insets.top + 24 }]}
+                        onPress={() => setShowMusicSearch(true)}
+                    >
+                        <Music color="white" size={20} />
+                    </TouchableOpacity>
 
-                        <Animated.View style={[styles.instructionsContainer, animatedInstructionsStyle]}>
-                            <Film size={48} color="rgba(255,255,255,0.2)" />
-                            <Text style={styles.instructionText}>TAP TO NUDGE</Text>
-                            <Text style={styles.instructionText}>HOLD FOR PING</Text>
-                            <Text style={styles.instructionText}>SWIPE UP TO LAUGH · DOWN TO CRY</Text>
-                        </Animated.View>
-                    </View>
-
-                    {/* Content Library Modal */}
-                    <Modal visible={showLibrary} transparent animationType="fade" onRequestClose={() => setShowLibrary(false)}>
-                        <View style={styles.modalOverlay}>
-                            <GlassCard style={styles.libraryCard} intensity={40}>
-                                <View style={styles.libraryHeader}>
-                                    <Text style={styles.libraryTitle}>SELECT EXPERIENCE</Text>
-                                    <TouchableOpacity onPress={() => setShowLibrary(false)}>
-                                        <X size={24} color="rgba(255,255,255,0.5)" />
-                                    </TouchableOpacity>
-                                </View>
-                                <View style={styles.libraryList}>
-                                    {MOVIE_LIBRARY.map((movie) => (
-                                        <TouchableOpacity
-                                            key={movie.url}
-                                            style={[styles.libraryItem, videoSource === movie.url && styles.libraryItemActive]}
-                                            onPress={() => handleSourceChange(movie.url)}
-                                        >
-                                            <Text style={[styles.libraryItemText, videoSource === movie.url && styles.libraryItemTextActive]}>
-                                                {movie.title.toUpperCase()}
-                                            </Text>
-                                            {videoSource === movie.url && <SparklesIcon size={14} color="#fbbf24" />}
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </GlassCard>
-                        </View>
-                    </Modal>
-
-                    {/* Reaction Overlay */}
-                    {incomingReaction && (
-                        <Animated.View style={[styles.reactionOverlay, animatedReactionStyle]} pointerEvents="none">
-                            <View style={{ alignItems: 'center' }}>
-                                <Animated.View style={[
-                                    styles.reactionContainer,
-                                    animatedReactionStyle
-                                ]}>
-                                    {incomingReaction.type === 'heartbeat' && (
-                                        <View style={{ position: 'absolute', width: 300, height: 300, alignItems: 'center', justifyContent: 'center' }}>
-                                            <Canvas style={{ width: 300, height: 300 }}>
-                                                <Circle cx={150} cy={150} r={70}>
-                                                    <Paint>
-                                                        <Blur blur={45} />
-                                                        <ColorMatrix matrix={[
-                                                            1, 0, 0, 0, (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? 0.95 : 0.05,
-                                                            0, 1, 0, 0, (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? 0.25 : 0.65,
-                                                            0, 0, 1, 0, (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? 0.35 : 0.95,
-                                                            0, 0, 0, 1, 0,
-                                                        ]} />
-                                                    </Paint>
-                                                </Circle>
-                                            </Canvas>
-                                        </View>
-                                    )}
-                                    {incomingReaction.type === 'heartbeat' ? (
-                                        (incomingReaction.senderId === partnerProfile?.id && partnerAvatarUrl) ? (
-                                            <Image
-                                                source={{ uri: partnerAvatarUrl }}
-                                                style={{
-                                                    width: 140,
-                                                    height: 140,
-                                                    borderRadius: 70,
-                                                    borderWidth: 1,
-                                                    borderColor: 'rgba(255,255,255,0.1)'
-                                                }}
-                                            />
-                                        ) : (incomingReaction.senderId === profile?.id && myAvatarUrl) ? (
-                                            <Image
-                                                source={{ uri: myAvatarUrl }}
-                                                style={{
-                                                    width: 140,
-                                                    height: 140,
-                                                    borderRadius: 70,
-                                                    borderWidth: 1,
-                                                    borderColor: 'rgba(255,255,255,0.1)'
-                                                }}
-                                            />
-                                        ) : (
-                                            <Emoji symbol="❤️" size={100} />
-                                        )
-                                    ) : (
-                                        <Emoji
-                                            symbol={incomingReaction.type === 'laugh' ? '😂' : (incomingReaction.emoji || '✨')}
-                                            style={[
-                                                styles.reactionEmoji,
-                                                {
-                                                    textShadowColor: incomingReaction.type === 'laugh' ? 'rgba(251,191,36,0.8)' : 'rgba(255,255,255,0.6)',
-                                                    textShadowRadius: 40
-                                                }
-                                            ]}
-                                        />
-                                    )}
-                                </Animated.View>
-
-                                {/* Universal Name Badge */}
-                                {incomingReaction.senderName && (
-                                    <Animated.View style={[
-                                        styles.reactionSenderBadge,
-                                        animatedReactionStyle,
-                                        {
-                                            borderColor: (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(56, 189, 248, 0.2)',
-                                            backgroundColor: (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? 'rgba(244, 63, 94, 0.05)' : 'rgba(56, 189, 248, 0.05)',
-                                        }
-                                    ]}>
-                                        <Text style={[
-                                            styles.reactionSenderText,
-                                            { color: (incomingReaction.senderId === partnerProfile?.id ? partnerProfile?.gender : profile?.gender) === 'female' ? '#fb7185' : '#7dd3fc' }
-                                        ]}>
-                                            {incomingReaction.senderName}
-                                        </Text>
-                                    </Animated.View>
-                                )}
+                    {/* Sync Status HUD - Positioned at Top */}
+                    <View style={[styles.partnerInfo, { top: insets.top + 10 }]}>
+                        {partnerAvatarUrl ? (
+                            <Image source={{ uri: partnerAvatarUrl }} style={styles.avatar} alt="partner avatar" />
+                        ) : (
+                            <View style={[styles.avatar, styles.avatarPlaceholder]}>
                             </View>
+                        )}
+                        <View style={{ marginLeft: 12 }}>
+                            <Text style={styles.presenceText}>{partnerName.toUpperCase()}</Text>
+                            <Text style={[
+                                styles.watchingAloneText,
+                                partnerInCinema ? { color: '#10b981' } : (partnerOnline ? { color: '#fbbf24' } : null)
+                            ]}>
+                                {partnerInCinema ? 'LINKED IN VOID' : (partnerOnline ? 'ACTIVE NOW' : 'OFF-GRID')}
+                            </Text>
+                            {currentSong && isPlaying && (
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                        setBackgroundEnabled(!backgroundEnabled);
+                                    }}
+                                    activeOpacity={0.7}
+                                    style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, maxWidth: SCREEN_WIDTH * 0.55 }}
+                                >
+                                    <Music color={backgroundEnabled ? "#a855f7" : "rgba(255,255,255,0.4)"} size={8} />
+                                    <Text style={[styles.listeningText, { marginLeft: 4, color: backgroundEnabled ? '#a855f7' : 'rgba(255,255,255,0.3)' }]} numberOfLines={1}>
+                                        {currentSong.name.replace(/&quot;/g, '"').replace(/&amp;/g, '&').toUpperCase()}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+
+                    {/* Instructions */}
+                    <Animated.View style={[styles.instructionsContainer, animatedInstructionsStyle]} pointerEvents="none">
+                        <Text style={styles.instructionText}>PURE SYNC ACTIVE</Text>
+                    </Animated.View>
+
+                    {/* Reaction Layer */}
+                    {incomingReaction && (
+                        <Animated.View style={[styles.reactionOverlay, { transform: [{ scale: reactionScale.value }], opacity: reactionOpacity.value }]} pointerEvents="none">
+                            <Emoji symbol={incomingReaction.emoji || (incomingReaction.type === 'heartbeat' ? '❤️' : '✨')} size={100} />
+                            <Text style={styles.reactionSenderText}>{incomingReaction.senderName}</Text>
                         </Animated.View>
                     )}
 
-                    {/* Emoji Tray */}
-                    <Animated.View style={[styles.trayContainer, { bottom: Math.max(insets.bottom, 16) }, animatedTrayStyle]} pointerEvents="box-none">
-                        <View style={[
-                            styles.emojiTray,
-                            { borderColor: partnerInCinema ? 'rgba(16, 185, 129, 0.5)' : 'rgba(225, 29, 72, 0.4)' }
-                        ]}>
-                            {[...BASE_EMOJIS, ...customEmojis].map((emoji) => (
+                    {/* Emoji Tray — Responsive Offset */}
+                    <Animated.View style={[styles.trayContainer, { bottom: insets.bottom + (currentSong && !showMusicSearch ? 100 : 20) }, animatedTrayStyle]} pointerEvents="box-none">
+                        <View style={[styles.emojiTray, { borderColor: partnerInCinema ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.1)' }]}>
+                            {BASE_EMOJIS.map(emoji => (
                                 <TouchableOpacity
+                                    testID={`emoji-btn-${emoji}`}
                                     key={emoji}
-                                    disabled={!partnerInCinema}
-                                    style={[
-                                        styles.emojiBtn,
-                                        selectedEmoji === emoji && styles.emojiBtnSelected,
-                                        { opacity: partnerInCinema ? 1 : 0.5 }
-                                    ]}
-                                    onPress={() => {
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                        setSelectedEmoji(emoji);
-                                        handleAction('emoji-preset', emoji);
-                                    }}
+                                    style={styles.emojiBtn}
+                                    onPress={() => handleAction('emoji-preset', emoji)}
                                 >
-                                    <Emoji symbol={emoji} size={18} />
+                                    <Emoji symbol={emoji} size={22} />
                                 </TouchableOpacity>
                             ))}
-
-                            {customEmojis.length < 3 && (
-                                <TouchableOpacity
-                                    disabled={!partnerInCinema}
-                                    style={[styles.emojiBtn, { opacity: partnerInCinema ? 1 : 0.5 }]}
-                                    onPress={handleAddEmojiPrompt}
-                                >
-                                    <Plus size={20} color="rgba(255,255,255,0.4)" />
-                                </TouchableOpacity>
-                            )}
                         </View>
                     </Animated.View>
 
-                    {/* Custom Emoji Modal */}
-                    <Modal visible={showEmojiModal} transparent animationType="fade" onRequestClose={() => setShowEmojiModal(false)}>
-                        <KeyboardAvoidingView
-                            style={styles.modalOverlay}
-                            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        >
-                            <View style={styles.modalContent}>
-                                <Text style={styles.modalTitle}>Add Custom Emoji</Text>
-                                <Text style={styles.modalDesc}>Enter exactly ONE emoji.</Text>
-                                <TextInput
-                                    style={[styles.modalInput, { fontFamily: 'AppleColorEmoji' }]}
-                                    value={emojiInput}
-                                    onChangeText={setEmojiInput}
-                                    autoFocus={true}
-                                    maxLength={5}
-                                    selectionColor="#f43f5e"
-                                />
-                                <View style={styles.modalBtnRow}>
-                                    <TouchableOpacity
-                                        style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.1)' }]}
-                                        onPress={() => setShowEmojiModal(false)}
-                                    >
-                                        <Text style={styles.modalBtnText}>Cancel</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={[styles.modalBtn, { backgroundColor: 'rgba(244,63,94,0.8)' }]}
-                                        onPress={submitCustomEmoji}
-                                    >
-                                        <Text style={styles.modalBtnText}>Add</Text>
-                                    </TouchableOpacity>
+                    {/* Spotify-style Mini Player — Pro Swipe & Seek */}
+                    {currentSong && !showMusicSearch && (
+                        <View style={[styles.miniPlayerContainer, { bottom: insets.bottom + 20 }]}>
+                            <GestureDetector gesture={Gesture.Pan()
+                                .activeOffsetX([-10, 10])
+                                .onUpdate((e) => {
+                                    miniPlayerTranslateX.value = e.translationX;
+                                })
+                                .onEnd((e) => {
+                                    if (e.velocityX < -500 || e.translationX < -80) {
+                                        miniPlayerTranslateX.value = withTiming(-SCREEN_WIDTH, { duration: 200 }, () => {
+                                            runOnJS(nextSong)();
+                                            miniPlayerTranslateX.value = SCREEN_WIDTH;
+                                            miniPlayerTranslateX.value = withTiming(0, { duration: 200 });
+                                        });
+                                    } else if (e.velocityX > 500 || e.translationX > 80) {
+                                        miniPlayerTranslateX.value = withTiming(SCREEN_WIDTH, { duration: 200 }, () => {
+                                            runOnJS(prevSong)();
+                                            miniPlayerTranslateX.value = -SCREEN_WIDTH;
+                                            miniPlayerTranslateX.value = withTiming(0, { duration: 200 });
+                                        });
+                                    } else {
+                                        miniPlayerTranslateX.value = withTiming(0);
+                                    }
+                                })}>
+                                <View style={styles.miniPlayer}>
+                                    <Animated.View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center' }, { transform: [{ translateX: miniPlayerTranslateX.value }] }]}>
+                                        <Image source={{ uri: currentSong.image?.[0]?.url }} style={styles.miniArt} alt="album art" />
+                                        <View style={styles.miniInfo}>
+                                            <View style={{ justifyContent: 'center', height: 28 }}>
+                                                <MarqueeText
+                                                    text={currentSong.name.replace(/&quot;/g, '"').replace(/&amp;/g, '&')}
+                                                    style={styles.miniTitle}
+                                                />
+                                                <Text style={styles.miniArtist} numberOfLines={1}>{currentSong.artists?.primary?.[0]?.name}</Text>
+                                            </View>
+                                        </View>
+
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 8 }}>
+                                            {isPlaying && (
+                                                <TouchableOpacity
+                                                    onPress={() => {
+                                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                                        setBackgroundEnabled(!backgroundEnabled);
+                                                    }}
+                                                    hitSlop={{ top: 20, bottom: 20, left: 10, right: 10 }}
+                                                >
+                                                    <Music color={backgroundEnabled ? "#a855f7" : "rgba(255,255,255,0.4)"} size={12} />
+                                                </TouchableOpacity>
+                                            )}
+                                            <TouchableOpacity
+                                                testID="music-play-pause"
+                                                onPress={togglePlay}
+                                                style={styles.miniPlayBtnCompact}
+                                                hitSlop={{ top: 20, bottom: 20, left: 10, right: 10 }}
+                                            >
+                                                {isPlaying ? <Pause color="white" size={26} fill="white" /> : <Play color="white" size={26} fill="white" />}
+                                            </TouchableOpacity>
+                                        </View>
+                                    </Animated.View>
+
+                                    {/* Pro Slidable Progress Bar (Pan & Tap) */}
+                                    <GestureDetector gesture={Gesture.Race(
+                                        Gesture.Pan()
+                                            .onBegin((e) => {
+                                                isSeeking.value = true;
+                                                seekProgressValue.value = Math.max(0, Math.min(1, e.x / (SCREEN_WIDTH - 24)));
+                                            })
+                                            .onUpdate((e) => {
+                                                seekProgressValue.value = Math.max(0, Math.min(1, e.x / (SCREEN_WIDTH - 24)));
+                                            })
+                                            .onEnd(() => {
+                                                runOnJS(handleSeek)(seekProgressValue.value * player.duration);
+                                                isSeeking.value = false;
+                                            }),
+                                        Gesture.Tap().onEnd((e) => {
+                                            runOnJS(handleSeek)((e.x / (SCREEN_WIDTH - 24)) * player.duration);
+                                        })
+                                    )}>
+                                        <View style={styles.miniProgressContainer}>
+                                            <Animated.View style={[styles.miniProgressFill, progressFillStyle]} />
+                                            <Animated.View style={[styles.miniThumb, thumbStyle]} />
+                                        </View>
+                                    </GestureDetector>
                                 </View>
-                            </View>
-                        </KeyboardAvoidingView>
+                            </GestureDetector>
+                        </View>
+                    )}
+
+                    {/* Music Search Modal */}
+                    <Modal visible={showMusicSearch} animationType="slide" transparent>
+                        <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill}>
+                            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+                                <View style={[styles.modalHeader, { paddingTop: insets.top + 20 }]}>
+                                    <TouchableOpacity onPress={() => setShowMusicSearch(false)} style={styles.closeModal}>
+                                        <X color="white" size={24} />
+                                    </TouchableOpacity>
+                                    <TextInput
+                                        style={styles.searchInput}
+                                        placeholder="Search Music..."
+                                        placeholderTextColor="rgba(255,255,255,0.4)"
+                                        value={searchQuery}
+                                        onChangeText={setSearchQuery}
+                                        onSubmitEditing={handleSearch}
+                                        autoFocus
+                                    />
+                                </View>
+
+                                <View style={{ flex: 1, paddingHorizontal: 20 }}>
+                                    {/* Tab Switcher */}
+                                    <View style={styles.musicTabs}>
+                                        <TouchableOpacity onPress={() => setMusicTab('search')} style={[styles.musicTab, musicTab === 'search' && styles.musicTabActive]}>
+                                            <Search size={14} color={musicTab === 'search' ? 'white' : 'rgba(255,255,255,0.4)'} />
+                                            <Text style={[styles.musicTabText, musicTab === 'search' && styles.musicTabTextActive]}>VOICE</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => setMusicTab('queue')} style={[styles.musicTab, musicTab === 'queue' && styles.musicTabActive]}>
+                                            <ListMusic size={14} color={musicTab === 'queue' ? 'white' : 'rgba(255,255,255,0.4)'} />
+                                            <Text style={[styles.musicTabText, musicTab === 'queue' && styles.musicTabTextActive]}>QUEUE ({sharedQueue.length})</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => setMusicTab('tape')} style={[styles.musicTab, musicTab === 'tape' && styles.musicTabActive]}>
+                                            <Heart size={14} color={musicTab === 'tape' ? 'white' : 'rgba(255,255,255,0.4)'} />
+                                            <Text style={[styles.musicTabText, musicTab === 'tape' && styles.musicTabTextActive]}>TAPE ({sharedTape.length})</Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {isLoadingMusic ? (
+                                        <View style={styles.loaderContainer}>
+                                            <ActivityIndicator color="#a855f7" />
+                                            <Text style={styles.loadingText}>PIERCING THE VOID...</Text>
+                                        </View>
+                                    ) : (
+                                        <ScrollView
+                                            contentContainerStyle={{ gap: 12, marginTop: 10, paddingBottom: insets.bottom + 40 }}
+                                            showsVerticalScrollIndicator={false}
+                                        >
+                                            {musicTab === 'search' && (
+                                                <>
+                                                    {searchResults.length === 0 && searchQuery && !isLoadingMusic && (
+                                                        <Text style={styles.noResultsText}>NO SOUNDS FOUND IN THE VOID</Text>
+                                                    )}
+                                                    {searchResults.map((song) => (
+                                                        <TouchableOpacity
+                                                            key={song.id}
+                                                            style={styles.searchItem}
+                                                            onPress={() => selectSong(song)}
+                                                        >
+                                                            <Image source={{ uri: song.image?.[0]?.url }} style={styles.searchArt} alt="song art" />
+                                                            <View style={{ flex: 1 }}>
+                                                                <Text style={styles.searchTitle} numberOfLines={1}>{song.name}</Text>
+                                                                <Text style={styles.searchArtist} numberOfLines={1}>{song.artists?.primary?.[0]?.name}</Text>
+                                                            </View>
+                                                            <View style={styles.songActions}>
+                                                                <TouchableOpacity
+                                                                    style={styles.songActionBtn}
+                                                                    onPress={(e) => { e.stopPropagation(); addToQueue(song); }}
+                                                                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                                                >
+                                                                    <Plus size={16} color="white" />
+                                                                </TouchableOpacity>
+                                                                <TouchableOpacity
+                                                                    style={styles.songActionBtn}
+                                                                    onPress={(e) => { e.stopPropagation(); addToTape(song); }}
+                                                                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                                                >
+                                                                    <Heart
+                                                                        size={16}
+                                                                        color="white"
+                                                                        fill={sharedTape.some(s => String(s.id) === String(song.id)) ? "white" : "transparent"}
+                                                                    />
+                                                                </TouchableOpacity>
+                                                            </View>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </>
+                                            )}
+
+                                            {musicTab === 'queue' && (
+                                                <>
+                                                    {sharedQueue.length === 0 && (
+                                                        <Text style={styles.noResultsText}>THE QUEUE IS EMPTY</Text>
+                                                    )}
+                                                    {sharedQueue.map((song) => (
+                                                        <TouchableOpacity
+                                                            key={song.id}
+                                                            style={styles.searchItem}
+                                                            onPress={() => selectSong(song)}
+                                                        >
+                                                            <Image source={{ uri: song.image?.[0]?.url }} style={styles.searchArt} alt="song art" />
+                                                            <View style={{ flex: 1 }}>
+                                                                <Text style={styles.searchTitle} numberOfLines={1}>{song.name}</Text>
+                                                                <Text style={styles.searchArtist} numberOfLines={1}>{song.artists?.primary?.[0]?.name}</Text>
+                                                            </View>
+                                                            <TouchableOpacity
+                                                                style={styles.songActionBtn}
+                                                                onPress={(e) => { e.stopPropagation(); removeFromQueue(song.id); }}
+                                                            >
+                                                                <Trash2 size={16} color="#ef4444" />
+                                                            </TouchableOpacity>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </>
+                                            )}
+
+                                            {musicTab === 'tape' && (
+                                                <>
+                                                    {sharedTape.length === 0 && (
+                                                        <Text style={styles.noResultsText}>NO SONGS RECORDED ON TAPE</Text>
+                                                    )}
+                                                    {sharedTape.map((song) => (
+                                                        <TouchableOpacity
+                                                            key={song.id}
+                                                            style={styles.searchItem}
+                                                            onPress={() => selectSong(song)}
+                                                        >
+                                                            <Image source={{ uri: song.image?.[0]?.url }} style={styles.searchArt} alt="song art" />
+                                                            <View style={{ flex: 1 }}>
+                                                                <Text style={styles.searchTitle} numberOfLines={1}>{song.name}</Text>
+                                                                <Text style={styles.searchArtist} numberOfLines={1}>{song.artists?.primary?.[0]?.name}</Text>
+                                                            </View>
+                                                            <TouchableOpacity
+                                                                style={styles.songActionBtn}
+                                                                onPress={(e) => { e.stopPropagation(); removeFromTape(song.id); }}
+                                                            >
+                                                                <Trash2 size={16} color="#ef4444" />
+                                                            </TouchableOpacity>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </>
+                                            )}
+                                        </ScrollView>
+                                    )}
+                                </View>
+                            </KeyboardAvoidingView>
+                        </BlurView>
                     </Modal>
                 </>
             )}
@@ -741,74 +1217,53 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#000',
     },
-    header: {
-        position: 'absolute',
-        top: Platform.OS === 'ios' ? 60 : 40,
-        right: 20,
-        zIndex: 50,
-    },
-    closeBtn: {
-        padding: 12,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 20,
-    },
-    hudContainer: {
-        ...StyleSheet.absoluteFillObject,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
     partnerInfo: {
         position: 'absolute',
-        top: Platform.OS === 'ios' ? 60 : 40,
         left: 20,
         flexDirection: 'row',
         alignItems: 'center',
     },
     avatar: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(255,255,255,0.15)',
     },
     avatarPlaceholder: {
-        backgroundColor: 'rgba(244,63,94,0.2)',
+        backgroundColor: 'rgba(255,255,255,0.05)',
         justifyContent: 'center',
         alignItems: 'center',
     },
     avatarText: {
-        color: '#f43f5e',
+        color: 'white',
         fontWeight: 'bold',
-        fontSize: 18,
-    },
-    presenceTag: {
-        marginLeft: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 16,
-        backgroundColor: 'rgba(16,185,129,0.2)',
-        borderWidth: 1,
-        borderColor: 'rgba(16,185,129,0.3)',
-        overflow: 'hidden',
+        fontSize: 16,
     },
     presenceText: {
-        color: '#34d399',
-        fontSize: 10,
-        fontWeight: '900',
-        letterSpacing: 1,
-        textTransform: 'uppercase',
-    },
-    watchingAloneText: {
-        color: 'rgba(255,255,255,0.3)',
+        color: '#fff',
         fontSize: 10,
         fontWeight: '900',
         letterSpacing: 2,
-        textTransform: 'uppercase',
+    },
+    watchingAloneText: {
+        color: 'rgba(255,255,255,0.3)',
+        fontSize: 9,
+        fontWeight: '700',
+        letterSpacing: 1,
+        marginTop: 2,
+    },
+    listeningText: {
+        color: '#a855f7',
+        fontSize: 8,
+        fontWeight: '900',
+        letterSpacing: 1,
+        marginTop: 2,
     },
     instructionsContainer: {
+        ...StyleSheet.absoluteFillObject,
+        justifyContent: 'center',
         alignItems: 'center',
-        opacity: 0.3,
-        gap: 8,
     },
     instructionText: {
         color: '#fff',
@@ -816,260 +1271,391 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         letterSpacing: 2,
     },
-    reactionSenderBadge: {
-        marginTop: 100, // Adjusted for "full screen" feel
-        paddingHorizontal: 24,
-        paddingVertical: 10,
-        borderRadius: 99,
-        borderWidth: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    reactionSenderText: {
-        fontSize: 14,
+    subInstructionText: {
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 10,
         fontWeight: '900',
-        letterSpacing: 4,
-        textTransform: 'uppercase',
+        letterSpacing: 3,
+        textAlign: 'center',
     },
     reactionOverlay: {
         ...StyleSheet.absoluteFillObject,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    reactionContainer: {
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    reactionEmoji: {
-        fontSize: 120,
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 30,
+    reactionSenderText: {
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 12,
+        fontWeight: '900',
+        letterSpacing: 4,
+        marginTop: 20,
     },
     trayContainer: {
         position: 'absolute',
         left: 0,
         right: 0,
         alignItems: 'center',
-        justifyContent: 'center'
     },
     emojiTray: {
         flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-evenly',
-        height: 52,
-        paddingHorizontal: 8,
-        borderRadius: 999,
+        backgroundColor: 'rgba(15,15,15,0.85)',
+        borderRadius: 24,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
         borderWidth: 1,
-        minWidth: 220,
+        borderColor: 'rgba(255,255,255,0.08)',
     },
     emojiBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        marginHorizontal: 10,
+        width: 36,
+        height: 36,
         alignItems: 'center',
         justifyContent: 'center',
-        marginHorizontal: 4,
     },
-    emojiBtnSelected: {
-        backgroundColor: 'rgba(255,255,255,0.15)',
-    },
-    emojiText: {
-        fontSize: 18,
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.8)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 20,
-    },
-    modalContent: {
-        borderRadius: 24,
-        padding: 24,
-        alignItems: 'center',
-        backgroundColor: '#1a1a1a', // Replaced BlurView with solid dark color to fix Render Crash
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        overflow: 'hidden',
-    },
-    modalTitle: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 8,
-    },
-    modalDesc: {
-        color: 'rgba(255,255,255,0.6)',
-        fontSize: 14,
-        marginBottom: 20,
-    },
-    modalInput: {
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        borderWidth: 1,
-        borderColor: 'rgba(244,63,94,0.4)',
-        borderRadius: 16,
-        padding: 16,
-        color: 'white',
-        fontSize: 32,
-        minWidth: 100,
-        textAlign: 'center',
-        marginBottom: 24,
-    },
-    modalBtnRow: {
-        flexDirection: 'row',
-        gap: 12,
-        width: '100%',
-    },
-    modalBtn: {
-        flex: 1,
-        padding: 14,
-        borderRadius: 12,
-        alignItems: 'center',
-    },
-    modalBtnText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 16,
-    },
-    playbackControlsRow: {
+    musicToggle: {
         position: 'absolute',
-        top: '50%',
-        left: 0,
-        right: 0,
-        marginTop: -40,
-        flexDirection: 'row',
+        right: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(255,255,255,0.1)',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 40,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)',
+    },
+    miniPlayerContainer: {
+        position: 'absolute',
+        left: 12,
+        right: 12,
         zIndex: 100,
     },
-    controlSmallBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: 'rgba(0,0,0,0.3)',
+    miniPlayer: {
+        height: 64, // More compact
+        backgroundColor: 'rgba(25,25,25,0.98)',
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+        overflow: 'hidden',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.5,
+        shadowRadius: 15,
+        elevation: 10,
+    },
+    miniArt: {
+        width: 44,
+        height: 44,
+        borderRadius: 4,
+    },
+    miniInfo: {
+        flex: 1,
+        marginLeft: 14,
+        justifyContent: 'center',
+    },
+    miniTitle: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: '800',
+        lineHeight: 14,
+        includeFontPadding: false,
+        paddingBottom: 0,
+    },
+    miniArtist: {
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 10,
+        fontWeight: '600',
+        marginTop: -2,
+        includeFontPadding: false,
+    },
+    miniPlayBtnCompact: {
+        padding: 4,
+    },
+    miniProgressContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 6,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        justifyContent: 'center',
+    },
+    miniProgressFill: {
+        height: '100%',
+        backgroundColor: '#a855f7',
+    },
+    miniThumb: {
+        position: 'absolute',
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: 'white',
+        marginLeft: -4,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.5,
+        shadowRadius: 2,
+        elevation: 3,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        gap: 12,
+    },
+    closeModal: {
+        width: 44,
+        height: 44,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    skipText: {
-        position: 'absolute',
+    searchInput: {
+        flex: 1,
+        height: 44,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 22,
+        paddingHorizontal: 20,
         color: 'white',
-        fontSize: 8,
+        fontSize: 14,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+    },
+    loadingText: {
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 10,
         fontWeight: '900',
-        top: 20,
+        letterSpacing: 3,
+        textAlign: 'center',
+        marginTop: 12,
     },
-    timelineContainer: {
-        position: 'absolute',
-        left: 20,
-        right: 20,
-        zIndex: 50,
+    loaderContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    progressBarBg: {
-        height: 2,
+    noResultsText: {
+        color: 'rgba(255,255,255,0.2)',
+        fontSize: 10,
+        fontWeight: '900',
+        textAlign: 'center',
+        marginTop: 40,
+        letterSpacing: 2,
+    },
+    searchItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderRadius: 14,
+        gap: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
+    },
+    searchArt: {
+        width: 44,
+        height: 44,
+        borderRadius: 6,
+    },
+    searchTitle: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    searchArtist: {
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 11,
+    },
+    fullArtContainer: {
+        width: SCREEN_WIDTH - 60,
+        height: SCREEN_WIDTH - 60,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        alignSelf: 'center',
+        marginBottom: 40,
+        overflow: 'hidden',
+        elevation: 20,
+        shadowColor: 'black',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.5,
+        shadowRadius: 20,
+    },
+    fullArt: {
+        width: '100%',
+        height: '100%',
+    },
+    fullTitle: {
+        color: 'white',
+        fontSize: 28,
+        fontWeight: '900',
+        marginBottom: 8,
+        textAlign: 'center',
+        lineHeight: 34,
+    },
+    fullArtist: {
+        color: 'rgba(255,255,255,0.6)',
+        fontSize: 18,
+        fontWeight: '600',
+        marginBottom: 40,
+        textAlign: 'center',
+    },
+    progressContainer: {
+        width: '100%',
+        marginBottom: 40,
+    },
+    progressBar: {
+        height: 6,
         backgroundColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 1,
+        borderRadius: 3,
+        width: '100%',
         overflow: 'hidden',
     },
-    progressBarFill: {
+    progressFill: {
         height: '100%',
-        backgroundColor: 'rgba(255,255,255,0.4)',
+        backgroundColor: '#a855f7',
     },
     timeRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginTop: 8,
+        marginTop: 10,
     },
-    timeLabel: {
+    timeText: {
         color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
-        fontWeight: 'bold',
-        fontFamily: Typography.sansBold,
+        fontSize: 12,
+        fontWeight: '700',
     },
-    playbackControls: {
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        marginLeft: -40,
-        marginTop: -40,
-        width: 80,
-        height: 80,
-        zIndex: 100,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    playBtn: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        borderWidth: 1.5,
-        borderColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    topActions: {
-        position: 'absolute',
-        right: 20,
-        zIndex: 100,
-    },
-    libraryBtn: {
+    fullControls: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
+        gap: 50,
+    },
+    mainPlayBtn: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: 'white',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    musicTabs: {
+        flexDirection: 'row',
+        paddingHorizontal: 20,
+        marginVertical: 15,
         gap: 8,
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.08)',
+    },
+    musicTab: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        gap: 6,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.1)',
     },
-    libraryBtnText: {
-        fontSize: 10,
-        fontFamily: Typography.sansBold,
-        color: 'white',
-        letterSpacing: 1.5,
+    musicTabActive: {
+        backgroundColor: 'rgba(168, 85, 247, 0.2)',
+        borderColor: '#a855f7',
     },
-    libraryCard: {
-        width: '100%',
-        maxWidth: 400,
-        padding: 24,
-        borderRadius: Radius.xxl,
-    },
-    libraryHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 24,
-    },
-    libraryTitle: {
-        fontSize: 12,
-        fontFamily: Typography.sansBold,
+    musicTabText: {
         color: 'rgba(255,255,255,0.4)',
-        letterSpacing: 3,
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 1,
     },
-    libraryList: {
-        gap: 12,
+    musicTabTextActive: {
+        color: 'white',
     },
-    libraryItem: {
-        padding: 20,
-        borderRadius: Radius.lg,
-        backgroundColor: 'rgba(255,255,255,0.03)',
+    songActions: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    songActionBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+    },
+    upNextContainer: {
+        marginTop: 40,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        padding: 16,
+        borderRadius: 20,
+        alignItems: 'center',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.05)',
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
     },
-    libraryItemActive: {
-        backgroundColor: 'rgba(168,85,247,0.1)',
-        borderColor: 'rgba(168,85,247,0.3)',
+    upNextLabel: {
+        color: '#a855f7',
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 2,
+        marginBottom: 6,
     },
-    libraryItemText: {
-        fontSize: 16,
-        fontFamily: Typography.serif,
-        color: 'rgba(255,255,255,0.5)',
-    },
-    libraryItemTextActive: {
+    upNextTitle: {
         color: 'white',
+        fontSize: 14,
+        fontWeight: '700',
     },
+    bgToggle: {
+        position: 'absolute',
+        top: 100,
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        backgroundColor: 'rgba(168, 85, 247, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(168, 85, 247, 0.3)',
+        gap: 6,
+    },
+    bgToggleDisabled: {
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderColor: 'rgba(255,255,255,0.1)',
+    },
+    bgToggleText: {
+        color: '#a855f7',
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 1,
+    },
+    bgToggleDisabledText: {
+        color: 'rgba(255,255,255,0.4)',
+    },
+    cinemaHeader: {
+        position: 'absolute',
+        top: 60,
+        left: 0,
+        right: 0,
+        alignItems: 'center',
+        zIndex: 10,
+    },
+    cinemaTitle: {
+        fontSize: 32,
+        fontFamily: Typography.serif,
+        color: 'white',
+        letterSpacing: 8,
+        textTransform: 'uppercase',
+        opacity: 0.5,
+    },
+    cinemaSubtitle: {
+        fontSize: 10,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(168, 85, 247, 0.5)',
+        letterSpacing: 4,
+        marginTop: 4,
+    },
+    standardHeader: GlobalStyles.standardHeader,
+    standardTitle: GlobalStyles.standardTitle,
+    standardSubtitle: GlobalStyles.standardSubtitle,
 });

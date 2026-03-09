@@ -14,19 +14,20 @@ interface HeaderPillProps {
     scrollOffset: any;
     showAt?: number;
     count?: number;
+    onPress?: () => void;
 }
 
 import * as Haptics from 'expo-haptics';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 
-export function HeaderPill({ title, scrollOffset, showAt = 60, count }: HeaderPillProps) {
-    const { profile, idToken, setTabIndex, appMode } = useOrbitStore();
+export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress }: HeaderPillProps) {
+    const { profile, idToken, setTabIndex, activeTabIndex, appMode } = useOrbitStore();
     const insets = useSafeAreaInsets();
     const isLunara = appMode === 'lunara';
 
     const handleProfilePress = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        setTabIndex(4); // Navigate to Settings
+        setTabIndex(7, 'tap'); // Navigate to Settings reliably
     };
 
     const avatarUrl = useMemo(() =>
@@ -35,9 +36,21 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count }: HeaderPi
 
     return (
         <View style={styles.headerContent}>
-            <View style={styles.pillContainer}>
-                <BlurView intensity={30} tint="dark" style={styles.blur} experimentalBlurMethod="dimezisBlurView">
-                    <View style={[styles.dot, isLunara && { backgroundColor: '#a855f7' }]} />
+            <TouchableOpacity
+                style={styles.pillContainer}
+                activeOpacity={0.7}
+                onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    onPress?.();
+                }}
+            >
+                <BlurView
+                    intensity={30}
+                    tint="dark"
+                    style={[styles.blur, isLunara && styles.lunaraBlur]}
+                    experimentalBlurMethod="dimezisBlurView"
+                >
+                    <View style={[styles.dot, isLunara ? { backgroundColor: '#a855f7' } : { backgroundColor: Colors.dark.rose[500] }]} />
                     <Text style={[styles.text, isLunara && styles.lunaraText]}>{title.toUpperCase()}</Text>
                     {count !== undefined && (
                         <>
@@ -46,7 +59,7 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count }: HeaderPi
                         </>
                     )}
                 </BlurView>
-            </View>
+            </TouchableOpacity>
 
 
             <TouchableOpacity
@@ -77,13 +90,16 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 20,
-        paddingVertical: 7,
+        paddingVertical: 10,
         borderRadius: 999,
         backgroundColor: 'rgba(0,0,0,0.5)',
-        borderWidth: 1,
+        borderWidth: 1.2,
         borderColor: 'rgba(225, 29, 72, 0.4)',
         gap: 10,
         overflow: 'hidden',
+    },
+    lunaraBlur: {
+        borderColor: 'rgba(168, 85, 247, 0.45)',
     },
     dot: {
         width: 6,
@@ -93,14 +109,13 @@ const styles = StyleSheet.create({
     },
     text: {
         color: 'white',
-        fontSize: 10,
+        fontSize: 12,
         letterSpacing: 2,
         fontFamily: Typography.sansBold,
     },
     lunaraText: {
-        fontFamily: Typography.serif,
         color: '#d8b4fe',
-        letterSpacing: 1,
+        letterSpacing: 2,
         fontSize: 12,
     },
     divider: {

@@ -113,6 +113,7 @@ const styles = StyleSheet.create({
         aspectRatio: 2,
         alignItems: 'center',
         justifyContent: 'flex-end',
+        paddingTop: 12,
     },
     svg: {
         width: '100%',

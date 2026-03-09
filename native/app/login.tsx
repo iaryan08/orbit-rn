@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView } from 'react-native';
 import { auth } from '../lib/firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { Colors, Radius, Spacing } from '../constants/Theme';
+import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
 import { Heart, Mail, Lock } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 
@@ -133,13 +133,13 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 32,
-        fontWeight: '700',
+        fontFamily: Typography.serifBold,
         color: Colors.dark.foreground,
         marginBottom: Spacing.xs,
-        fontFamily: 'serif',
     },
     subtitle: {
         fontSize: 15,
+        fontFamily: Typography.sans,
         color: Colors.dark.mutedForeground,
         textAlign: 'center',
     },
@@ -154,6 +154,7 @@ const styles = StyleSheet.create({
     errorText: {
         color: Colors.dark.rose[500],
         fontSize: 14,
+        fontFamily: Typography.sans,
         textAlign: 'center',
     },
     inputGroup: {
@@ -162,7 +163,7 @@ const styles = StyleSheet.create({
     label: {
         color: Colors.dark.foreground,
         fontSize: 14,
-        fontWeight: '500',
+        fontFamily: Typography.sansBold,
         marginBottom: Spacing.xs,
     },
     inputWrapper: {
@@ -182,6 +183,7 @@ const styles = StyleSheet.create({
         flex: 1,
         color: Colors.dark.foreground,
         fontSize: 16,
+        fontFamily: Typography.sans,
     },
     primaryButton: {
         backgroundColor: Colors.dark.rose[500],
@@ -197,7 +199,7 @@ const styles = StyleSheet.create({
     primaryButtonText: {
         color: Colors.dark.foreground,
         fontSize: 16,
-        fontWeight: '600',
+        fontFamily: Typography.sansBold,
     },
     backButton: {
         marginTop: Spacing.lg,
@@ -207,5 +209,6 @@ const styles = StyleSheet.create({
     backButtonText: {
         color: Colors.dark.mutedForeground,
         fontSize: 15,
+        fontFamily: Typography.sans,
     }
 });

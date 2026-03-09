@@ -33,8 +33,16 @@ export const polaroids = sqliteTable('polaroids', {
 
 export const letters = sqliteTable('letters', {
     id: text('id').primaryKey(),
+    title: text('title'),
     content: text('content').notNull(),
     sender_id: text('sender_id').notNull(),
+    receiver_id: text('receiver_id'),
+    sender_name: text('sender_name'),
+    unlock_type: text('unlock_type'),
+    unlock_date: text('unlock_date'),
+    is_scheduled: integer('is_scheduled', { mode: 'boolean' }).default(false),
+    scheduled_delivery_time: integer('scheduled_delivery_time'),
+    is_vanish: integer('is_vanish', { mode: 'boolean' }).default(false),
     created_at: integer('created_at'),
     is_read: integer('is_read', { mode: 'boolean' }).default(false),
     updated_at: integer('updated_at'),
@@ -58,5 +66,25 @@ export const bucketList = sqliteTable('bucket_list', {
     is_private: integer('is_private', { mode: 'boolean' }).default(false),
     created_at: integer('created_at'),
     created_by: text('created_by').notNull(),
+    updated_at: integer('updated_at'),
+});
+export const musicState = sqliteTable('music_state', {
+    id: text('id').primaryKey(), // We'll use a fixed key like 'current_session' or couple_id
+    current_track: text('current_track'), // JSON stringified track object
+    queue: text('queue'), // JSON stringified array of tracks
+    playlist: text('playlist'), // JSON stringified array of tracks
+    is_playing: integer('is_playing', { mode: 'boolean' }).default(false),
+    progress_ms: integer('progress_ms').default(0),
+    last_updated: integer('last_updated'), // Local timestamp
+    updated_at: integer('updated_at'), // Remote sync timestamp
+});
+
+export const profiles = sqliteTable('profiles', {
+    id: text('id').primaryKey(),
+    display_name: text('display_name'),
+    avatar_url: text('avatar_url'),
+    couple_id: text('couple_id'),
+    partner_id: text('partner_id'),
+    is_partner: integer('is_partner', { mode: 'boolean' }).default(false),
     updated_at: integer('updated_at'),
 });

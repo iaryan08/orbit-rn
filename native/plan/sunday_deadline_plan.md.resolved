@@ -1,0 +1,64 @@
+# 🏁 Orbit: Final 5-Day Sprint (Sunday Deadline)
+
+## 📌 Core Principles
+1.  **Zero Telemetry:** We only store data the user explicitly sees in the UI. No logs or hidden data for AI training.
+2.  **Zero-Cost Scaling:** 100% reliance on Firebase Free Tier and Cloudflare R2 (10GB) for a total bill of $0.
+3.  **Performance First:** Constant 90-120 FPS via the UI-Thread architecture.
+4.  **Offline-First:** WhatsApp-style local persistence (Download once, view forever from disk).
+
+---
+
+## 📅 Phase-Wise Execution (Tue - Sun)
+
+### Phase 1: Security & Final Cleanup (Day 1)
+*   **Action:** Audit [logout](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/store/index.ts#15-25) and [resetData](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/store/dataSlice.ts#694-708). Ensure that switching from User A to User B leaves **Zero Trace** in memory or the UI.
+*   **Action:** Hard-fix for "Mood Duplication." Ensure the `${userId}_${date}` ID strategy is applied everywhere.
+*   **Result:** The base app is 100% secure and data-leak free.
+
+### Phase 2: R2 Migration & Local Cache (Day 2 - 3)
+*   **Action:** Migrate `uploadImage` in [auth.ts](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/auth.ts) to Cloudflare R2.
+*   **Action (The WhatsApp Move):** Update the [Memory](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/store/types.ts#9-20) and [Polaroid](file:///c:/Users/Aryan/Desktop/orbit-v2/native/lib/store/types.ts#1-8) components to check `Expo.FileSystem` for a local copy before hitting the cloud.
+*   **Logic:** 
+    1. Check Local Phone Storage.
+    2. If missing, show blurry placeholder -> Download from R2.
+    3. Save to Local Phone Storage forever.
+*   **Result:** R2 bandwidth usage hits zero for older photos.
+
+### Phase 3: The "Vanish" Engine & Garbage Collection (Day 4)
+*   **Action:** Implement **3-Day Expiry** for Polaroids.
+*   **Cleanup Logic:**
+    *   App scans Local SQLite on launch for items > 72h old -> `Hard Delete`.
+    *   Trigger Cloudflare R2 `DELETE` operation for those files to keep the 10GB bucket fresh.
+*   **Action:** Ensure RTDB drawing nodes are purged the moment a stroke is saved to Firestore.
+*   **Result:** Perpetual "Clean" database.
+
+### Phase 4: Performance Validation & Polish (Day 5)
+*   **Action:** Final sweep of styles. Ensure the **1.2px glass border** and **Selective Blur** are consistent across every screen.
+*   **Action:** Disable all `ENABLE_DEBUG_CHIP` and debug timers for production performance.
+*   **Action:** Optimize Drizzle SQL indexes for 120 FPS scrolling even with 10,000 memories.
+
+---
+
+## 🛠️ Data Flow Chart (Target Architecture)
+
+| Layer | Service | Purpose | Data Retention |
+| :--- | :--- | :--- | :--- |
+| **Realtime** | Firebase RTDB | Drawing, Typing, Presence | **Disposable** (Deleted after session) |
+| **Relational** | Firebase Firestore | Metadata (Dates, Names, Links) | **Perpetual** (Tiny cost) |
+| **Heavy Assets** | Cloudflare R2 | Compressed Photos/Videos | **Tiered** (Purged after local cache) |
+| **Mobile Disk** | SQLite / FileSystem | The "Archive" (WhatsApp style) | **Permanent** (Until phone swap) |
+
+---
+
+## 🚫 Privacy: "Only What You See" Policy
+*   **No Training Data:** We will not implement any analytics engines (Amplitude, Mixpanel, or Google Analytics). 
+*   **No Metadata Storage:** Image EXIF data (location/device info) will be stripped on the phone before upload.
+*   **Direct Access:** Only the users belonging to the `coupleId` have read-access via Firestore Rules.
+
+---
+
+## 🏁 Readiness Goal: Sunday
+By Sunday evening, the app will be "Feature Locked." 
+*   No more architectural changes.
+*   Code will be stable for next-gen Expo updates.
+*   Maintenance will only occur for critical OS compatibility.

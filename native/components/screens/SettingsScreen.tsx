@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Switch, Alert } from 'react-native';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
+import { GlobalStyles } from '../../constants/Styles';
 import {
     User, Heart, Camera, Shield, Zap,
     LogOut, Pencil, Check, Copy, ChevronRight,
@@ -8,21 +9,26 @@ import {
     Camera as CameraIcon
 } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
-import { auth, db } from '../../lib/firebase';
+import { auth, db, rtdb } from '../../lib/firebase';
 import { signOut } from 'firebase/auth';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, update } from 'firebase/database';
 import { useRouter } from 'expo-router';
 import Animated, { useSharedValue, useAnimatedScrollHandler, FadeIn, FadeOut, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useOrbitStore } from '../../lib/store';
+import { useOrbitStore, AppSlice } from '../../lib/store';
 import * as Haptics from 'expo-haptics';
 import { HeaderPill } from '../../components/HeaderPill';
 import { Image as ExpoImage } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadWallpaper, deleteWallpaper } from '../../lib/auth';
 
 type TabId = 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates';
 
 import { getPublicStorageUrl } from '../../lib/storage';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
+
+const WALLPAPER_REMOTE_SYNC_DELAY_MS = 10000;
 
 export function SettingsScreen() {
     const router = useRouter();
@@ -36,22 +42,33 @@ export function SettingsScreen() {
         },
     });
 
-    // Morphing: Title fades and scales (Delayed)
+    // Morphing: Standardized thresholds [80, 135]
     const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [85, 125], [1, 0], Extrapolate.CLAMP),
-        transform: [{ scale: interpolate(scrollOffset.value, [85, 125], [1, 0.95], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [40, 90], [1, 0], Extrapolate.CLAMP),
+        transform: [{ scale: interpolate(scrollOffset.value, [40, 90], [1, 0.9], Extrapolate.CLAMP) }]
     }));
 
-    // Morphing: HeaderPill fades and slides (Delayed)
+    const sublineAnimatedStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollOffset.value, [30, 70], [1, 0], Extrapolate.CLAMP),
+    }));
+
     const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [105, 135], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [105, 135], [5, 0], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [70, 110], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [70, 110], [8, 0], Extrapolate.CLAMP) }]
     }));
 
-    const { profile, partnerProfile, couple, idToken, appMode, setAppMode, wallpaperConfig, setWallpaperConfig } = useOrbitStore();
-    const [activeTab, setActiveTab] = useState<TabId>('profile');
+    const { profile, partnerProfile, couple, idToken, appMode, setAppMode, wallpaperConfig, setWallpaperConfig, settingsTargetTab, setSettingsTargetTab } = useOrbitStore();
+    const [activeTab, setActiveTab] = useState<TabId>(settingsTargetTab || 'profile');
     const [saving, setSaving] = useState(false);
     const [copied, setCopied] = useState(false);
+    const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const wallpaperWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingWallpaperPatchRef = useRef<{
+        wallpaper_mode?: 'stars' | 'custom' | 'shared';
+        wallpaper_grayscale?: boolean;
+        wallpaper_filter?: 'Natural' | 'Glass' | 'Tint' | 'Pro';
+    }>({});
+    const lastHapticAtRef = useRef(0);
 
     // Form states
     const [displayName, setDisplayName] = useState(profile?.display_name || "");
@@ -71,6 +88,12 @@ export function SettingsScreen() {
         }
     }, [couple]);
 
+    useEffect(() => {
+        if (settingsTargetTab && settingsTargetTab !== activeTab) {
+            setActiveTab(settingsTargetTab);
+        }
+    }, [settingsTargetTab]);
+
     const handleSignOut = async () => {
         Alert.alert("Sign Out", "Are you sure you want to sign out?", [
             { text: "Cancel", style: "cancel" },
@@ -79,6 +102,17 @@ export function SettingsScreen() {
                 style: "destructive",
                 onPress: async () => {
                     try {
+                        // Explicitly clear presence before sign out
+                        if (profile?.id && couple?.id) {
+                            const presenceRef = ref(rtdb, `presence/${couple.id}/${profile.id}`);
+                            await update(presenceRef, {
+                                is_online: false,
+                                in_cinema: null,
+                                last_changed: Date.now()
+                            });
+                        }
+                        const { logout } = useOrbitStore.getState();
+                        logout();
                         await signOut(auth);
                         router.replace('/login');
                     } catch (error) {
@@ -107,61 +141,128 @@ export function SettingsScreen() {
         }
     };
 
-    const handleWallpaperChange = async (mode: 'stars' | 'custom' | 'shared') => {
-        if (!profile?.id) return;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        // Optimistic UI Update
-        setWallpaperConfig({ mode });
-
-        try {
-            await updateDoc(doc(db, 'users', profile.id), {
-                wallpaper_mode: mode,
-                updated_at: serverTimestamp(),
-            });
-        } catch (e) {
-            console.error(e);
-        }
+    const pulseHaptic = () => {
+        const now = Date.now();
+        if (now - lastHapticAtRef.current < 80) return;
+        lastHapticAtRef.current = now;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     };
 
-    const handleGrayscaleToggle = async (val: boolean) => {
-        if (!profile?.id) return;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        // Optimistic UI Update
+    const scheduleWallpaperPersist = (patch: {
+        wallpaper_mode?: 'stars' | 'custom' | 'shared';
+        wallpaper_grayscale?: boolean;
+        wallpaper_aesthetic?: AppSlice['wallpaperConfig']['aesthetic'];
+    }) => {
+        pendingWallpaperPatchRef.current = {
+            ...pendingWallpaperPatchRef.current,
+            ...patch,
+        };
+        if (wallpaperWriteTimerRef.current) {
+            clearTimeout(wallpaperWriteTimerRef.current);
+        }
+        wallpaperWriteTimerRef.current = setTimeout(async () => {
+            if (!profile?.id) {
+                wallpaperWriteTimerRef.current = null;
+                return;
+            }
+            const mergedPatch = pendingWallpaperPatchRef.current;
+            pendingWallpaperPatchRef.current = {};
+            wallpaperWriteTimerRef.current = null;
+            try {
+                await updateDoc(doc(db, 'users', profile.id), {
+                    ...mergedPatch,
+                    updated_at: serverTimestamp(),
+                });
+            } catch (e) {
+                console.error('[Settings] wallpaper persist failed', e);
+            }
+        }, WALLPAPER_REMOTE_SYNC_DELAY_MS);
+    };
+
+    const handleWallpaperChange = (mode: 'stars' | 'custom' | 'shared') => {
+        pulseHaptic();
+        setWallpaperConfig({ mode }); // instant visual feedback
+        scheduleWallpaperPersist({ wallpaper_mode: mode });
+    };
+
+    const handleGrayscaleToggle = (val: boolean) => {
+        pulseHaptic();
         setWallpaperConfig({ grayscale: val });
+        scheduleWallpaperPersist({ wallpaper_grayscale: val });
+    };
 
+    const handleAestheticChange = (aesthetic: AppSlice['wallpaperConfig']['aesthetic']) => {
+        pulseHaptic();
+        setWallpaperConfig({ aesthetic });
+        scheduleWallpaperPersist({ wallpaper_aesthetic: aesthetic });
+    };
+
+    const handlePickWallpaper = async () => {
         try {
-            await updateDoc(doc(db, 'users', profile.id), {
-                wallpaper_grayscale: val,
-                updated_at: serverTimestamp(),
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                allowsEditing: true,
+                aspect: [9, 16],
+                quality: 0.8,
             });
-        } catch (e) {
-            console.error(e);
+
+            if (!result.canceled && result.assets[0].uri) {
+                setSaving(true);
+                const uploadResult = await uploadWallpaper(result.assets[0].uri);
+                if (uploadResult.error) {
+                    Alert.alert("Upload Failed", uploadResult.error);
+                } else {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+            }
+        } catch (e: any) {
+            Alert.alert("Error", e.message || "Failed to pick image");
+        } finally {
+            setSaving(false);
         }
     };
 
-    const handleFilterChange = async (filter: 'Natural' | 'Glass' | 'Tint' | 'Pro') => {
-        if (!profile?.id) return;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        // Optimistic UI Update
-        setWallpaperConfig({ filter });
-
-        try {
-            await updateDoc(doc(db, 'users', profile.id), {
-                wallpaper_filter: filter,
-                updated_at: serverTimestamp(),
-            });
-        } catch (e) {
-            console.error(e);
-        }
+    const handleDeleteWallpaper = async () => {
+        Alert.alert("Reset Atmosphere", "Remove your custom wallpaper?", [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "Delete",
+                style: "destructive",
+                onPress: async () => {
+                    setSaving(true);
+                    const result = await deleteWallpaper();
+                    if (result.error) {
+                        Alert.alert("Error", result.error);
+                    } else {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    }
+                    setSaving(false);
+                }
+            }
+        ]);
     };
 
     const copyPairCode = () => {
         if (couple?.couple_code) {
             setCopied(true);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setTimeout(() => setCopied(false), 2000);
+            if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+            copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
         }
     };
+
+    useEffect(() => {
+        return () => {
+            if (copiedTimerRef.current) {
+                clearTimeout(copiedTimerRef.current);
+                copiedTimerRef.current = null;
+            }
+            if (wallpaperWriteTimerRef.current) {
+                clearTimeout(wallpaperWriteTimerRef.current);
+                wallpaperWriteTimerRef.current = null;
+            }
+        };
+    }, []);
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -171,7 +272,7 @@ export function SettingsScreen() {
                         <View style={styles.avatarSection}>
                             <View style={styles.avatarContainer}>
                                 <ProfileAvatar
-                                    url={getPublicStorageUrl(profile?.avatar_url, 'avatars')}
+                                    url={getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken)}
                                     fallbackText={profile?.display_name || 'U'}
                                     size={112}
                                 >
@@ -257,21 +358,23 @@ export function SettingsScreen() {
                             >
                                 {profile?.custom_wallpaper_url ? (
                                     <ExpoImage
-                                        source={{ uri: getPublicStorageUrl(profile.custom_wallpaper_url, 'avatars', idToken) || undefined }}
+                                        source={{ uri: getPublicStorageUrl(profile.custom_wallpaper_url, 'wallpapers', idToken) || undefined }}
                                         style={StyleSheet.absoluteFillObject}
                                         contentFit="cover"
-                                        transition={200}
+                                        transition={0} // Instant thumbnail
                                         cachePolicy="disk"
                                     />
                                 ) : (
                                     <>
                                         <CameraIcon size={24} color="rgba(255,255,255,0.4)" />
-                                        <Text style={styles.bgOptionLabel}>Custom</Text>
+                                        <Text style={styles.bgOptionLabel}>{saving && wallpaperConfig.mode === 'custom' ? '...' : 'Custom'}</Text>
                                     </>
                                 )}
                                 {profile?.custom_wallpaper_url && <View style={styles.bgOverlay} />}
                                 {profile?.custom_wallpaper_url && <Text style={[styles.bgOptionLabel, styles.bgOptionOverlayText]}>Custom</Text>}
                             </TouchableOpacity>
+
+                            {/* Shared/Mirror Option */}
                             <TouchableOpacity
                                 style={[styles.bgOption, wallpaperConfig.mode === 'shared' && styles.activeBg, { overflow: 'hidden', padding: 0 }, !partnerProfile?.custom_wallpaper_url && { opacity: 0.5 }]}
                                 onPress={() => handleWallpaperChange('shared')}
@@ -279,10 +382,10 @@ export function SettingsScreen() {
                             >
                                 {partnerProfile?.custom_wallpaper_url ? (
                                     <ExpoImage
-                                        source={{ uri: getPublicStorageUrl(partnerProfile.custom_wallpaper_url, 'avatars', idToken) || undefined }}
+                                        source={{ uri: getPublicStorageUrl(partnerProfile.custom_wallpaper_url, 'wallpapers', idToken) || undefined }}
                                         style={StyleSheet.absoluteFillObject}
                                         contentFit="cover"
-                                        transition={200}
+                                        transition={0} // Instant thumbnail
                                         cachePolicy="disk"
                                     />
                                 ) : (
@@ -295,6 +398,30 @@ export function SettingsScreen() {
                                 {partnerProfile?.custom_wallpaper_url && <Text style={[styles.bgOptionLabel, styles.bgOptionOverlayText]}>Mirror</Text>}
                             </TouchableOpacity>
                         </View>
+
+                        {wallpaperConfig.mode === 'custom' && (
+                            <View style={styles.customActions}>
+                                <TouchableOpacity
+                                    style={styles.actionButton}
+                                    onPress={handlePickWallpaper}
+                                    disabled={saving}
+                                >
+                                    <CameraIcon size={16} color="white" />
+                                    <Text style={styles.actionButtonText}>CHANGE IMAGE</Text>
+                                </TouchableOpacity>
+
+                                {profile?.custom_wallpaper_url && (
+                                    <TouchableOpacity
+                                        style={[styles.actionButton, styles.deleteButton]}
+                                        onPress={handleDeleteWallpaper}
+                                        disabled={saving}
+                                    >
+                                        <LogOut size={16} color={Colors.dark.rose[400]} />
+                                        <Text style={[styles.actionButtonText, { color: Colors.dark.rose[400] }]}>REMOVE</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        )}
 
                         <View style={styles.settingRow}>
                             <View style={styles.settingInfo}>
@@ -314,44 +441,27 @@ export function SettingsScreen() {
                             />
                         </View>
 
-                        {/* Lunara Mode Toggle */}
-                        <View style={styles.settingRow}>
-                            <View style={styles.settingInfo}>
-                                <View style={[styles.iconCircle, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
-                                    <Moon size={20} color="#a855f7" />
-                                </View>
-                                <View>
-                                    <Text style={styles.settingLabel}>Lunara Mode</Text>
-                                    <Text style={styles.settingSub}>Cycle & rhythm tracking theme</Text>
-                                </View>
-                            </View>
-                            <Switch
-                                trackColor={{ false: '#333', true: 'rgba(168,85,247,0.5)' }}
-                                thumbColor={appMode === 'lunara' ? '#a855f7' : '#f4f3f4'}
-                                value={appMode === 'lunara'}
-                                onValueChange={(val) => {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                    setAppMode(val ? 'lunara' : 'moon');
-                                }}
-                            />
-                        </View>
 
-                        <View style={styles.filterSection}>
-                            <Text style={styles.label}>AESTHETIC FILTERING</Text>
+
+                        <View style={[styles.filterSection, (wallpaperConfig.grayscale || wallpaperConfig.mode === 'stars') && { opacity: 0.3 }]} pointerEvents={(wallpaperConfig.grayscale || wallpaperConfig.mode === 'stars') ? 'none' : 'auto'}>
+                            <Text style={styles.label}>AESTHETIC CUSTOMIZATION</Text>
                             <View style={styles.filterGrid}>
                                 {[
-                                    { key: 'Natural', icon: Circle, color: Colors.dark.emerald[400] },
-                                    { key: 'Glass', icon: Wind, color: Colors.dark.indigo[400] },
-                                    { key: 'Tint', icon: Layers, color: Colors.dark.rose[400] },
-                                    { key: 'Pro', icon: Sparkles, color: Colors.dark.amber[400] },
+                                    { key: 'Natural', icon: Circle, color: '#fff', sub: 'Pure' },
+                                    { key: 'Glass', icon: Wind, color: Colors.dark.indigo[400], sub: 'Frosted' },
+                                    { key: 'Ethereal', icon: Layers, color: Colors.dark.rose[400], sub: 'Hazy' },
+                                    { key: 'Obsidian', icon: Moon, color: Colors.dark.amber[400], sub: 'Deep' },
+                                    { key: 'Solid', icon: Circle, color: '#f59e0b', sub: 'Lite' },
+                                    { key: 'Cinema', icon: Sparkles, color: '#A855F7', sub: 'Action' },
                                 ].map((item) => (
                                     <TouchableOpacity
                                         key={item.key}
-                                        style={[styles.filterButton, wallpaperConfig.filter === item.key && styles.activeFilter]}
-                                        onPress={() => handleFilterChange(item.key as any)}
+                                        style={[styles.filterButton, wallpaperConfig.aesthetic === item.key && styles.activeFilter]}
+                                        onPress={() => handleAestheticChange(item.key as any)}
                                     >
-                                        <item.icon size={20} color={wallpaperConfig.filter === item.key ? item.color : 'rgba(255,255,255,0.4)'} />
-                                        <Text style={[styles.filterText, wallpaperConfig.filter === item.key && { color: 'white' }]}>{item.key}</Text>
+                                        <item.icon size={20} color={wallpaperConfig.aesthetic === item.key ? item.color : 'rgba(255,255,255,0.4)'} />
+                                        <Text style={[styles.filterText, wallpaperConfig.aesthetic === item.key && { color: 'white' }]}>{item.key}</Text>
+                                        <Text style={styles.filterSubText}>{item.sub}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
@@ -385,12 +495,16 @@ export function SettingsScreen() {
             <Animated.ScrollView
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
+                nestedScrollEnabled={true}
                 contentContainerStyle={{
                     paddingTop: insets.top + Spacing.lg,
                     paddingBottom: 160
                 }}
             >
-                <Animated.Text style={[styles.headerTitle, titleAnimatedStyle]}>Settings</Animated.Text>
+                <View style={styles.standardHeader}>
+                    <Animated.Text style={[styles.standardTitle, titleAnimatedStyle]}>Settings</Animated.Text>
+                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>IDENTITY · SPACE</Animated.Text>
+                </View>
 
                 {/* Profile Card Summary */}
                 <View style={styles.profileSummaryCard}>
@@ -423,6 +537,7 @@ export function SettingsScreen() {
                                 style={styles.tabItem}
                                 onPress={() => {
                                     setActiveTab(tab.id);
+                                    setSettingsTargetTab(tab.id);
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                                 }}
                             >
@@ -473,15 +588,9 @@ const styles = StyleSheet.create({
         zIndex: 1000,
         pointerEvents: 'box-none',
     },
-    headerTitle: {
-        fontSize: 48,
-        fontFamily: Typography.serif,
-        color: Colors.dark.foreground,
-        letterSpacing: -1,
-        paddingHorizontal: Spacing.xl,
-        marginTop: 100, // Standardized for smooth morph
-        marginBottom: Spacing.sm,
-    },
+    standardHeader: GlobalStyles.standardHeader,
+    standardTitle: GlobalStyles.standardTitle,
+    standardSubtitle: GlobalStyles.standardSubtitle,
     profileSummaryCard: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -506,7 +615,7 @@ const styles = StyleSheet.create({
     },
     summarySub: {
         fontSize: 11,
-        fontWeight: 'bold',
+        fontFamily: Typography.sansBold,
         color: Colors.dark.rose[400],
         letterSpacing: 1,
         marginTop: 2,
@@ -581,8 +690,7 @@ const styles = StyleSheet.create({
     },
     label: {
         fontSize: 10,
-        fontFamily: Typography.serif,
-        fontStyle: 'italic',
+        fontFamily: Typography.serifItalic,
         color: 'rgba(255,255,255,0.4)',
         letterSpacing: 4,
         marginLeft: 4,
@@ -596,12 +704,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         color: 'white',
         fontSize: 16,
+        fontFamily: Typography.sans,
     },
     hint: {
         fontSize: 10,
         color: 'rgba(255,255,255,0.3)',
         marginLeft: 4,
-        fontStyle: 'italic',
+        fontFamily: Typography.serifItalic,
     },
     codeCard: {
         flexDirection: 'row',
@@ -637,7 +746,7 @@ const styles = StyleSheet.create({
     saveButtonText: {
         color: 'white',
         fontSize: 10,
-        fontWeight: '900',
+        fontFamily: Typography.sansBold,
         letterSpacing: 2,
     },
     sectionTitle: {
@@ -649,6 +758,7 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: 'rgba(255,255,255,0.4)',
         textTransform: 'uppercase',
+        fontFamily: Typography.sansBold,
         letterSpacing: 1,
         marginTop: 4,
     },
@@ -674,7 +784,7 @@ const styles = StyleSheet.create({
     },
     bgOptionLabel: {
         fontSize: 10,
-        fontWeight: 'bold',
+        fontFamily: Typography.sansBold,
         color: 'white',
         textTransform: 'uppercase',
     },
@@ -720,7 +830,7 @@ const styles = StyleSheet.create({
         fontSize: 9,
         color: 'rgba(255,255,255,0.3)',
         textTransform: 'uppercase',
-        fontStyle: 'italic',
+        fontFamily: Typography.sans,
         letterSpacing: 1,
     },
     filterSection: {
@@ -748,10 +858,45 @@ const styles = StyleSheet.create({
     },
     filterText: {
         fontSize: 8,
-        fontFamily: Typography.serif,
-        fontStyle: 'italic',
+        fontFamily: Typography.serifItalic,
         color: 'rgba(255,255,255,0.6)',
         textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    filterSubText: {
+        fontSize: 7,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.25)',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginTop: -4,
+    },
+    customActions: {
+        flexDirection: 'row',
+        gap: 12,
+        marginTop: Spacing.sm,
+        marginBottom: Spacing.sm,
+    },
+    actionButton: {
+        flex: 1,
+        flexDirection: 'row',
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+    },
+    deleteButton: {
+        borderColor: Colors.dark.rose[900] + '44',
+        backgroundColor: Colors.dark.rose[900] + '11',
+    },
+    actionButtonText: {
+        fontSize: 9,
+        fontFamily: Typography.sansBold,
+        color: 'white',
         letterSpacing: 1,
     },
     signOutButton: {
@@ -770,14 +915,13 @@ const styles = StyleSheet.create({
     signOutText: {
         color: Colors.dark.rose[400],
         fontSize: 10,
-        fontWeight: '900',
+        fontFamily: Typography.sansBold,
         letterSpacing: 2,
     },
     placeholderText: {
         color: 'rgba(255,255,255,0.2)',
         textAlign: 'center',
         marginTop: 40,
-        fontFamily: Typography.serif,
-        fontStyle: 'italic',
+        fontFamily: Typography.serifItalic,
     }
 });
