@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-nati
 import * as Haptics from 'expo-haptics';
 import { Colors, Radius, Typography, Spacing } from '../constants/Theme';
 import { Delete, Fingerprint } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
@@ -12,29 +13,31 @@ import Animated, {
 } from 'react-native-reanimated';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const KEY_SIZE = SCREEN_WIDTH * 0.2;
+const KEY_SIZE = Math.min(88, SCREEN_WIDTH * 0.21);
 
 interface SecurityKeyboardProps {
     onKeyPress: (key: string) => void;
     onDelete: () => void;
     onBiometricPress?: () => void;
     showBiometric?: boolean;
+    showDelete?: boolean;
 }
 
 export const SecurityKeyboard: React.FC<SecurityKeyboardProps> = ({
     onKeyPress,
     onDelete,
     onBiometricPress,
-    showBiometric
+    showBiometric,
+    showDelete = true
 }) => {
 
-    const renderKey = (val: string | number | React.ReactNode, onPress: () => void, isSpecial = false) => {
+    const renderKey = (val: string | number | React.ReactNode, onPress: () => void, keyId: string, isSpecial = false) => {
         return (
             <KeyButton
                 val={val}
                 onPress={onPress}
                 isSpecial={isSpecial}
-                key={typeof val === 'string' || typeof val === 'number' ? String(val) : Math.random().toString()}
+                key={keyId}
             />
         );
     };
@@ -42,28 +45,30 @@ export const SecurityKeyboard: React.FC<SecurityKeyboardProps> = ({
     return (
         <View style={styles.container}>
             <View style={styles.row}>
-                {renderKey(1, () => onKeyPress('1'))}
-                {renderKey(2, () => onKeyPress('2'))}
-                {renderKey(3, () => onKeyPress('3'))}
+                {renderKey(1, () => onKeyPress('1'), 'k1')}
+                {renderKey(2, () => onKeyPress('2'), 'k2')}
+                {renderKey(3, () => onKeyPress('3'), 'k3')}
             </View>
             <View style={styles.row}>
-                {renderKey(4, () => onKeyPress('4'))}
-                {renderKey(5, () => onKeyPress('5'))}
-                {renderKey(6, () => onKeyPress('6'))}
+                {renderKey(4, () => onKeyPress('4'), 'k4')}
+                {renderKey(5, () => onKeyPress('5'), 'k5')}
+                {renderKey(6, () => onKeyPress('6'), 'k6')}
             </View>
             <View style={styles.row}>
-                {renderKey(7, () => onKeyPress('7'))}
-                {renderKey(8, () => onKeyPress('8'))}
-                {renderKey(9, () => onKeyPress('9'))}
+                {renderKey(7, () => onKeyPress('7'), 'k7')}
+                {renderKey(8, () => onKeyPress('8'), 'k8')}
+                {renderKey(9, () => onKeyPress('9'), 'k9')}
             </View>
             <View style={styles.row}>
                 {showBiometric ? (
-                    renderKey(<Fingerprint size={28} color="white" />, onBiometricPress || (() => { }), true)
+                    renderKey(<Fingerprint size={26} color="rgba(255,255,255,0.92)" />, onBiometricPress || (() => { }), 'bio', true)
                 ) : (
                     <View style={styles.emptyKey} />
                 )}
-                {renderKey(0, () => onKeyPress('0'))}
-                {renderKey(<Delete size={28} color="white" />, onDelete, true)}
+                {renderKey(0, () => onKeyPress('0'), 'k0')}
+                {showDelete
+                    ? renderKey(<Delete size={24} color="rgba(255,255,255,0.92)" />, onDelete, 'del', true)
+                    : <View style={styles.emptyKey} />}
             </View>
         </View>
     );
@@ -71,17 +76,17 @@ export const SecurityKeyboard: React.FC<SecurityKeyboardProps> = ({
 
 const KeyButton = ({ val, onPress, isSpecial }: { val: any, onPress: () => void, isSpecial?: boolean }) => {
     const scale = useSharedValue(1);
-    const opacity = useSharedValue(0.1);
+    const glowOpacity = useSharedValue(0.08);
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ scale: scale.value }],
-        backgroundColor: `rgba(255, 255, 255, ${opacity.value})`
+        shadowOpacity: glowOpacity.value + 0.1,
     }));
 
     const handlePress = () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        scale.value = withSequence(withSpring(0.9), withSpring(1));
-        opacity.value = withSequence(withTiming(0.3, { duration: 100 }), withTiming(0.1, { duration: 200 }));
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        scale.value = withSequence(withTiming(0.93, { duration: 80 }), withSpring(1, { damping: 12, stiffness: 180 }));
+        glowOpacity.value = withSequence(withTiming(0.34, { duration: 100 }), withTiming(0.08, { duration: 250 }));
         onPress();
     };
 
@@ -91,7 +96,17 @@ const KeyButton = ({ val, onPress, isSpecial }: { val: any, onPress: () => void,
             onPress={handlePress}
             style={styles.keyWrapper}
         >
-            <Animated.View style={[styles.key, animatedStyle, isSpecial && styles.specialKey]}>
+            <Animated.View style={[styles.key, animatedStyle]}>
+                <LinearGradient
+                    colors={
+                        isSpecial
+                            ? ['rgba(255,255,255,0.24)', 'rgba(255,255,255,0.10)', 'rgba(255,255,255,0.03)']
+                            : ['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.02)']
+                    }
+                    start={{ x: 0.2, y: 0 }}
+                    end={{ x: 0.8, y: 1 }}
+                    style={styles.keyGradient}
+                />
                 {typeof val === 'string' || typeof val === 'number' ? (
                     <Text style={styles.keyText}>{val}</Text>
                 ) : (
@@ -106,7 +121,7 @@ const styles = StyleSheet.create({
     container: {
         width: '100%',
         paddingHorizontal: 20,
-        gap: 20,
+        gap: 14,
     },
     row: {
         flexDirection: 'row',
@@ -126,18 +141,24 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
+        borderColor: 'rgba(255,255,255,0.16)',
+        backgroundColor: 'rgba(255,255,255,0.02)',
+        overflow: 'hidden',
+        shadowColor: '#ffffff',
+        shadowOffset: { width: 0, height: 0 },
+        shadowRadius: 14,
     },
-    specialKey: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
+    keyGradient: {
+        ...StyleSheet.absoluteFillObject,
     },
     emptyKey: {
         width: KEY_SIZE,
         height: KEY_SIZE,
     },
     keyText: {
-        fontSize: 32,
+        fontSize: 40,
         fontFamily: Typography.serifBold,
-        color: 'white',
+        color: 'rgba(255,255,255,0.94)',
+        includeFontPadding: false,
     },
 });

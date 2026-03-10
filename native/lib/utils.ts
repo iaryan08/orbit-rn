@@ -1,6 +1,25 @@
 export const getPartnerName = (profile: any, partnerProfile: any) => {
-    if (profile?.partner_nickname) return profile.partner_nickname;
-    if (partnerProfile?.display_name) return partnerProfile.display_name.split(' ')[0];
+    const nickname = profile?.partner_nickname;
+    if (typeof nickname === 'string' && nickname.trim()) return nickname.trim();
+
+    const raw =
+        partnerProfile?.display_name ||
+        partnerProfile?.displayName ||
+        partnerProfile?.name ||
+        partnerProfile?.nickname ||
+        partnerProfile?.first_name ||
+        (partnerProfile?.first_name && partnerProfile?.last_name ? `${partnerProfile.first_name} ${partnerProfile.last_name}` : '') ||
+        (partnerProfile?.firstName && partnerProfile?.lastName ? `${partnerProfile.firstName} ${partnerProfile.lastName}` : '') ||
+        partnerProfile?.full_name ||
+        partnerProfile?.username ||
+        '';
+    if (typeof raw === 'string' && raw.trim()) return raw.trim().split(' ')[0];
+
+    const email = partnerProfile?.email;
+    if (typeof email === 'string' && email.includes('@')) {
+        return email.split('@')[0];
+    }
+
     return 'Partner';
 };
 

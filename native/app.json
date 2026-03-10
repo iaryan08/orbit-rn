@@ -12,6 +12,12 @@
       "backgroundColor": "#000000"
     },
     "scheme": "orbit",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8dba604e-7f8f-4bf1-bd84-e70058ab1e45"
+    },
     "ios": {
       "supportsTablet": true
     },

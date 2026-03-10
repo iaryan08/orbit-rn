@@ -415,6 +415,7 @@ export async function submitPolaroid(imageUrl: string, caption?: string) {
             image_url: imageUrl,
             caption: caption || 'A moment shared',
             created_at: serverTimestamp(),
+            updated_at: serverTimestamp(),
             polaroid_date: today
         };
 

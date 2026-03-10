@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Switch, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Switch, Alert, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
 import {
@@ -12,7 +12,7 @@ import { GlassCard } from '../../components/GlassCard';
 import { auth, db, rtdb } from '../../lib/firebase';
 import { signOut } from 'firebase/auth';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, update } from 'firebase/database';
+import { ref, update, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { useRouter } from 'expo-router';
 import Animated, { useSharedValue, useAnimatedScrollHandler, FadeIn, FadeOut, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -51,6 +51,10 @@ export function SettingsScreen() {
         setDebugApiUrl,
         isAppLockEnabled,
         setAppLockEnabled,
+        isBiometricEnabled,
+        setBiometricEnabled,
+        appPinCode,
+        setAppPinCode,
         memories,
         polaroids,
         syncNow
@@ -98,6 +102,9 @@ export function SettingsScreen() {
     const [coupleName, setCoupleName] = useState(couple?.couple_name || "");
     const [anniversaryDate, setAnniversaryDate] = useState(couple?.anniversary_date || "");
     const [debugUrlInput, setDebugUrlInput] = useState(debugApiUrl || "");
+    const [isPinModalVisible, setIsPinModalVisible] = useState(false);
+    const [pinInput, setPinInput] = useState('');
+    const [pinConfirmInput, setPinConfirmInput] = useState('');
 
     // APP & DATA (longevity) stats
     const [stats, setStats] = useState<{ totalItems: number, mirroredItems: number, coverage: number, isSafe: boolean } | null>(null);
@@ -151,7 +158,7 @@ export function SettingsScreen() {
                             await update(presenceRef, {
                                 is_online: false,
                                 in_cinema: null,
-                                last_changed: Date.now()
+                                last_changed: rtdbServerTimestamp()
                             });
                         }
                         const { logout } = useOrbitStore.getState();
@@ -257,6 +264,22 @@ export function SettingsScreen() {
         pulseHaptic();
         setWallpaperConfig({ aesthetic });
         scheduleWallpaperPersist({ wallpaper_aesthetic: aesthetic });
+    };
+
+    const validateAndSavePin = () => {
+        if (!/^\d{4}$/.test(pinInput)) {
+            Alert.alert('Invalid PIN', 'PIN must be exactly 4 digits.');
+            return;
+        }
+        if (pinInput !== pinConfirmInput) {
+            Alert.alert('PIN mismatch', 'Both PIN fields must match.');
+            return;
+        }
+        setAppPinCode(pinInput);
+        setPinInput('');
+        setPinConfirmInput('');
+        setIsPinModalVisible(false);
+        Alert.alert('PIN saved', 'App lock PIN updated.');
     };
 
     const handlePickWallpaper = async () => {
@@ -549,7 +572,7 @@ export function SettingsScreen() {
                                 </View>
                             </View>
                             <Switch
-                                trackColor={{ false: '#333', true: Colors.dark.rose[600] }}
+                                trackColor={{ false: '#333', true: Colors.dark.rose[900] }}
                                 thumbColor={wallpaperConfig.grayscale ? Colors.dark.rose[400] : '#f4f3f4'}
                                 value={wallpaperConfig.grayscale}
                                 onValueChange={handleGrayscaleToggle}
@@ -694,14 +717,18 @@ export function SettingsScreen() {
                                     </View>
                                 </View>
                                 <Switch
-                                    trackColor={{ false: '#333', true: Colors.dark.rose[600] }}
+                                    trackColor={{ false: '#333', true: Colors.dark.rose[900] }}
                                     thumbColor={isAppLockEnabled ? Colors.dark.rose[400] : '#f4f3f4'}
                                     value={isAppLockEnabled}
                                     onValueChange={async (val) => {
                                         if (val) {
+                                            if (!appPinCode) {
+                                                setIsPinModalVisible(true);
+                                                return;
+                                            }
                                             try {
                                                 if (typeof LocalAuthentication.authenticateAsync !== 'function') {
-                                                    Alert.alert("Notice", "Biometrics not available on this device.");
+                                                    setAppLockEnabled(true);
                                                     return;
                                                 }
                                                 const result = await LocalAuthentication.authenticateAsync({
@@ -724,9 +751,55 @@ export function SettingsScreen() {
 
                             <View style={styles.protectionDivider} />
 
-                            <View style={styles.protectionBenefit}>
-                                <Lock size={12} color="rgba(255,255,255,0.3)" />
-                                <Text style={styles.protectionBenefitText}>End-to-End Encryption Architecture Enabled</Text>
+                            <View style={styles.settingRow}>
+                                <View style={styles.settingInfo}>
+                                    <View style={[styles.iconCircle, { backgroundColor: appPinCode ? 'rgba(244,114,182,0.18)' : 'rgba(255,255,255,0.05)' }]}>
+                                        <Lock size={20} color={appPinCode ? Colors.dark.rose[400] : 'white'} />
+                                    </View>
+                                    <View style={{ flex: 1, marginRight: 12 }}>
+                                        <Text style={styles.settingLabel}>PIN Code</Text>
+                                        <Text style={styles.settingSub}>{appPinCode ? 'PIN is configured' : 'Set 4-digit PIN for unlock fallback'}</Text>
+                                    </View>
+                                </View>
+                                <TouchableOpacity style={styles.pinSetBtn} onPress={() => setIsPinModalVisible(true)}>
+                                    <Text style={styles.pinSetBtnText}>{appPinCode ? 'UPDATE' : 'SET'}</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={styles.protectionDivider} />
+
+                            <View style={styles.settingRow}>
+                                <View style={styles.settingInfo}>
+                                    <View style={[styles.iconCircle, { backgroundColor: isBiometricEnabled ? 'rgba(129,140,248,0.18)' : 'rgba(255,255,255,0.05)' }]}>
+                                        <ShieldCheck size={20} color={isBiometricEnabled ? Colors.dark.indigo[400] : 'white'} />
+                                    </View>
+                                    <View style={{ flex: 1, marginRight: 12 }}>
+                                        <Text style={styles.settingLabel}>Biometric Unlock</Text>
+                                        <Text style={styles.settingSub}>Face/Fingerprint in addition to PIN</Text>
+                                    </View>
+                                </View>
+                                <Switch
+                                    trackColor={{ false: '#333', true: Colors.dark.indigo[900] }}
+                                    thumbColor={isBiometricEnabled ? Colors.dark.indigo[400] : '#f4f3f4'}
+                                    value={isBiometricEnabled}
+                                    onValueChange={async (val) => {
+                                        if (val) {
+                                            try {
+                                                const hasHw = await LocalAuthentication.hasHardwareAsync();
+                                                const enrolled = await LocalAuthentication.isEnrolledAsync();
+                                                if (!hasHw || !enrolled) {
+                                                    Alert.alert('Unavailable', 'No biometric hardware or biometric is not enrolled on this device.');
+                                                    return;
+                                                }
+                                                setBiometricEnabled(true);
+                                            } catch (e) {
+                                                console.error(e);
+                                            }
+                                        } else {
+                                            setBiometricEnabled(false);
+                                        }
+                                    }}
+                                />
                             </View>
                         </GlassCard>
 
@@ -852,6 +925,58 @@ export function SettingsScreen() {
                     <Text style={styles.signOutText}>Sign Out</Text>
                 </TouchableOpacity>
             </Animated.ScrollView>
+
+            <Modal
+                visible={isPinModalVisible}
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                onRequestClose={() => setIsPinModalVisible(false)}
+            >
+                <View style={styles.pinModalOverlay}>
+                    <GlassCard style={styles.pinModalCard} intensity={16}>
+                        <Text style={styles.pinModalTitle}>Set App Lock PIN</Text>
+                        <Text style={styles.pinModalSub}>Use a 4-digit PIN for app unlock fallback.</Text>
+
+                        <TextInput
+                            style={styles.pinInput}
+                            value={pinInput}
+                            onChangeText={(t) => setPinInput(t.replace(/\D/g, '').slice(0, 4))}
+                            keyboardType="number-pad"
+                            secureTextEntry
+                            placeholder="Enter 4-digit PIN"
+                            placeholderTextColor="rgba(255,255,255,0.35)"
+                            maxLength={4}
+                        />
+                        <TextInput
+                            style={styles.pinInput}
+                            value={pinConfirmInput}
+                            onChangeText={(t) => setPinConfirmInput(t.replace(/\D/g, '').slice(0, 4))}
+                            keyboardType="number-pad"
+                            secureTextEntry
+                            placeholder="Confirm PIN"
+                            placeholderTextColor="rgba(255,255,255,0.35)"
+                            maxLength={4}
+                        />
+
+                        <View style={styles.pinActions}>
+                            <TouchableOpacity
+                                style={[styles.pinActionBtn, styles.pinCancelBtn]}
+                                onPress={() => {
+                                    setIsPinModalVisible(false);
+                                    setPinInput('');
+                                    setPinConfirmInput('');
+                                }}
+                            >
+                                <Text style={styles.pinCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.pinActionBtn, styles.pinSaveBtn]} onPress={validateAndSavePin}>
+                                <Text style={styles.pinSaveText}>Save PIN</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </GlassCard>
+                </View>
+            </Modal>
         </KeyboardAvoidingView>
     );
 }
@@ -1092,6 +1217,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 16,
+        flex: 1,
+        minWidth: 0,
     },
     iconCircle: {
         width: 40,
@@ -1199,12 +1326,12 @@ const styles = StyleSheet.create({
         letterSpacing: 2,
     },
     premiumBadge: {
-        backgroundColor: Colors.dark.rose[600] + '33',
+        backgroundColor: Colors.dark.rose[900] + '33',
         paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: 4,
         borderWidth: 1,
-        borderColor: Colors.dark.rose[600] + '55',
+        borderColor: Colors.dark.rose[900] + '55',
         marginLeft: 8,
     },
     premiumBadgeText: {
@@ -1227,6 +1354,20 @@ const styles = StyleSheet.create({
         height: 1,
         backgroundColor: 'rgba(255,255,255,0.04)',
         marginHorizontal: 20,
+    },
+    pinSetBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.16)',
+    },
+    pinSetBtnText: {
+        color: 'white',
+        fontSize: 10,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 1,
     },
     protectionBenefit: {
         flexDirection: 'row',
@@ -1266,6 +1407,74 @@ const styles = StyleSheet.create({
         fontFamily: Typography.serifItalic,
         lineHeight: 18,
         textAlign: 'center',
+    },
+    pinModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.65)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+    },
+    pinModalCard: {
+        width: '100%',
+        maxWidth: 420,
+        borderRadius: 24,
+        padding: 20,
+        gap: 12,
+    },
+    pinModalTitle: {
+        color: 'white',
+        fontSize: 22,
+        fontFamily: Typography.serifBold,
+    },
+    pinModalSub: {
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 12,
+        fontFamily: Typography.sans,
+        marginBottom: 6,
+    },
+    pinInput: {
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(255,255,255,0.14)',
+        borderWidth: 1,
+        borderRadius: 16,
+        height: 50,
+        paddingHorizontal: 16,
+        color: 'white',
+        fontSize: 18,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 3,
+    },
+    pinActions: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 8,
+    },
+    pinActionBtn: {
+        flex: 1,
+        height: 46,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+    },
+    pinCancelBtn: {
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderColor: 'rgba(255,255,255,0.12)',
+    },
+    pinSaveBtn: {
+        backgroundColor: Colors.dark.rose[900],
+        borderColor: Colors.dark.rose[400],
+    },
+    pinCancelText: {
+        color: 'rgba(255,255,255,0.8)',
+        fontSize: 13,
+        fontFamily: Typography.sansBold,
+    },
+    pinSaveText: {
+        color: 'white',
+        fontSize: 13,
+        fontFamily: Typography.sansBold,
     },
     placeholderText: {
         color: 'rgba(255,255,255,0.2)',
@@ -1377,3 +1586,4 @@ const styles = StyleSheet.create({
         marginTop: 2,
     }
 });
+

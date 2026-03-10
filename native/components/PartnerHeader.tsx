@@ -11,6 +11,7 @@ import { ref, onValue, set } from 'firebase/database';
 import { MarqueeText } from './DashboardWidgets';
 import { useState } from 'react';
 import * as Haptics from 'expo-haptics';
+import { getPartnerName } from '../lib/utils';
 
 interface PartnerHeaderProps {
     profile: any;
@@ -20,6 +21,7 @@ interface PartnerHeaderProps {
 
 export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHeaderProps) {
     const { sendHeartbeatOptimistic, idToken } = useOrbitStore();
+    const resolvedPartnerName = getPartnerName(profile, partnerProfile);
     const pulseAnim = useRef(new Animated.Value(1)).current;
     const [isPartnerActive, setIsPartnerActive] = useState(false);
     const [serverOffset, setServerOffset] = useState(0);
@@ -150,7 +152,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
                     <Text style={styles.connectedText}>Connected With • </Text>
                     <View style={{ flex: 1, minHeight: 28, justifyContent: 'center' }}>
                         <MarqueeText style={styles.partnerName}>
-                            {partnerProfile?.display_name || 'Partner'}
+                            {resolvedPartnerName}
                         </MarqueeText>
                     </View>
                 </View>

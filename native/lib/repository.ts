@@ -77,10 +77,11 @@ class Repository {
 
             // Standardize on updated_at for pure delta sync.
             // If lastSync is 0, we pull the 50 most recent items to avoid a massive 10MBPS blast.
+            const deltaField = name === 'polaroids' ? 'created_at' : 'updated_at';
             const q = query(
                 ref,
-                where('updated_at', '>', Timestamp.fromMillis(lastSync)),
-                orderBy('updated_at', 'asc'),
+                where(deltaField, '>', Timestamp.fromMillis(lastSync)),
+                orderBy(deltaField, 'asc'),
                 limit(lastSync === 0 ? 50 : 100)
             );
 
@@ -91,7 +92,10 @@ class Repository {
             let maxUpdatedAt = lastSync;
             for (const doc of snap.docs) {
                 const data = doc.data();
-                const updatedAt = data.updated_at?.toMillis() || Date.now();
+                const updatedAt =
+                    data.updated_at?.toMillis?.() ||
+                    data.created_at?.toMillis?.() ||
+                    Date.now();
                 if (updatedAt > maxUpdatedAt) maxUpdatedAt = updatedAt;
 
                 // Best-in-Class: Deeply sanitize data for SQLite
@@ -217,6 +221,24 @@ class Repository {
 
     async getPolaroids() {
         return db_local.select().from(polaroids).where(sql`${polaroids.deleted} IS NOT 1`).orderBy(sql`${polaroids.created_at} DESC`).all();
+    }
+
+    async savePolaroidLocal(polaroid: any) {
+        const payload: any = {
+            id: polaroid.id,
+            image_url: polaroid.image_url || null,
+            caption: polaroid.caption || null,
+            polaroid_date: polaroid.polaroid_date || null,
+            user_id: polaroid.user_id || null,
+            created_at: polaroid.created_at || Date.now(),
+            updated_at: Date.now(),
+            deleted: 0,
+        };
+
+        await db_local.insert(polaroids).values(payload).onConflictDoUpdate({
+            target: polaroids.id,
+            set: payload,
+        });
     }
 
     async deleteMemory(id: string) {

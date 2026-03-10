@@ -1,77 +1,110 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, AppState, AppStateStatus } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, AppState, AppStateStatus, PanResponder } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { BlurView } from 'expo-blur';
-import { ShieldCheck, Lock, Fingerprint } from 'lucide-react-native';
-import { Colors, Typography, Animations } from '../constants/Theme';
-import { useOrbitStore } from '../lib/store';
 import * as Haptics from 'expo-haptics';
+import Animated, {
+    useSharedValue,
+    useAnimatedStyle,
+    withSequence,
+    withTiming,
+    withSpring,
+    FadeIn,
+    FadeOut,
+} from 'react-native-reanimated';
+import { Fingerprint, Lock } from 'lucide-react-native';
+import { Colors, Typography } from '../constants/Theme';
+import { useOrbitStore } from '../lib/store';
+import { SecurityKeyboard } from './SecurityKeyboard';
 
 export function AppLockOverlay() {
     const isAppLockEnabled = useOrbitStore(state => state.isAppLockEnabled);
+    const isBiometricEnabled = useOrbitStore(state => state.isBiometricEnabled);
+    const appPinCode = useOrbitStore(state => state.appPinCode);
+
     const [isLocked, setIsLocked] = useState(false);
     const [isAuthenticating, setIsAuthenticating] = useState(false);
-    const fadeAnim = React.useRef(new Animated.Value(0)).current;
+    const [pin, setPin] = useState('');
+    const [pinError, setPinError] = useState(false);
+    const [swipeHintVisible, setSwipeHintVisible] = useState(true);
+    const hasPin = !!appPinCode;
+    const canBiometric = isBiometricEnabled;
 
-    const authenticate = async () => {
+    const shake = useSharedValue(0);
+
+    const shakeStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: shake.value }],
+    }));
+
+    const unlock = () => {
+        setPin('');
+        setPinError(false);
+        setIsLocked(false);
+    };
+
+    const lock = () => {
+        setPin('');
+        setPinError(false);
+        setIsLocked(true);
+    };
+
+    const triggerError = () => {
+        setPinError(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        shake.value = withSequence(
+            withTiming(-10, { duration: 50 }),
+            withTiming(10, { duration: 50 }),
+            withTiming(-8, { duration: 50 }),
+            withTiming(8, { duration: 50 }),
+            withSpring(0)
+        );
+        setTimeout(() => {
+            setPin('');
+            setPinError(false);
+        }, 500);
+    };
+
+    const authenticateBiometric = async () => {
         if (isAuthenticating) return;
         setIsAuthenticating(true);
-
         try {
-            // Safety: Check if the native module even loaded
-            if (typeof LocalAuthentication.hasHardwareAsync !== 'function') {
-                console.warn('[AppLock] Native module ExpoLocalAuthentication not found. Skipping biometric auth.');
-                unlock();
-                return;
-            }
-
             const hasHardware = await LocalAuthentication.hasHardwareAsync();
             const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-
-            if (!hasHardware || !isEnrolled) {
-                // If they enabled it but don't have it anymore (unlikely but safe)
-                setIsLocked(false);
-                return;
-            }
+            if (!hasHardware || !isEnrolled) return;
 
             const result = await LocalAuthentication.authenticateAsync({
-                promptMessage: 'Unlock Orbit Space',
-                fallbackLabel: 'Enter Passcode',
+                promptMessage: 'Unlock Orbit',
+                fallbackLabel: 'Use PIN',
                 disableDeviceFallback: false,
                 cancelLabel: 'Cancel',
             });
-
             if (result.success) {
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 unlock();
-            } else {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             }
         } catch (e) {
-            console.error('[AppLock] Auth error:', e);
+            console.error('[AppLock] Biometric auth error:', e);
         } finally {
             setIsAuthenticating(false);
         }
     };
 
-    const unlock = () => {
-        Animated.timing(fadeAnim, {
-            toValue: 0,
-            duration: 400,
-            useNativeDriver: true,
-        }).start(() => setIsLocked(false));
+    const onPinPress = (digit: string) => {
+        if (!isLocked || pin.length >= 4) return;
+        const next = `${pin}${digit}`;
+        setPin(next);
+        if (next.length === 4) {
+            if (appPinCode && next === appPinCode) {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                unlock();
+            } else {
+                triggerError();
+            }
+        }
     };
 
-    const lock = () => {
-        setIsLocked(true);
-        Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-        }).start(() => {
-            // Auto-trigger auth when locked
-            authenticate();
-        });
+    const onDelete = () => {
+        if (!isLocked) return;
+        setPin(prev => prev.slice(0, -1));
     };
 
     useEffect(() => {
@@ -80,64 +113,103 @@ export function AppLockOverlay() {
             return;
         }
 
-        const handleAppStateChange = (nextAppState: AppStateStatus) => {
-            if (nextAppState === 'active' && isAppLockEnabled) {
-                // Small delay to ensure UI is ready
-                setTimeout(() => {
-                    if (!isLocked) lock();
-                }, 100);
-            } else if (nextAppState === 'background' || nextAppState === 'inactive') {
-                // Optional: Instant relock when backgrounded
-                // setIsLocked(true);
-                // fadeAnim.setValue(1);
+        const onState = (next: AppStateStatus) => {
+            if (next === 'active' && isAppLockEnabled) {
+                lock();
             }
         };
 
-        const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-        // Initial lock check
-        if (isAppLockEnabled) {
-            lock();
-        }
-
-        return () => {
-            subscription.remove();
-        };
+        const sub = AppState.addEventListener('change', onState);
+        // Initial launch lock
+        lock();
+        return () => sub.remove();
     }, [isAppLockEnabled]);
+
+    useEffect(() => {
+        if (!isLocked) return;
+        if (isBiometricEnabled) authenticateBiometric();
+    }, [isLocked, isBiometricEnabled]);
+
+    useEffect(() => {
+        if (!isLocked) return;
+        const t = setTimeout(() => setSwipeHintVisible(false), 3500);
+        return () => clearTimeout(t);
+    }, [isLocked]);
+
+    const swipeUpResponder = useMemo(
+        () =>
+            PanResponder.create({
+                onMoveShouldSetPanResponder: (_, gesture) => {
+                    if (!canBiometric) return false;
+                    return Math.abs(gesture.dy) > Math.abs(gesture.dx) && gesture.dy < -10;
+                },
+                onPanResponderRelease: (_, gesture) => {
+                    if (!canBiometric) return;
+                    const fastUp = gesture.vy < -0.35;
+                    const longUp = gesture.dy < -48;
+                    if (fastUp || longUp) {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        authenticateBiometric();
+                    }
+                },
+            }),
+        [canBiometric]
+    );
 
     if (!isLocked) return null;
 
     return (
-        <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-            <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-
+        <Animated.View
+            entering={FadeIn.duration(220)}
+            exiting={FadeOut.duration(200)}
+            style={styles.container}
+            {...swipeUpResponder.panHandlers}
+        >
             <View style={styles.content}>
-                <View style={styles.iconContainer}>
-                    <View style={styles.orbitRing}>
-                        <Lock size={32} color="white" />
+                <View style={styles.header}>
+                    <View style={styles.iconShell}>
+                        <Lock size={30} color={pinError ? Colors.dark.rose[400] : 'rgba(255,255,255,0.95)'} />
                     </View>
-                </View>
-
-                <View style={styles.textContainer}>
-                    <Text style={styles.title}>Space Locked</Text>
-                    <Text style={styles.subtitle}>Unlock your private orbit to continue</Text>
-                </View>
-
-                <TouchableOpacity
-                    style={styles.unlockButton}
-                    onPress={authenticate}
-                    disabled={isAuthenticating}
-                >
-                    <Fingerprint size={20} color="white" />
-                    <Text style={styles.unlockButtonText}>
-                        {isAuthenticating ? 'AUTHENTICATING...' : 'TOUCH TO UNLOCK'}
+                    <Text style={styles.title}>App Locked</Text>
+                    <Text style={styles.subtitle}>
+                        {hasPin ? 'Enter PIN to unlock your space' : 'Use biometric to continue'}
                     </Text>
-                </TouchableOpacity>
-
-                <View style={styles.footer}>
-                    <ShieldCheck size={14} color="rgba(255,255,255,0.3)" />
-                    <Text style={styles.footerText}>Biometric Encryption Active</Text>
                 </View>
+
+                <Animated.View style={[styles.dotsRow, shakeStyle]}>
+                    {[0, 1, 2, 3].map(i => (
+                        <View
+                            key={i}
+                            style={[
+                                styles.dot,
+                                pin.length > i && styles.dotFilled,
+                                pinError && styles.dotError,
+                            ]}
+                        />
+                    ))}
+                </Animated.View>
+
+                {hasPin && (
+                    <View style={styles.keyboardWrap}>
+                        <SecurityKeyboard
+                            onKeyPress={onPinPress}
+                            onDelete={onDelete}
+                            onBiometricPress={canBiometric ? authenticateBiometric : undefined}
+                            showBiometric={canBiometric}
+                            showDelete={pin.length > 0}
+                        />
+                    </View>
+                )}
+
+                {!hasPin && canBiometric && (
+                    <TouchableOpacity style={styles.biometricBtn} onPress={authenticateBiometric} disabled={isAuthenticating}>
+                        <Fingerprint size={18} color="white" />
+                        <Text style={styles.biometricBtnText}>{isAuthenticating ? 'AUTHENTICATING...' : 'UNLOCK WITH BIOMETRIC'}</Text>
+                    </TouchableOpacity>
+                )}
+                {canBiometric && swipeHintVisible && (
+                    <Text style={styles.swipeHintText}>Swipe up for fingerprint unlock</Text>
+                )}
             </View>
         </Animated.View>
     );
@@ -147,69 +219,90 @@ const styles = StyleSheet.create({
     container: {
         ...StyleSheet.absoluteFillObject,
         zIndex: 999999,
+        backgroundColor: '#000000',
         justifyContent: 'center',
         alignItems: 'center',
     },
     content: {
         width: '100%',
+        paddingHorizontal: 24,
         alignItems: 'center',
-        paddingHorizontal: 40,
     },
-    iconContainer: {
-        marginBottom: 32,
-    },
-    orbitRing: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.15)',
+    header: {
         alignItems: 'center',
-        justifyContent: 'center',
+        marginBottom: 28,
+    },
+    iconShell: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
         backgroundColor: 'rgba(255,255,255,0.05)',
-    },
-    textContainer: {
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.16)',
+        justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 48,
+        marginBottom: 14,
     },
     title: {
         color: 'white',
-        fontSize: 24,
+        fontSize: 30,
         fontFamily: Typography.serifBold,
-        marginBottom: 8,
+        letterSpacing: -0.4,
     },
     subtitle: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 14,
-        fontFamily: Typography.sans,
-        textAlign: 'center',
-    },
-    unlockButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        paddingHorizontal: 28,
-        paddingVertical: 16,
-        borderRadius: 30,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-    },
-    unlockButtonText: {
-        color: 'white',
+        marginTop: 6,
+        color: 'rgba(255,255,255,0.5)',
         fontSize: 12,
         fontFamily: Typography.sansBold,
-        letterSpacing: 2,
+        letterSpacing: 1.2,
+        textTransform: 'uppercase',
     },
-    footer: {
-        position: 'absolute',
-        bottom: -150,
+    dotsRow: {
+        flexDirection: 'row',
+        gap: 16,
+        marginBottom: 24,
+    },
+    dot: {
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.4)',
+        backgroundColor: 'transparent',
+    },
+    dotFilled: {
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        borderColor: 'rgba(255,255,255,0.95)',
+    },
+    dotError: {
+        borderColor: Colors.dark.rose[400],
+        backgroundColor: `${Colors.dark.rose[400]}66`,
+    },
+    keyboardWrap: {
+        width: '100%',
+        maxWidth: 420,
+    },
+    biometricBtn: {
+        marginTop: 18,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: 10,
+        paddingHorizontal: 16,
+        paddingVertical: 11,
+        borderRadius: 999,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.16)',
     },
-    footerText: {
-        color: 'rgba(255,255,255,0.3)',
+    biometricBtnText: {
+        color: 'white',
+        fontSize: 11,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 1.1,
+    },
+    swipeHintText: {
+        marginTop: 14,
+        color: 'rgba(255,255,255,0.4)',
         fontSize: 10,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, BlurView } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Colors, Radius, Typography, Spacing } from '../../constants/Theme';
 import { SecurityKeyboard } from '../SecurityKeyboard';
 import * as LocalAuthentication from 'expo-local-authentication';

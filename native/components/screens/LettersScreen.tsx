@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Switch, ScrollView, Platform, Pressable, RefreshControl, PanResponder, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Switch, ScrollView, Platform, Pressable, RefreshControl, PanResponder, Keyboard, Alert } from 'react-native';
 import { useOrbitStore } from '../../lib/store';
 import { auth, db } from '../../lib/firebase';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
 import { Mail, MailOpen, Sparkles, X, Send, EyeOff, Calendar, Clock, ChevronDown, Plus } from 'lucide-react-native';
@@ -126,6 +126,7 @@ export function LettersScreen() {
         const isRead = item.is_read;
         const sName = item.sender_id === profile?.id ? 'You' : partnerName;
         const titleText = item.title || item.subject || 'Untitled Letter';
+        const isOneTime = item?.unlock_type === 'one_time';
 
         return (
             <TouchableOpacity
@@ -136,15 +137,12 @@ export function LettersScreen() {
                     setSelectedLetter(item);
 
                     // Mark as read if it's from partner and unread
-                    if (item.sender_id !== profile?.id && !item.is_read) {
+                    const isReceiver = !!profile?.id && item.receiver_id === profile?.id;
+                    const senderLooksLikePartner = !!item.sender_id && item.sender_id !== profile?.id;
+                    const shouldMarkRead = !item.is_read && (isReceiver || senderLooksLikePartner);
+                    if (shouldMarkRead) {
                         const { updateLetterReadOptimistic } = useOrbitStore.getState();
                         updateLetterReadOptimistic(item.id, true);
-
-                        const letterRef = doc(db, 'couples', couple?.id, 'letters', item.id);
-                        updateDoc(letterRef, {
-                            is_read: true,
-                            updated_at: serverTimestamp()
-                        }).catch(err => console.error("Error marking letter read (remote):", err));
                     }
                 }}
             >
@@ -152,17 +150,35 @@ export function LettersScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.md, gap: 12 }}>
                         <View style={[
                             styles.iconContainer,
-                            isRead ? styles.readIconBg : styles.unreadIconBg
+                            isOneTime
+                                ? styles.oneTimeIconBg
+                                : (isRead ? styles.readIconBg : styles.unreadIconBg)
                         ]}>
-                            {isRead ? (
+                            {isOneTime ? (
+                                <EyeOff size={16} color={Colors.dark.amber[400]} />
+                            ) : isRead ? (
                                 <MailOpen size={16} color={Colors.dark.mutedForeground} />
                             ) : (
                                 <Mail size={16} color={Colors.dark.rose[400]} />
                             )}
                         </View>
-                        <Text style={styles.letterTitle} numberOfLines={1}>{titleText}</Text>
+                        <View style={{ flex: 1 }}>
+                            {!isOneTime && (
+                                <Text style={styles.letterTitle} numberOfLines={1}>{titleText}</Text>
+                            )}
+                            {isOneTime && (
+                                <View style={styles.oneTimeBadge}>
+                                    <EyeOff size={11} color={Colors.dark.amber[400]} />
+                                    <Text style={styles.oneTimeBadgeText}>ONE-TIME - OPENS ONCE</Text>
+                                </View>
+                            )}
+                        </View>
                     </View>
-                    <Text style={styles.letterPreview} numberOfLines={3}>"{item.content}"</Text>
+                    {isOneTime ? (
+                        <Text style={styles.oneTimePreview}>This letter will self-vanish after you open it.</Text>
+                    ) : (
+                        <Text style={styles.letterPreview} numberOfLines={3}>"{item.content}"</Text>
+                    )}
                     <View style={styles.cardFooter}>
                         <View style={styles.footerRow}>
                             <Text style={styles.footerLabel}>FROM</Text>
@@ -242,7 +258,24 @@ export function LettersScreen() {
 
     const handleSend = async () => {
         const senderId = profile?.id || auth.currentUser?.uid;
-        if (!content.trim() || !senderId || !couple?.id) return;
+        if (!content.trim()) {
+            Alert.alert('Write something first', 'Your letter content is empty.');
+            return;
+        }
+        if (!senderId || !couple?.id) {
+            Alert.alert('Unable to send', 'Connection details are not ready yet. Please try again in a moment.');
+            return;
+        }
+
+        const receiverId =
+            partnerProfile?.id ||
+            (couple?.user1_id === senderId ? couple?.user2_id : couple?.user1_id) ||
+            '';
+
+        if (!receiverId) {
+            Alert.alert('Partner not linked', 'Cannot send letter because partner identity is missing.');
+            return;
+        }
 
         try {
             setIsComposing(true);
@@ -259,7 +292,7 @@ export function LettersScreen() {
                 title: title.trim() || 'Untitled Letter',
                 sender_id: senderId,
                 sender_name: profile?.display_name || null,
-                receiver_id: partnerProfile?.id || '',
+                receiver_id: receiverId,
                 created_at: serverTimestamp(),
                 updated_at: serverTimestamp(),
                 is_read: false,
@@ -273,10 +306,10 @@ export function LettersScreen() {
             await addDoc(lettersRef, letterData);
 
             // Send notification to partner
-            if (partnerProfile?.id) {
+            if (receiverId) {
                 const isLater = isScheduled && delayMs > (1000 * 60 * 5); // More than 5 mins in future
                 await sendNotification({
-                    recipientId: partnerProfile.id,
+                    recipientId: receiverId,
                     actorId: senderId,
                     type: 'letter',
                     title: isLater ? 'A Surprise is Coming! 💌' : 'New Letter Received ✉️',
@@ -643,8 +676,35 @@ const styles = StyleSheet.create({
     iconContainer: { width: 32, height: 32, borderRadius: 8, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
     readIconBg: { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' },
     unreadIconBg: { backgroundColor: 'rgba(251,113,133,0.1)', borderColor: 'rgba(251,113,133,0.2)' },
+    oneTimeIconBg: { backgroundColor: 'rgba(251,191,36,0.12)', borderColor: 'rgba(251,191,36,0.28)' },
     letterTitle: { flex: 1, color: Colors.dark.foreground, fontSize: 18, fontFamily: Typography.sansBold, letterSpacing: -0.5 },
+    oneTimeBadge: {
+        marginTop: 6,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(251,191,36,0.12)',
+        borderColor: 'rgba(251,191,36,0.24)',
+        borderWidth: 1,
+        borderRadius: 999,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+    },
+    oneTimeBadgeText: {
+        fontSize: 8,
+        fontFamily: Typography.sansBold,
+        color: Colors.dark.amber[400],
+        letterSpacing: 1,
+    },
     letterPreview: { color: 'rgba(255,255,255,0.7)', fontSize: 15, lineHeight: 24, fontFamily: Typography.serifItalic, marginBottom: Spacing.lg },
+    oneTimePreview: {
+        color: 'rgba(251,191,36,0.85)',
+        fontSize: 13,
+        lineHeight: 20,
+        fontFamily: Typography.sans,
+        marginBottom: Spacing.lg,
+    },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', paddingTop: 16 },
     footerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     footerLabel: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.25)', letterSpacing: 1.5 },
@@ -665,3 +725,5 @@ const styles = StyleSheet.create({
     featuredBtnText: { fontSize: 9, fontFamily: Typography.sansBold, color: 'white', letterSpacing: 1 },
     fab: { position: 'absolute', right: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.dark.rose[500], justifyContent: 'center', alignItems: 'center' },
 });
+
+

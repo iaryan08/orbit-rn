@@ -26,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography } from '../constants/Theme';
 import { BlurView } from 'expo-blur';
+import { getPartnerName } from '../lib/utils';
 
 const { width, height } = Dimensions.get('window');
 
@@ -97,6 +98,7 @@ const SparkleItem = ({ delay = 0, x = 0, y = 0 }: { delay?: number; x?: number; 
 
 export function ConnectionSync() {
     const { couple, profile, partnerProfile } = useOrbitStore();
+    const resolvedPartnerName = getPartnerName(profile, partnerProfile);
     const [interactionType, setInteractionType] = useState<'heartbeat' | 'spark' | 'connection' | 'letter' | null>(null);
     const wasOnlineRef = useRef(false);
     const lastSessionIdRef = useRef<string | null>(null);
@@ -271,7 +273,7 @@ export function ConnectionSync() {
                     <View style={styles.textContainer}>
                         <Text style={styles.title}>
                             {interactionType === 'connection'
-                                ? `${partnerProfile?.display_name?.split(' ')[0] || 'Partner'} Joined`
+                                ? `${resolvedPartnerName} Joined`
                                 : interactionType === 'spark'
                                     ? 'A Spark for You'
                                     : interactionType === 'letter'

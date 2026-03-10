@@ -192,6 +192,40 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 }
             });
             set((s: any) => ({ activeUnsubs: [...s.activeUnsubs, unsubUser] }));
+
+            // Notifications Listener (user-scoped)
+            const notifsRef = collection(db, 'users', userId, 'notifications');
+            const unsubNotifications = onSnapshot(notifsRef, (snap) => {
+                if (isCleanedUp) return;
+
+                const nextNotifications = snap.docs
+                    .map((d) => {
+                        const data: any = d.data();
+                        const ts = data?.created_at;
+                        const createdAt =
+                            ts && typeof ts?.toDate === 'function'
+                                ? ts.toDate()
+                                : data?.created_at
+                                    ? new Date(data.created_at)
+                                    : new Date();
+                        return {
+                            id: d.id,
+                            ...data,
+                            created_at: createdAt,
+                        };
+                    })
+                    .sort((a, b) => {
+                        const at = a.created_at instanceof Date ? a.created_at.getTime() : 0;
+                        const bt = b.created_at instanceof Date ? b.created_at.getTime() : 0;
+                        return bt - at;
+                    });
+
+                const current = get().notifications || [];
+                if (strip(current) !== strip(nextNotifications)) {
+                    set({ notifications: nextNotifications });
+                }
+            });
+            set((s: any) => ({ activeUnsubs: [...s.activeUnsubs, unsubNotifications] }));
         };
 
         const subscribeToCoupleMetadata = (coupleId: string) => {
@@ -276,6 +310,21 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 if (strip(currentMoods) !== strip(nextMoods)) set({ moods: nextMoods });
             });
             set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubMoods] }));
+
+            // ✉️ REAL-TIME LETTER SYNC (instant reflection like memories)
+            const lettersRef = collection(db, 'couples', coupleId, 'letters');
+            const unsubLetters = onSnapshot(query(lettersRef, orderBy('created_at', 'desc'), limit(200)), (snap) => {
+                const nextLetters: any[] = [];
+                snap.docs.forEach((d) => {
+                    const data: any = d.data();
+                    if (data?.deleted) return;
+                    nextLetters.push({ id: d.id, ...data });
+                });
+                const currentLetters = get().letters;
+                const merged = mergeCollections(currentLetters, nextLetters as LetterData[]);
+                if (strip(currentLetters) !== strip(merged)) set({ letters: merged });
+            });
+            set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubLetters] }));
         };
 
         const performSilentDeltaSync = async (coupleId: string) => {
@@ -355,9 +404,11 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
                 const s = get();
                 set({
-                    profile: myProfile,
-                    partnerProfile: pProfile,
-                    couple: c,
+                    // Keep last known in-memory profile data during transient/local cache gaps
+                    // to avoid "Partner" fallback flicker on first paint/re-hydration.
+                    profile: myProfile || s.profile,
+                    partnerProfile: pProfile || s.partnerProfile,
+                    couple: c || s.couple,
                     memories: mergeCollections(s.memories, m as MemoryData[]),
                     letters: mergeCollections(s.letters, l as LetterData[]),
                     moods: mergeCollections(s.moods, mo as MoodData[]),
@@ -485,7 +536,8 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
         };
         // Replace existing for today if it exists (Optimistic)
         set({ polaroids: [newPolaroid, ...polaroids.filter((p: PolaroidData) => p.id !== polaroidId)] });
-        // Background persistence will happen via the specific upload flow
+        // Persist instantly to local SQLite so it survives app reload before cloud sync completes.
+        repository.savePolaroidLocal(newPolaroid).catch((e) => console.warn('[Repo] savePolaroidLocal failed:', e));
     },
 
     deleteBucketItemOptimistic: (id: string) => {
@@ -529,11 +581,11 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
             // 🚀 High-Frequency Presence Sync (RTDB)
             // Mirrors latest vibe to presence for zero-latency partner view
-            const { ref, update } = require('firebase/database');
+            const { ref, update, serverTimestamp } = require('firebase/database');
             const presenceRef = ref(rtdb, `presence/${couple.id}/${userId}`);
             update(presenceRef, {
                 latest_mood: { emoji, note, timestamp: Date.now() },
-                last_changed: Date.now()
+                last_changed: serverTimestamp()
             });
         }
     },
@@ -572,11 +624,18 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
         if (!couple?.id || !profile?.id) return;
 
         // 💫 INTANT CONNECTION: Broadcast Spark to RTDB (Sync with Web)
-        const vibeRef = require('firebase/database').ref(rtdb, `vibrations/${couple.id}`);
-        require('firebase/database').set(vibeRef, {
+        const { ref, set, update, serverTimestamp } = require('firebase/database');
+        const vibeRef = ref(rtdb, `vibrations/${couple.id}`);
+        set(vibeRef, {
             senderId: profile.id,
             timestamp: Date.now(),
             type: 'spark'
+        });
+
+        const presenceRef = ref(rtdb, `presence/${couple.id}/${profile.id}`);
+        update(presenceRef, {
+            is_online: true,
+            last_changed: serverTimestamp()
         });
 
         // Local Haptic Feedback

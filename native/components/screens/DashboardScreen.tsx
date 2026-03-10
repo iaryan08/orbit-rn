@@ -48,6 +48,7 @@ export function DashboardScreen() {
         memories, moods, milestones, cycleLogs, idToken, setTabIndex, activeTabIndex, appMode,
         addPolaroidOptimistic
     } = useOrbitStore();
+    const isPagerScrollEnabled = useOrbitStore(state => state.isPagerScrollEnabled);
     const [user, setUser] = useState<any>(auth.currentUser);
     const insets = useSafeAreaInsets();
 
@@ -265,6 +266,7 @@ export function DashboardScreen() {
                 style={styles.content}
                 contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 80, paddingBottom: 100 }]}
                 showsVerticalScrollIndicator={false}
+                scrollEnabled={isPagerScrollEnabled}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
                 nestedScrollEnabled={true}
@@ -465,6 +467,7 @@ export function DashboardScreen() {
                                 <ImportantDatesCountdown
                                     milestones={milestones}
                                     partnerProfile={partnerProfile}
+                                    couple={couple}
                                 />
                             </View>
 
@@ -491,7 +494,7 @@ export function DashboardScreen() {
                                         <PolaroidStack
                                             userPolaroid={polaroids.find(p => p.user_id === profile?.id && p.polaroid_date === today) || null}
                                             partnerPolaroid={polaroids.find(p => p.user_id === partnerProfile?.id && p.polaroid_date === today) || null}
-                                            partnerName={partnerProfile?.display_name || 'Partner'}
+                                            partnerName={getPartnerName(profile, partnerProfile)}
                                             onUploadPress={handlePolaroidUpload}
                                             authToken={idToken}
                                         />

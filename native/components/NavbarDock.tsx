@@ -30,10 +30,18 @@ export function NavbarDock() {
         appMode,
         toggleAppMode,
         setSearchOpen,
+        notifications,
+        letters,
+        profile,
     } = useOrbitStore();
     const insets = useSafeAreaInsets();
 
     const isLunara = appMode === 'lunara';
+    const unreadNotifications = notifications?.filter((n: any) => !n?.is_read) || [];
+    const hasUnreadNotifications = unreadNotifications.length > 0;
+    const unreadLettersCount = (letters || []).filter((l: any) => l?.receiver_id === profile?.id && !l?.is_read).length;
+    const hasUnreadLetters = unreadLettersCount > 0 || unreadNotifications.some((n: any) => n?.type === 'letter');
+    const hasUnreadMemories = unreadNotifications.some((n: any) => n?.type === 'memory' || n?.type === 'moment');
 
     const moonNavItems = [
         { name: 'Dashboard', icon: LayoutDashboard, tabIndex: 1 },
@@ -105,6 +113,7 @@ export function NavbarDock() {
                 <BlurView intensity={30} tint="dark" experimentalBlurMethod="dimezisBlurView" style={[styles.sideCapsule, { borderColor: activeBorder }]}>
                     <TouchableOpacity style={styles.sideBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setNotificationDrawerOpen(true); }}>
                         <Bell size={20} color="rgba(255,255,255,0.5)" strokeWidth={2} />
+                        {hasUnreadNotifications && <View style={styles.dotBadge} />}
                     </TouchableOpacity>
                 </BlurView>
 
@@ -142,6 +151,8 @@ export function NavbarDock() {
                                             color={isActive ? '#fff' : 'rgba(255,255,255,0.4)'}
                                             strokeWidth={isActive ? 2.5 : 2}
                                         />
+                                        {(item.name === 'Letters' && hasUnreadLetters) && <View style={styles.dotBadge} />}
+                                        {(item.name === 'Memories' && hasUnreadMemories) && <View style={styles.dotBadge} />}
                                     </TouchableOpacity>
                                 );
                             })}
@@ -185,5 +196,16 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.1,
         shadowRadius: 4,
+    },
+    dotBadge: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: '#f43f5e',
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.35)',
     },
 });
