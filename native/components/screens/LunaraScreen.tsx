@@ -102,12 +102,20 @@ export function LunaraScreen() {
         const ownRef = doc(db, 'couples', coupleId, 'cycle_profiles', user.uid);
         const unsubOwn = onSnapshot(ownRef, (snap) => {
             if (snap.exists()) setCycleProfile(snap.data());
+        }, (err) => {
+            if (err.code !== 'permission-denied') {
+                console.log("[LunaraScreen] Own cycle snapshot error:", err);
+            }
         });
 
         if (partnerId) {
             const partnerRef = doc(db, 'couples', coupleId, 'cycle_profiles', partnerId);
             const unsubPartner = onSnapshot(partnerRef, (snap) => {
                 if (snap.exists()) setPartnerCycleProfile(snap.data());
+            }, (err) => {
+                if (err.code !== 'permission-denied') {
+                    console.log("[LunaraScreen] Partner cycle snapshot error:", err);
+                }
             });
             return () => { unsubOwn(); unsubPartner(); };
         }
@@ -215,7 +223,7 @@ export function LunaraScreen() {
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
                 nestedScrollEnabled={true}
-                contentContainerStyle={{ paddingTop: insets.top + Spacing.md }}
+                contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: 140 }}
             >
                 <View style={styles.hero}>
                     <View style={styles.standardHeader}>
@@ -223,7 +231,7 @@ export function LunaraScreen() {
                             {phase?.name || 'Discovery'}
                         </Animated.Text>
                         <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>
-                            BIOLOGICAL · RHYTHM
+                            Biological · Rhythm
                         </Animated.Text>
                     </View>
 
@@ -248,7 +256,7 @@ export function LunaraScreen() {
                             >
                                 <Droplets size={14} color="#f87171" />
                                 <Text style={[styles.ritualBtnText, { color: '#f87171' }]}>
-                                    {isLogging ? 'LOGGING...' : 'LOG PERIOD'}
+                                    {isLogging ? 'Logging...' : 'Log Period'}
                                 </Text>
                             </Pressable>
                         </View>
@@ -257,7 +265,7 @@ export function LunaraScreen() {
                     {!isFemale && partnerProfile && (
                         <View style={styles.partnerFocus}>
                             <HeaderPill
-                                title={`HER ${partnerProfile.display_name.toUpperCase()}`}
+                                title={`Tracking ${partnerProfile.display_name}`}
                                 scrollOffset={scrollOffset}
                             />
                         </View>
@@ -282,7 +290,7 @@ export function LunaraScreen() {
                                 const lastRefresh = lastForecastRefresh || 0;
                                 if (Date.now() - lastRefresh < COOLDOWN) {
                                     const daysLeft = Math.ceil((COOLDOWN - (Date.now() - lastRefresh)) / (1000 * 60 * 60 * 24));
-                                    Alert.alert("ORBIT CALIBRATING", `AI Refinement is cooling down. Next alignment available in ${daysLeft} days.`);
+                                    Alert.alert("Orbit Calibrating", `AI Refinement is cooling down. Next alignment available in ${daysLeft} days.`);
                                     return;
                                 }
 
@@ -316,15 +324,15 @@ export function LunaraScreen() {
                 {activeCycle?.last_period_start && (
                     <View style={styles.statsGrid}>
                         <GlassCard style={styles.predictionCard} intensity={20}>
-                            <Text style={styles.predictionLabel}>PREDICTED START</Text>
+                            <Text style={styles.predictionLabel}>Predicted Start</Text>
                             <Text style={styles.predictionValue}>{prediction.predictedDate}</Text>
                             <View style={[styles.confidenceBadge, styles[`conf${prediction.confidence}` as keyof typeof styles] as any]}>
-                                <Text style={styles.confidenceText}>{prediction.confidence === 'High' ? 'LOCKED 🔒' : 'LEARNING...'}</Text>
+                                <Text style={styles.confidenceText}>{prediction.confidence === 'High' ? 'Locked 🔒' : 'Learning...'}</Text>
                             </View>
                         </GlassCard>
 
                         <GlassCard style={styles.predictionCard} intensity={20}>
-                            <Text style={styles.predictionLabel}>PREGNANCY CHANCE</Text>
+                            <Text style={styles.predictionLabel}>Pregnancy Chance</Text>
                             <Text style={[styles.predictionValue, { color: prediction.currentPregnancyChance === 'Peak' ? '#fbbf24' : '#fff' }]}>
                                 {prediction.currentPregnancyChance}
                             </Text>
@@ -338,7 +346,7 @@ export function LunaraScreen() {
                     <GlassCard style={styles.poeticCard} intensity={25}>
                         <View style={styles.poeticHeader}>
                             <Sparkles size={14} color="#fbbf24" />
-                            <Text style={styles.poeticLabel}>TODAY'S ORBIT INSIGHT</Text>
+                            <Text style={styles.poeticLabel}>Today's Alpha Insight</Text>
                         </View>
                         <Text style={styles.poeticInsight}>
                             {intimacyForecast[currentDay - 1].insight}
@@ -347,7 +355,7 @@ export function LunaraScreen() {
                         <View style={styles.poeticDivider} />
 
                         <View style={styles.unlockableSection}>
-                            <Text style={styles.unlockableLabel}>PARTNER CONNECTION KEY</Text>
+                            <Text style={styles.unlockableLabel}>Partner Connection Key</Text>
                             {!isCheatCodeUnlocked ? (
                                 <TouchableOpacity
                                     style={styles.unlockBtn}
@@ -382,7 +390,7 @@ export function LunaraScreen() {
                 {/* ── Routine Logs ────────────────────────────────────────── */}
                 {isFemale && currentDay && (
                     <GlassCard style={styles.symptomsCard} intensity={10}>
-                        <Text style={styles.sectionTitle}>PHYSICAL RESONANCE</Text>
+                        <Text style={styles.sectionTitle}>Physical Resonance</Text>
                         <View style={styles.chipGrid}>
                             {suggestedSymptoms.map(symptom => {
                                 const isSelected = selectedSymptoms.includes(symptom);
@@ -506,7 +514,7 @@ const styles = StyleSheet.create({
     poeticHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
     poeticLabel: {
         fontSize: 10, fontFamily: Typography.sansBold,
-        color: '#fbbf24', letterSpacing: 2.5,
+        color: '#fbbf24', letterSpacing: 1.5,
     },
     poeticInsight: {
         fontSize: 22, fontFamily: Typography.serifItalic,
@@ -567,6 +575,6 @@ const styles = StyleSheet.create({
     },
     chipText: {
         fontSize: 11, fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5,
+        color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5,
     },
 });

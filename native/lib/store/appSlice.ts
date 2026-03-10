@@ -46,6 +46,14 @@ export interface AppSlice {
     setCinemaQuality: (quality: '360p' | '720p' | '1080p') => void;
     settingsTargetTab: 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates';
     setSettingsTargetTab: (tab: 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates') => void;
+    debugApiUrl: string | null;
+    setDebugApiUrl: (url: string | null) => void;
+    isAppLockEnabled: boolean;
+    setAppLockEnabled: (enabled: boolean) => void;
+    isBiometricEnabled: boolean;
+    setBiometricEnabled: (enabled: boolean) => void;
+    appPinCode: string | null;
+    setAppPinCode: (pin: string | null) => void;
 }
 
 
@@ -76,6 +84,10 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     isLiteMode: false,
     cinemaQuality: '1080p',
     settingsTargetTab: 'profile',
+    debugApiUrl: null,
+    isAppLockEnabled: false,
+    isBiometricEnabled: false,
+    appPinCode: null,
 
     activeTabIndex: 1,
     navigationSource: 'swipe',
@@ -97,6 +109,8 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         try {
             const savedMode = await AsyncStorage.getItem('orbit_app_mode');
             const savedQuality = await AsyncStorage.getItem('cinema_quality') as any;
+            const savedDebugApiUrl = await AsyncStorage.getItem('orbit_debug_api_url');
+            const savedAppLock = await AsyncStorage.getItem('orbit_app_lock');
             const savedWallpaperRaw = await AsyncStorage.getItem('orbit_wallpaper_config');
             if (savedWallpaperRaw) {
                 try {
@@ -117,6 +131,20 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
 
             if (savedQuality) {
                 set({ cinemaQuality: savedQuality });
+            }
+            if (savedDebugApiUrl) {
+                set({ debugApiUrl: savedDebugApiUrl });
+            }
+            if (savedAppLock === 'true') {
+                set({ isAppLockEnabled: true });
+            }
+            const savedBiometric = await AsyncStorage.getItem('orbit_biometric_enabled');
+            if (savedBiometric === 'true') {
+                set({ isBiometricEnabled: true });
+            }
+            const savedPin = await AsyncStorage.getItem('orbit_app_pin');
+            if (savedPin) {
+                set({ appPinCode: savedPin });
             }
         } catch (e) {
             console.error("Failed to load app settings", e);
@@ -149,4 +177,31 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
     setSettingsTargetTab: (tab) => set({ settingsTargetTab: tab }),
+    setDebugApiUrl: (url) => {
+        set({ debugApiUrl: url });
+        if (url) {
+            AsyncStorage.setItem('orbit_debug_api_url', url).catch(console.error);
+        } else {
+            AsyncStorage.removeItem('orbit_debug_api_url').catch(console.error);
+        }
+    },
+    setAppLockEnabled: (enabled: boolean) => {
+        set({ isAppLockEnabled: enabled });
+        AsyncStorage.setItem('orbit_app_lock', enabled ? 'true' : 'false').catch(console.error);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    },
+    setBiometricEnabled: (enabled: boolean) => {
+        set({ isBiometricEnabled: enabled });
+        AsyncStorage.setItem('orbit_biometric_enabled', enabled ? 'true' : 'false').catch(console.error);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    },
+    setAppPinCode: (pin: string | null) => {
+        set({ appPinCode: pin });
+        if (pin) {
+            AsyncStorage.setItem('orbit_app_pin', pin).catch(console.error);
+        } else {
+            AsyncStorage.removeItem('orbit_app_pin').catch(console.error);
+        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
 });

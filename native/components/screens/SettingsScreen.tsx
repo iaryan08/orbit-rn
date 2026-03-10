@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Switch, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Switch, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
 import {
@@ -21,7 +21,10 @@ import * as Haptics from 'expo-haptics';
 import { HeaderPill } from '../../components/HeaderPill';
 import { Image as ExpoImage } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { uploadWallpaper, deleteWallpaper } from '../../lib/auth';
+import { uploadWallpaper, deleteWallpaper, uploadAvatar } from '../../lib/auth';
+import { getMirrorStats, triggerMirroring } from '../../lib/MirrorService';
+import { RefreshCcw, HardDrive, Smartphone, ShieldCheck, Lock } from 'lucide-react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 type TabId = 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates';
 
@@ -33,8 +36,28 @@ const WALLPAPER_REMOTE_SYNC_DELAY_MS = 10000;
 export function SettingsScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const {
+        profile,
+        partnerProfile,
+        couple,
+        idToken,
+        appMode,
+        setAppMode,
+        wallpaperConfig,
+        setWallpaperConfig,
+        settingsTargetTab,
+        setSettingsTargetTab,
+        debugApiUrl,
+        setDebugApiUrl,
+        isAppLockEnabled,
+        setAppLockEnabled,
+        memories,
+        polaroids,
+        syncNow
+    } = useOrbitStore();
 
     // Local scroll tracking
+    const scrollRef = useRef<Animated.ScrollView>(null);
     const scrollOffset = useSharedValue(0);
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
@@ -42,22 +65,20 @@ export function SettingsScreen() {
         },
     });
 
-    // Morphing: Standardized thresholds [80, 135]
+    // Morphing: Standardized thresholds [30, 80] - Snappier
     const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [40, 90], [1, 0], Extrapolate.CLAMP),
-        transform: [{ scale: interpolate(scrollOffset.value, [40, 90], [1, 0.9], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [20, 70], [1, 0], Extrapolate.CLAMP),
+        transform: [{ scale: interpolate(scrollOffset.value, [20, 70], [1, 0.9], Extrapolate.CLAMP) }]
     }));
 
     const sublineAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [30, 70], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [10, 50], [1, 0], Extrapolate.CLAMP),
     }));
 
     const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [70, 110], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [70, 110], [8, 0], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [50, 90], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [50, 90], [8, 0], Extrapolate.CLAMP) }]
     }));
-
-    const { profile, partnerProfile, couple, idToken, appMode, setAppMode, wallpaperConfig, setWallpaperConfig, settingsTargetTab, setSettingsTargetTab } = useOrbitStore();
     const [activeTab, setActiveTab] = useState<TabId>(settingsTargetTab || 'profile');
     const [saving, setSaving] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -73,18 +94,36 @@ export function SettingsScreen() {
     // Form states
     const [displayName, setDisplayName] = useState(profile?.display_name || "");
     const [partnerNickname, setPartnerNickname] = useState(profile?.partner_nickname || "");
+    const [birthday, setBirthday] = useState(profile?.birthday || "");
     const [coupleName, setCoupleName] = useState(couple?.couple_name || "");
+    const [anniversaryDate, setAnniversaryDate] = useState(couple?.anniversary_date || "");
+    const [debugUrlInput, setDebugUrlInput] = useState(debugApiUrl || "");
+
+    // APP & DATA (longevity) stats
+    const [stats, setStats] = useState<{ totalItems: number, mirroredItems: number, coverage: number, isSafe: boolean } | null>(null);
+    const [isVerifying, setIsVerifying] = useState(false);
+
+    const loadStats = async () => {
+        const s = await getMirrorStats(memories, polaroids);
+        setStats(s);
+    };
+
+    useEffect(() => {
+        loadStats();
+    }, [memories, polaroids]);
 
     useEffect(() => {
         if (profile) {
             setDisplayName(profile.display_name || "");
             setPartnerNickname(profile.partner_nickname || "");
+            setBirthday(profile.birthday || "");
         }
     }, [profile]);
 
     useEffect(() => {
         if (couple) {
             setCoupleName(couple.couple_name || "");
+            setAnniversaryDate(couple.anniversary_date || "");
         }
     }, [couple]);
 
@@ -93,6 +132,10 @@ export function SettingsScreen() {
             setActiveTab(settingsTargetTab);
         }
     }, [settingsTargetTab]);
+
+    useEffect(() => {
+        setDebugUrlInput(debugApiUrl || "");
+    }, [debugApiUrl]);
 
     const handleSignOut = async () => {
         Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -131,9 +174,28 @@ export function SettingsScreen() {
             await updateDoc(doc(db, 'users', profile.id), {
                 display_name: displayName,
                 partner_nickname: partnerNickname,
+                birthday: birthday,
                 updated_at: serverTimestamp(),
             });
             Alert.alert("Success", "Profile updated successfully");
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleSaveCouple = async () => {
+        if (!couple?.id) return;
+        setSaving(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        try {
+            await updateDoc(doc(db, 'couples', couple.id), {
+                couple_name: coupleName,
+                anniversary_date: anniversaryDate,
+                updated_at: serverTimestamp(),
+            });
+            Alert.alert("Success", "Space settings updated successfully");
         } catch (e) {
             console.error(e);
         } finally {
@@ -203,16 +265,19 @@ export function SettingsScreen() {
                 mediaTypes: ['images'],
                 allowsEditing: true,
                 aspect: [9, 16],
-                quality: 0.8,
+                quality: 0.7, // Optimized for Redmi 10/12 performance
             });
 
             if (!result.canceled && result.assets[0].uri) {
                 setSaving(true);
+                // V2 Engine: Real-time quantization to 2200px Retina standard
                 const uploadResult = await uploadWallpaper(result.assets[0].uri);
                 if (uploadResult.error) {
                     Alert.alert("Upload Failed", uploadResult.error);
                 } else {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    // Force instant local sync if needed
+                    setWallpaperConfig({ mode: 'custom' });
                 }
             }
         } catch (e: any) {
@@ -240,6 +305,31 @@ export function SettingsScreen() {
                 }
             }
         ]);
+    };
+
+    const handlePickAvatar = async () => {
+        try {
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.6,
+            });
+
+            if (!result.canceled && result.assets[0].uri) {
+                setSaving(true);
+                const uploadResult = await uploadAvatar(result.assets[0].uri);
+                if (uploadResult.error) {
+                    Alert.alert("Upload Failed", uploadResult.error);
+                } else {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+            }
+        } catch (e: any) {
+            Alert.alert("Error", e.message || "Failed to pick avatar");
+        } finally {
+            setSaving(false);
+        }
     };
 
     const copyPairCode = () => {
@@ -276,7 +366,11 @@ export function SettingsScreen() {
                                     fallbackText={profile?.display_name || 'U'}
                                     size={112}
                                 >
-                                    <TouchableOpacity style={styles.avatarEditButton}>
+                                    <TouchableOpacity
+                                        style={styles.avatarEditButton}
+                                        onPress={handlePickAvatar}
+                                        disabled={saving}
+                                    >
                                         <CameraIcon size={20} color="white" />
                                     </TouchableOpacity>
                                 </ProfileAvatar>
@@ -284,11 +378,22 @@ export function SettingsScreen() {
                         </View>
 
                         <View style={styles.formGroup}>
-                            <Text style={styles.label}>DISPLAY NAME</Text>
+                            <Text style={styles.label}>Display Name</Text>
                             <TextInput
                                 style={styles.input}
                                 value={displayName}
                                 onChangeText={setDisplayName}
+                                placeholderTextColor="rgba(255,255,255,0.3)"
+                            />
+                        </View>
+
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Birthday</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={birthday}
+                                onChangeText={setBirthday}
+                                placeholder="DD/MM/YYYY"
                                 placeholderTextColor="rgba(255,255,255,0.3)"
                             />
                         </View>
@@ -298,7 +403,7 @@ export function SettingsScreen() {
                             onPress={handleSaveProfile}
                             disabled={saving}
                         >
-                            <Text style={styles.saveButtonText}>{saving ? 'SAVING...' : 'SAVE IDENTITY'}</Text>
+                            <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Save Identity'}</Text>
                         </TouchableOpacity>
                     </Animated.View>
                 );
@@ -306,7 +411,7 @@ export function SettingsScreen() {
                 return (
                     <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.tabContent}>
                         <View style={styles.formGroup}>
-                            <Text style={styles.label}>PARTNER NICKNAME</Text>
+                            <Text style={styles.label}>Partner Nickname</Text>
                             <TextInput
                                 style={styles.input}
                                 value={partnerNickname}
@@ -318,7 +423,7 @@ export function SettingsScreen() {
                         </View>
 
                         <View style={styles.formGroup}>
-                            <Text style={styles.label}>SPACE NAME</Text>
+                            <Text style={styles.label}>Space Name</Text>
                             <TextInput
                                 style={styles.input}
                                 value={coupleName}
@@ -327,15 +432,25 @@ export function SettingsScreen() {
                             />
                         </View>
 
-                        <GlassCard style={styles.codeCard}>
-                            <View>
-                                <Text style={styles.label}>CONNECTION CODE</Text>
-                                <Text style={styles.codeText}>{couple?.couple_code || '---'}</Text>
-                            </View>
-                            <TouchableOpacity onPress={copyPairCode} style={styles.copyButton}>
-                                {copied ? <Check size={20} color={Colors.dark.emerald[400]} /> : <Copy size={20} color="white" />}
-                            </TouchableOpacity>
-                        </GlassCard>
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Anniversary Date</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={anniversaryDate}
+                                onChangeText={setAnniversaryDate}
+                                placeholder="DD/MM/YYYY"
+                                placeholderTextColor="rgba(255,255,255,0.3)"
+                            />
+                            <Text style={styles.hint}>Used for milestone countdowns.</Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.saveButton}
+                            onPress={handleSaveCouple}
+                            disabled={saving}
+                        >
+                            <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Save & Apply'}</Text>
+                        </TouchableOpacity>
                     </Animated.View>
                 );
             case 'atmosphere':
@@ -367,7 +482,7 @@ export function SettingsScreen() {
                                 ) : (
                                     <>
                                         <CameraIcon size={24} color="rgba(255,255,255,0.4)" />
-                                        <Text style={styles.bgOptionLabel}>{saving && wallpaperConfig.mode === 'custom' ? '...' : 'Custom'}</Text>
+                                        <Text style={styles.bgOptionLabel}>Custom</Text>
                                     </>
                                 )}
                                 {profile?.custom_wallpaper_url && <View style={styles.bgOverlay} />}
@@ -407,7 +522,7 @@ export function SettingsScreen() {
                                     disabled={saving}
                                 >
                                     <CameraIcon size={16} color="white" />
-                                    <Text style={styles.actionButtonText}>CHANGE IMAGE</Text>
+                                    <Text style={styles.actionButtonText}>Change Image</Text>
                                 </TouchableOpacity>
 
                                 {profile?.custom_wallpaper_url && (
@@ -417,7 +532,7 @@ export function SettingsScreen() {
                                         disabled={saving}
                                     >
                                         <LogOut size={16} color={Colors.dark.rose[400]} />
-                                        <Text style={[styles.actionButtonText, { color: Colors.dark.rose[400] }]}>REMOVE</Text>
+                                        <Text style={[styles.actionButtonText, { color: Colors.dark.rose[400] }]}>Remove</Text>
                                     </TouchableOpacity>
                                 )}
                             </View>
@@ -425,16 +540,16 @@ export function SettingsScreen() {
 
                         <View style={styles.settingRow}>
                             <View style={styles.settingInfo}>
-                                <View style={styles.iconCircle}>
-                                    <Moon size={20} color={Colors.dark.rose[400]} />
+                                <View style={[styles.iconCircle, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
+                                    <Moon size={18} color="white" />
                                 </View>
-                                <View>
-                                    <Text style={styles.settingLabel}>Monochrome Mode</Text>
-                                    <Text style={styles.settingSub}>Classic black & white vibe</Text>
+                                <View style={styles.badgeRow}>
+                                    <Text style={styles.settingLabel}>Monochromatic</Text>
+                                    <View style={styles.premiumBadge}><Text style={styles.premiumBadgeText}>Pro</Text></View>
                                 </View>
                             </View>
                             <Switch
-                                trackColor={{ false: '#333', true: Colors.dark.rose[900] }}
+                                trackColor={{ false: '#333', true: Colors.dark.rose[600] }}
                                 thumbColor={wallpaperConfig.grayscale ? Colors.dark.rose[400] : '#f4f3f4'}
                                 value={wallpaperConfig.grayscale}
                                 onValueChange={handleGrayscaleToggle}
@@ -444,14 +559,12 @@ export function SettingsScreen() {
 
 
                         <View style={[styles.filterSection, (wallpaperConfig.grayscale || wallpaperConfig.mode === 'stars') && { opacity: 0.3 }]} pointerEvents={(wallpaperConfig.grayscale || wallpaperConfig.mode === 'stars') ? 'none' : 'auto'}>
-                            <Text style={styles.label}>AESTHETIC CUSTOMIZATION</Text>
+                            <Text style={styles.label}>Aesthetic Customization</Text>
                             <View style={styles.filterGrid}>
                                 {[
                                     { key: 'Natural', icon: Circle, color: '#fff', sub: 'Pure' },
-                                    { key: 'Glass', icon: Wind, color: Colors.dark.indigo[400], sub: 'Frosted' },
-                                    { key: 'Ethereal', icon: Layers, color: Colors.dark.rose[400], sub: 'Hazy' },
                                     { key: 'Obsidian', icon: Moon, color: Colors.dark.amber[400], sub: 'Deep' },
-                                    { key: 'Solid', icon: Circle, color: '#f59e0b', sub: 'Lite' },
+                                    { key: 'Glass', icon: Wind, color: Colors.dark.indigo[400], sub: 'Frost' },
                                     { key: 'Cinema', icon: Sparkles, color: '#A855F7', sub: 'Action' },
                                 ].map((item) => (
                                     <TouchableOpacity
@@ -459,12 +572,168 @@ export function SettingsScreen() {
                                         style={[styles.filterButton, wallpaperConfig.aesthetic === item.key && styles.activeFilter]}
                                         onPress={() => handleAestheticChange(item.key as any)}
                                     >
-                                        <item.icon size={20} color={wallpaperConfig.aesthetic === item.key ? item.color : 'rgba(255,255,255,0.4)'} />
+                                        <item.icon size={18} color={wallpaperConfig.aesthetic === item.key ? item.color : 'rgba(255,255,255,0.4)'} />
                                         <Text style={[styles.filterText, wallpaperConfig.aesthetic === item.key && { color: 'white' }]}>{item.key}</Text>
                                         <Text style={styles.filterSubText}>{item.sub}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
+                        </View>
+                    </Animated.View>
+                );
+            case 'updates':
+                return (
+                    <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.tabContent}>
+                        <Text style={styles.sectionTitle}>App & Data</Text>
+                        <Text style={styles.sectionSub}>Phase 3: Data Longevity & Persistence</Text>
+
+                        {/* Longevity Health Check Card */}
+                        <GlassCard style={styles.longevityCard} intensity={25}>
+                            <View style={styles.longevityHeader}>
+                                <HardDrive size={20} color={stats?.isSafe ? Colors.dark.emerald[400] : Colors.dark.amber[400]} />
+                                <Text style={styles.longevityTitle}>Local Archive Health</Text>
+                                {stats?.isSafe && (
+                                    <View style={styles.safeBadge}>
+                                        <Text style={styles.safeBadgeText}>Redundant</Text>
+                                    </View>
+                                )}
+                            </View>
+
+                            <View style={styles.longevityStatsRow}>
+                                <View style={styles.statItem}>
+                                    <Text style={styles.statValue}>{stats?.totalItems || 0}</Text>
+                                    <Text style={styles.statLabel}>Total Moments</Text>
+                                </View>
+                                <View style={styles.statDivider} />
+                                <View style={styles.statItem}>
+                                    <Text style={[styles.statValue, { color: stats?.coverage === 1 ? Colors.dark.emerald[400] : 'white' }]}>
+                                        {Math.round((stats?.coverage || 0) * 100)}%
+                                    </Text>
+                                    <Text style={styles.statLabel}>Mirrored</Text>
+                                </View>
+                            </View>
+
+                            <Text style={styles.longevityHint}>
+                                {stats?.isSafe
+                                    ? "Your entire 10-year history is mirrored on this device. You can safely switch phones or go offline."
+                                    : "Some memories are only in the cloud. We are mirroring them in the background for offline survival."}
+                            </Text>
+
+                            <TouchableOpacity
+                                style={styles.verifyButton}
+                                disabled={isVerifying}
+                                onPress={async () => {
+                                    setIsVerifying(true);
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    await triggerMirroring(memories, polaroids, idToken || '');
+                                    await loadStats();
+                                    setIsVerifying(false);
+                                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                }}
+                            >
+                                <RefreshCcw size={14} color="white" style={isVerifying ? { opacity: 0.5 } : {}} />
+                                <Text style={styles.verifyButtonText}>{isVerifying ? 'Verifying...' : 'Force Archive Sync'}</Text>
+                            </TouchableOpacity>
+                        </GlassCard>
+
+                        <View style={styles.migrationCard}>
+                            <Smartphone size={20} color="rgba(255,255,255,0.4)" />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.migrationTitle}>Migration Assistant</Text>
+                                <Text style={styles.migrationSub}>Ready for your next flagship phone</Text>
+                            </View>
+                            <ChevronRight size={16} color="rgba(255,255,255,0.2)" />
+                        </View>
+
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Debug API URL</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={debugUrlInput}
+                                onChangeText={(text) => {
+                                    setDebugUrlInput(text);
+                                }}
+                                placeholder="https://your-server.com"
+                                placeholderTextColor="rgba(255,255,255,0.3)"
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                            />
+                            <Text style={styles.hint}>Override EXPO_PUBLIC_API_URL. Leave empty to use default.</Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.saveButton}
+                            onPress={() => {
+                                setDebugApiUrl(debugUrlInput.trim() || null);
+                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                Alert.alert("API URL Updated", `Base URL set to: ${debugUrlInput.trim() || 'Default'}\n\nPlease restart the app if changes don't take effect immediately.`);
+                            }}
+                        >
+                            <Text style={styles.saveButtonText}>Save & Apply URL</Text>
+                        </TouchableOpacity>
+                    </Animated.View>
+                );
+            case 'security':
+                return (
+                    <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.tabContent}>
+                        <Text style={styles.sectionTitle}>Privacy & Security</Text>
+                        <Text style={styles.sectionSub}>Protect your private celestial space</Text>
+
+                        <GlassCard style={styles.protectionCard} intensity={15}>
+                            <View style={styles.settingRow}>
+                                <View style={styles.settingInfo}>
+                                    <View style={[styles.iconCircle, { backgroundColor: isAppLockEnabled ? Colors.dark.rose[900] + '22' : 'rgba(255,255,255,0.05)' }]}>
+                                        <ShieldCheck size={20} color={isAppLockEnabled ? Colors.dark.rose[400] : 'white'} />
+                                    </View>
+                                    <View style={{ flex: 1, marginRight: 12 }}>
+                                        <View style={styles.badgeRow}>
+                                            <Text style={styles.settingLabel}>Biometric App Lock</Text>
+                                            {isAppLockEnabled && <View style={styles.activeBadge}><Text style={styles.activeBadgeText}>ACTIVE</Text></View>}
+                                        </View>
+                                        <Text style={styles.settingSub}>Require FaceID or Fingerprint on every launch</Text>
+                                    </View>
+                                </View>
+                                <Switch
+                                    trackColor={{ false: '#333', true: Colors.dark.rose[600] }}
+                                    thumbColor={isAppLockEnabled ? Colors.dark.rose[400] : '#f4f3f4'}
+                                    value={isAppLockEnabled}
+                                    onValueChange={async (val) => {
+                                        if (val) {
+                                            try {
+                                                if (typeof LocalAuthentication.authenticateAsync !== 'function') {
+                                                    Alert.alert("Notice", "Biometrics not available on this device.");
+                                                    return;
+                                                }
+                                                const result = await LocalAuthentication.authenticateAsync({
+                                                    promptMessage: 'Confirm identity to enable Lock',
+                                                });
+                                                if (result.success) {
+                                                    setAppLockEnabled(true);
+                                                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                                }
+                                            } catch (e) {
+                                                console.error(e);
+                                                setAppLockEnabled(false);
+                                            }
+                                        } else {
+                                            setAppLockEnabled(false);
+                                        }
+                                    }}
+                                />
+                            </View>
+
+                            <View style={styles.protectionDivider} />
+
+                            <View style={styles.protectionBenefit}>
+                                <Lock size={12} color="rgba(255,255,255,0.3)" />
+                                <Text style={styles.protectionBenefitText}>End-to-End Encryption Architecture Enabled</Text>
+                            </View>
+                        </GlassCard>
+
+                        <View style={styles.securityHintBox}>
+                            <Text style={styles.securityHintText}>
+                                Enabling App Lock ensures your memories, letters, and real-time status remain private even if your phone is unlocked.
+                            </Text>
                         </View>
                     </Animated.View>
                 );
@@ -478,32 +747,37 @@ export function SettingsScreen() {
     };
 
     const tabs: { id: TabId, label: string, icon: any, color: string }[] = [
-        { id: 'profile', label: 'Personal Information', icon: User, color: Colors.dark.rose[400] },
-        { id: 'couple', label: 'Space & Connection', icon: Heart, color: Colors.dark.emerald[400] },
+        { id: 'profile', label: 'Identity', icon: User, color: Colors.dark.rose[400] },
+        { id: 'couple', label: 'Space', icon: Heart, color: Colors.dark.emerald[400] },
         { id: 'atmosphere', label: 'Atmosphere', icon: Camera, color: Colors.dark.indigo[400] },
-        { id: 'security', label: 'Privacy & Security', icon: Shield, color: Colors.dark.amber[400] },
-        { id: 'updates', label: 'App & Data', icon: Zap, color: '#A855F7' },
+        { id: 'security', label: 'Security', icon: Shield, color: Colors.dark.amber[400] },
+        { id: 'updates', label: 'Archives', icon: Zap, color: '#A855F7' },
     ];
 
     return (
-        <View style={styles.container}>
+        <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
             {/* Sticky Header Pill */}
             <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
                 <HeaderPill title="Settings" scrollOffset={scrollOffset} />
             </Animated.View>
 
             <Animated.ScrollView
+                ref={scrollRef}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
                 nestedScrollEnabled={true}
                 contentContainerStyle={{
-                    paddingTop: insets.top + Spacing.lg,
-                    paddingBottom: 160
+                    paddingTop: insets.top + 80,
+                    paddingBottom: 100
                 }}
             >
-                <View style={styles.standardHeader}>
-                    <Animated.Text style={[styles.standardTitle, titleAnimatedStyle]}>Settings</Animated.Text>
-                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>IDENTITY · SPACE</Animated.Text>
+                <View style={GlobalStyles.centeredHeader}>
+                    <Animated.Text style={[GlobalStyles.centeredTitle, titleAnimatedStyle]}>Settings</Animated.Text>
+                    <Animated.Text style={[GlobalStyles.centeredSubtitle, sublineAnimatedStyle]}>Identity · Space · Atmosphere</Animated.Text>
                 </View>
 
                 {/* Profile Card Summary */}
@@ -539,6 +813,12 @@ export function SettingsScreen() {
                                     setActiveTab(tab.id);
                                     setSettingsTargetTab(tab.id);
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+                                    // Smoothly scroll to content area
+                                    // Delay slightly to allow the content to render if it was unmounted
+                                    setTimeout(() => {
+                                        scrollRef.current?.scrollTo({ y: 420, animated: true });
+                                    }, 50);
                                 }}
                             >
                                 <View style={styles.tabItemLeft}>
@@ -569,10 +849,10 @@ export function SettingsScreen() {
                     onPress={handleSignOut}
                 >
                     <LogOut size={16} color={Colors.dark.rose[400]} />
-                    <Text style={styles.signOutText}>SIGN OUT</Text>
+                    <Text style={styles.signOutText}>Sign Out</Text>
                 </TouchableOpacity>
             </Animated.ScrollView>
-        </View>
+        </KeyboardAvoidingView>
     );
 }
 
@@ -844,17 +1124,17 @@ const styles = StyleSheet.create({
     filterButton: {
         flex: 1,
         aspectRatio: 0.8,
-        borderRadius: 24,
+        borderRadius: 20,
         backgroundColor: 'rgba(255,255,255,0.03)',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
+        borderColor: 'rgba(255,255,255,0.08)',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 8,
+        gap: 6,
     },
     activeFilter: {
-        borderColor: 'rgba(255,255,255,0.2)',
-        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderColor: 'rgba(255,255,255,0.25)',
+        backgroundColor: 'rgba(255,255,255,0.12)',
     },
     filterText: {
         fontSize: 8,
@@ -918,10 +1198,182 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
         letterSpacing: 2,
     },
+    premiumBadge: {
+        backgroundColor: Colors.dark.rose[600] + '33',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: Colors.dark.rose[600] + '55',
+        marginLeft: 8,
+    },
+    premiumBadgeText: {
+        color: Colors.dark.rose[400],
+        fontSize: 7,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 1,
+    },
+    badgeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    protectionCard: {
+        padding: 4,
+        borderRadius: 28,
+        marginTop: 8,
+        backgroundColor: 'rgba(255,255,255,0.02)',
+    },
+    protectionDivider: {
+        height: 1,
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        marginHorizontal: 20,
+    },
+    protectionBenefit: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+        gap: 8,
+    },
+    protectionBenefitText: {
+        color: 'rgba(255,255,255,0.25)',
+        fontSize: 9,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+    },
+    activeBadge: {
+        backgroundColor: Colors.dark.emerald[400] + '22',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: Colors.dark.emerald[400] + '55',
+        marginLeft: 8,
+    },
+    activeBadgeText: {
+        color: Colors.dark.emerald[400],
+        fontSize: 7,
+        fontFamily: Typography.sansBold,
+    },
+    securityHintBox: {
+        marginTop: 24,
+        paddingHorizontal: 8,
+    },
+    securityHintText: {
+        color: 'rgba(255,255,255,0.35)',
+        fontSize: 12,
+        fontFamily: Typography.serifItalic,
+        lineHeight: 18,
+        textAlign: 'center',
+    },
     placeholderText: {
         color: 'rgba(255,255,255,0.2)',
         textAlign: 'center',
         marginTop: 40,
         fontFamily: Typography.serifItalic,
+    },
+    longevityCard: {
+        padding: Spacing.xl,
+        gap: 20,
+        borderRadius: 32,
+        backgroundColor: 'rgba(255,255,255,0.02)',
+    },
+    longevityHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    longevityTitle: {
+        fontSize: 14,
+        color: 'white',
+        fontFamily: Typography.serif,
+        flex: 1,
+    },
+    safeBadge: {
+        backgroundColor: Colors.dark.emerald[400] + '22',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: Colors.dark.emerald[400] + '44',
+    },
+    safeBadgeText: {
+        color: Colors.dark.emerald[400],
+        fontSize: 8,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 1,
+    },
+    longevityStatsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-around',
+        paddingVertical: 12,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderRadius: 20,
+    },
+    statItem: {
+        alignItems: 'center',
+        gap: 4,
+    },
+    statValue: {
+        fontSize: 24,
+        color: 'white',
+        fontFamily: Typography.sansBold,
+    },
+    statLabel: {
+        fontSize: 8,
+        color: 'rgba(255,255,255,0.3)',
+        fontFamily: Typography.sansBold,
+        letterSpacing: 1,
+    },
+    statDivider: {
+        width: 1,
+        height: 30,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+    },
+    longevityHint: {
+        fontSize: 11,
+        color: 'rgba(255,255,255,0.4)',
+        lineHeight: 18,
+        fontFamily: Typography.serifItalic,
+    },
+    verifyButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: '#1a1a1a',
+        borderWidth: 1,
+        borderColor: '#404040',
+        height: 48,
+        borderRadius: 24,
+    },
+    verifyButtonText: {
+        color: 'white',
+        fontSize: 9,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 1,
+    },
+    migrationCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+        padding: 20,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
+    },
+    migrationTitle: {
+        fontSize: 14,
+        color: 'white',
+        fontFamily: Typography.sansBold,
+    },
+    migrationSub: {
+        fontSize: 10,
+        color: 'rgba(255,255,255,0.4)',
+        fontFamily: Typography.serifItalic,
+        marginTop: 2,
     }
 });

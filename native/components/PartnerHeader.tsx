@@ -1,18 +1,16 @@
 import React, { useRef, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
-import { Heart, Thermometer } from 'lucide-react-native';
-import { Colors, Spacing, Typography } from '../constants/Theme';
-import { GlobalStyles, GlobalHitSlops } from '../constants/Styles';
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import { Thermometer, Sun, Cloud, Moon, CloudRain, Zap, Wind } from 'lucide-react-native';
+import { Colors, Typography } from '../constants/Theme';
+import { GlobalHitSlops } from '../constants/Styles';
 import { getPublicStorageUrl } from '../lib/storage';
 import { useOrbitStore } from '../lib/store';
 import { ProfileAvatar } from './ProfileAvatar';
-import { getPartnerName } from '../lib/utils';
 import { rtdb } from '../lib/firebase';
 import { ref, onValue, set } from 'firebase/database';
+import { MarqueeText } from './DashboardWidgets';
 import { useState } from 'react';
 import * as Haptics from 'expo-haptics';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Emoji } from '../components/Emoji';
 
 interface PartnerHeaderProps {
     profile: any;
@@ -21,17 +19,12 @@ interface PartnerHeaderProps {
 }
 
 export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHeaderProps) {
-    const { idToken, setTabIndex } = useOrbitStore();
+    const { sendHeartbeatOptimistic } = useOrbitStore();
     const pulseAnim = useRef(new Animated.Value(1)).current;
-    const onlinePulse = useRef(new Animated.Value(0)).current;
     const [isPartnerActive, setIsPartnerActive] = useState(false);
-
-    const partnerName = partnerProfile?.location_city || getPartnerName(profile, partnerProfile);
-    const userName = profile?.location_city || profile?.display_name || 'You';
-
     const [serverOffset, setServerOffset] = useState(0);
 
-    // RTDB instantaneous presence with Strict Heartbeat Validation
+    // RTDB instantaneous presence
     useEffect(() => {
         const offsetRef = ref(rtdb, '.info/serverTimeOffset');
         const unsubOffset = onValue(offsetRef, (snap) => {
@@ -50,7 +43,6 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
             }
             const now = Date.now() + serverOffset;
             const lastChanged = lastData.last_changed || 0;
-            // Best-in-Class: 5 minute buffer for background sync stability
             const diff = Math.abs(now - lastChanged);
             const isFresh = diff < 300_000;
             setIsPartnerActive(isFresh && (!!lastData.is_online || !!lastData.in_cinema));
@@ -70,18 +62,13 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
         };
     }, [coupleId, partnerProfile?.id, serverOffset]);
 
-    // Remove onlinePulse animation as we are simplifying to solid border/dot
-    useEffect(() => {
-        onlinePulse.setValue(0);
-    }, [isPartnerActive]);
-
     const userAvatarUrl = useMemo(() =>
-        getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
-        [profile?.avatar_url, idToken]);
+        getPublicStorageUrl(profile?.avatar_url, 'avatars'),
+        [profile?.avatar_url]);
 
     const partnerAvatarUrl = useMemo(() =>
-        getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars', idToken),
-        [partnerProfile?.avatar_url, idToken]);
+        getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars'),
+        [partnerProfile?.avatar_url]);
 
     const handlePressIn = () => {
         Animated.spring(pulseAnim, {
@@ -99,179 +86,197 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
         }).start();
     };
 
-    const handleLongPress = () => {
-        if (!coupleId || !profile?.id) return;
+    const handleHeartbeat = () => {
+        sendHeartbeatOptimistic();
+    };
 
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 120);
+    const partnerCity = partnerProfile?.location?.city || partnerProfile?.location_city || 'Somewhere...';
+    const partnerDetailedLoc = partnerProfile?.location?.subtext || partnerProfile?.location?.location_name || '';
 
-        // Broadcast heartbeat to RTDB (Global Heartbeat) - SYNC WITH WEB
-        const vibeRef = ref(rtdb, `vibrations/${coupleId}`);
-        set(vibeRef, {
-            senderId: profile.id,
-            timestamp: Date.now()
-        });
+    const getWeatherIcon = (temp: number, condition?: string) => {
+        const c = (condition || '').toLowerCase();
+        if (c.includes('rain')) return <CloudRain size={12} color={Colors.dark.indigo[400]} />;
+        if (c.includes('storm')) return <Zap size={12} color={Colors.dark.amber[400]} />;
+        if (c.includes('cloud')) return <Cloud size={12} color="rgba(255,255,255,0.4)" />;
 
-        // Backup Cinema Event for existing Cinema UI
-        const broadcastRef = ref(rtdb, `broadcasts/${coupleId}/${profile.id}`);
-        set(broadcastRef, {
-            event: 'cinema_event',
-            timestamp: Date.now(),
-            payload: {
-                event: 'reaction',
-                type: 'heartbeat',
-                senderId: profile.id,
-                senderName: profile.display_name
-            }
-        });
+        // Time based check for sun/moon if no clouds
+        const hour = new Date().getHours() + (serverOffset / (1000 * 60 * 60));
+        const isNight = hour < 6 || hour > 18;
+
+        if (isNight) return <Moon size={12} color={Colors.dark.indigo[400]} />;
+        return <Sun size={12} color={Colors.dark.amber[400]} />;
     };
 
     return (
-        <View style={styles.headerContainer}>
-            <View style={styles.avatarsContainer}>
-                {/* User Avatar (Left, Back) */}
-                <TouchableOpacity
-                    style={[styles.avatarWrapper, styles.userAvatarShift]}
-                    onPress={() => setTabIndex(7, 'tap')}
-                    hitSlop={GlobalHitSlops.sm}
-                >
-                    <ProfileAvatar
-                        url={userAvatarUrl}
-                        fallbackText={userName[0]}
-                        size={64}
-                    />
-                </TouchableOpacity>
-
-                {/* Partner Avatar (Right, Front Overlap) */}
-                <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPressIn={handlePressIn}
-                    onPressOut={handlePressOut}
-                    onLongPress={handleLongPress}
-                    delayLongPress={400}
-                    hitSlop={GlobalHitSlops.md}
-                    style={[
-                        styles.avatarWrapper,
-                        styles.partnerAvatarShift,
-                        isPartnerActive && { borderColor: '#10b981' }
-                    ]}
-                >
-                    <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+        <View style={styles.container}>
+            <View style={styles.avatarRow}>
+                <View style={styles.avatarMainWrapper}>
+                    {/* User Avatar - Static */}
+                    <View style={styles.userAvatarContainer}>
                         <ProfileAvatar
-                            url={partnerAvatarUrl}
-                            fallbackText={partnerName[0] || 'P'}
-                            size={64}
+                            url={userAvatarUrl}
+                            fallbackText={profile?.display_name || 'Y'}
+                            size={80}
+                            borderWidth={2}
+                            borderColor="rgba(255,255,255,0.08)"
+                        />
+                    </View>
+
+                    {/* Partner Avatar - Clickable Trigger */}
+                    <Animated.View style={[styles.partnerAvatarContainer, { transform: [{ scale: pulseAnim }] }]}>
+                        <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPressIn={handlePressIn}
+                            onPressOut={handlePressOut}
+                            onPress={handleHeartbeat}
+                            hitSlop={GlobalHitSlops.md}
                         >
-                            {isPartnerActive && <View style={styles.onlineBadge} />}
-                        </ProfileAvatar>
+                            <ProfileAvatar
+                                url={partnerAvatarUrl}
+                                fallbackText={partnerProfile?.display_name || 'P'}
+                                size={80}
+                                borderWidth={2}
+                                borderColor={isPartnerActive ? Colors.dark.rose[500] : 'rgba(255,255,255,0.08)'}
+                            />
+                        </TouchableOpacity>
                     </Animated.View>
-                </TouchableOpacity>
+                </View>
             </View>
 
-            <View style={styles.infoContainer}>
-                <Text style={styles.connectedText}>
-                    Connected with <Text style={styles.partnerNameText}>{partnerName}</Text>
-                </Text>
-                <View style={styles.statusRow}>
-                    <Text style={styles.statusName}>{partnerName.toUpperCase()}</Text>
-                    <View style={[styles.statusDot, isPartnerActive && { backgroundColor: '#10b981' }]} />
-                    <Thermometer size={12} color={Colors.dark.amber[400]} />
-                    <Text style={styles.statusTemp}>{partnerProfile?.location?.temp ? `${Math.round(partnerProfile.location.temp)}°C` : '27°C'}</Text>
+            {/* Name & Location below Avatars */}
+            {/* Name & Location below Avatars */}
+            <View style={[styles.contentRow, { width: '100%', marginTop: 16 }]}>
+                <View style={styles.nameHeaderGroup}>
+                    <Text style={styles.connectedText}>Connected With • </Text>
+                    <View style={{ flex: 1, minHeight: 28, justifyContent: 'center' }}>
+                        <MarqueeText style={styles.partnerName}>
+                            {partnerProfile?.display_name || 'Partner'}
+                        </MarqueeText>
+                    </View>
                 </View>
+
+                <View style={[styles.locationCityRow, { marginTop: 4 }]}>
+                    <View style={{ flexShrink: 1, minHeight: 16, justifyContent: 'center', marginRight: 8 }}>
+                        <Text style={styles.locationCityText} numberOfLines={1}>
+                            {partnerCity}
+                        </Text>
+                    </View>
+                    <View style={styles.dividerDot} />
+                    <View style={styles.weatherGroup}>
+                        {getWeatherIcon(partnerProfile?.location?.temp || 27, partnerProfile?.location?.condition)}
+                        <Text style={styles.tempText}>{Math.round(partnerProfile?.location?.temp || 27)}°C</Text>
+                    </View>
+                </View>
+
+                {isPartnerActive && (
+                    <View style={styles.activePill}>
+                        <View style={styles.activeDot} />
+                        <Text style={styles.activeText}>Active Now</Text>
+                    </View>
+                )}
             </View>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    headerContainer: {
+    container: {
         alignItems: 'flex-start',
-        paddingVertical: Spacing.xl,
+        paddingVertical: 10,
     },
-    avatarsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'flex-start',
-        marginBottom: Spacing.md,
-    },
-    avatarWrapper: {
-        borderWidth: 2,
-        borderColor: '#000',
-        borderRadius: 40,
-        backgroundColor: '#000',
-    },
-    userAvatarShift: {
-        zIndex: 1,
-    },
-    partnerAvatarShift: {
-        marginLeft: -24, // Negative margin to pull it over the user from the right
-        zIndex: 2,
-    },
-    onlineBadge: {
-        position: 'absolute',
-        bottom: 2,
-        right: 2,
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: '#10b981',
-        borderWidth: 2,
-        borderColor: '#000',
-    },
-    activeGlow: {
-        position: 'absolute',
-        top: -4,
-        left: -4,
-        right: -4,
-        bottom: -4,
-        borderRadius: 40,
-        backgroundColor: '#10b981',
-        zIndex: -1,
-    },
-    infoContainer: {
-        alignItems: 'flex-start',
-    },
-    connectedText: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
-        fontFamily: Typography.sansBold,
-        letterSpacing: 2.5,
-        textTransform: 'uppercase',
-        marginBottom: 8,
-    },
-    partnerNameText: {
-        fontFamily: Typography.serif,
-        color: 'white',
-        fontSize: 22,
-        letterSpacing: -0.5,
-    },
-    statusRow: {
+    avatarRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-        marginTop: 6,
     },
-    statusName: {
-        color: 'rgba(255,255,255,0.3)',
-        fontSize: 9,
-        fontFamily: Typography.sansBold,
-        letterSpacing: 1.5,
+    avatarMainWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
     },
-    statusDot: {
+    userAvatarContainer: {
+        zIndex: 0,
+    },
+    partnerAvatarContainer: {
+        zIndex: 10, // Bring decisively to front
+        marginLeft: -25,
+    },
+    partnerAvatarOverlap: {
+        // Style applied to the avatar itself
+    },
+    activePill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 12,
+        paddingVertical: 5,
+        borderRadius: 100,
+        marginTop: 10,
+        alignSelf: 'flex-start',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+    },
+    activeDot: {
         width: 4,
         height: 4,
         borderRadius: 2,
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: Colors.dark.emerald[400],
+        marginRight: 8,
+        shadowColor: Colors.dark.emerald[400],
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.8,
+        shadowRadius: 4,
     },
-    statusTemp: {
-        color: 'rgba(255,255,255,0.6)',
-        fontSize: 10,
-        fontFamily: Typography.sansBold,
-    },
-    activeStatusText: {
-        color: '#10b981',
-        fontSize: 8,
+    activeText: {
+        color: 'rgba(255,255,255,0.7)',
+        fontSize: 9,
         fontFamily: Typography.sansBold,
         letterSpacing: 1.5,
+        textTransform: 'uppercase',
+    },
+    contentRow: {
+        flex: 1,
+        justifyContent: 'center',
+    },
+    nameHeaderGroup: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+    },
+    connectedText: {
+        color: 'rgba(255,255,255,0.3)',
+        fontSize: 11,
+        fontFamily: Typography.serifItalic,
+        letterSpacing: 1.2,
+    },
+    partnerName: {
+        color: 'white',
+        fontFamily: Typography.serifBold,
+        fontSize: 26,
+        letterSpacing: -0.2,
+    },
+    locationCityRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    locationCityText: {
+        color: 'rgba(255,255,255,0.45)',
+        fontSize: 11,
+        fontFamily: Typography.serif,
+        letterSpacing: 0.5,
+    },
+    dividerDot: {
+        width: 3,
+        height: 3,
+        borderRadius: 2,
+        backgroundColor: 'rgba(255,255,255,0.15)',
+    },
+    tempText: {
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 11,
+        fontFamily: Typography.sansBold,
+    },
+    weatherGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
     },
 });
-

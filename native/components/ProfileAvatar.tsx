@@ -2,6 +2,7 @@ import React from 'react';
 import { View, StyleSheet, Text, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { Colors, Typography } from '../constants/Theme';
+import { usePersistentMedia } from '../lib/media';
 
 interface ProfileAvatarProps {
     url: string | null | undefined;
@@ -23,11 +24,15 @@ export function ProfileAvatar({
     children,
 }: ProfileAvatarProps) {
     const radius = size / 2;
-    const [imgUrl, setImgUrl] = React.useState<string | undefined>(url ?? undefined);
+
+    // 🛡️ Phase 3: High-Reliability Local Archive Cache
+    const persistentUrl = usePersistentMedia(url || undefined, url || undefined, true);
+    const [imgUrl, setImgUrl] = React.useState<string | undefined>(persistentUrl ?? url ?? undefined);
 
     React.useEffect(() => {
-        setImgUrl(url ?? undefined);
-    }, [url]);
+        if (persistentUrl) setImgUrl(persistentUrl);
+        else if (url) setImgUrl(url);
+    }, [persistentUrl, url]);
 
     return (
         <View
@@ -49,14 +54,8 @@ export function ProfileAvatar({
                     style={{ width: '100%', height: '100%', borderRadius: radius }}
                     contentFit="cover"
                     transition={0}
-                    cachePolicy="memory-disk"
                     onError={(e) => {
-                        console.warn(`[ProfileAvatar] Error loading image:`, e.error);
-                        // If the cached image is a corrupted 401, force bypass the disk cache once
-                        if (url && imgUrl === url) {
-                            console.log(`[ProfileAvatar] Bypassing corrupted cache for avatar`);
-                            setImgUrl(`${url}${url.includes('?') ? '&' : '?'}reload=${Date.now()}`);
-                        }
+                        console.warn(`[ProfileAvatar] Error:`, e.error);
                     }}
                 />
             ) : (

@@ -477,8 +477,14 @@ export async function uploadWallpaper(uri: string) {
         // 3. Upload to R2 (Primary)
         if (R2_URL && R2_SECRET) {
             const r2TargetUrl = `${R2_URL.replace(/\/$/, '')}/wallpapers/${fileName}`;
-            const response = await fetch(finalUri);
-            const blob = await response.blob();
+            const blob = await new Promise<Blob>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.onload = () => resolve(xhr.response);
+                xhr.onerror = () => reject(new Error('R2 Blob Conversion Failed'));
+                xhr.responseType = 'blob';
+                xhr.open('GET', finalUri, true);
+                xhr.send();
+            });
 
             await fetch(r2TargetUrl, {
                 method: 'PUT',
@@ -492,8 +498,14 @@ export async function uploadWallpaper(uri: string) {
 
         // 4. Upload to Firebase (Backup/Meta)
         const storageRef = ref(storage, storagePath);
-        const response = await fetch(finalUri);
-        const blob = await response.blob();
+        const blob = await new Promise<Blob>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.onload = () => resolve(xhr.response);
+            xhr.onerror = () => reject(new Error('Firebase Blob Conversion Failed'));
+            xhr.responseType = 'blob';
+            xhr.open('GET', finalUri, true);
+            xhr.send();
+        });
         await uploadBytes(storageRef, blob);
 
         // 5. Update Profile
@@ -590,6 +602,17 @@ export async function savePolaroidToMemories(polaroid: any) {
         const { collection, addDoc } = await import('firebase/firestore');
         await addDoc(collection(db, 'couples', coupleId, 'memories'), memoryData);
 
+        if (state.partnerProfile?.id) {
+            await sendNotification({
+                recipientId: state.partnerProfile.id,
+                actorId: user.uid,
+                type: 'memory',
+                title: 'Polaroid Archived! 🎞️',
+                message: `${state.profile?.display_name || 'Your partner'} saved a daily Polaroid to your shared memories gallery.`,
+                actionUrl: '/memories'
+            });
+        }
+
         return { success: true };
     } catch (error: any) {
         console.error("savePolaroidToMemories error:", error);
@@ -597,3 +620,86 @@ export async function savePolaroidToMemories(polaroid: any) {
     }
 }
 
+
+export async function uploadAvatar(uri: string) {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+
+    const R2_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
+    const R2_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
+
+    try {
+        // 1. Process Image
+        const manipulated = await ImageManipulator.manipulateAsync(
+            uri,
+            [{ resize: { width: 800 } }],
+            { compress: 0.75, format: ImageManipulator.SaveFormat.WEBP }
+        );
+
+        const timestamp = Date.now();
+        const fileName = `${user.uid}_${timestamp}.webp`;
+        const storagePath = `avatars/${fileName}`;
+
+        // Utility: Convert URI to Blob with better error handling
+        const getBlob = async (targetUri: string): Promise<Blob> => {
+            const response = await fetch(targetUri);
+            return await response.blob();
+        };
+
+        const blob = await getBlob(manipulated.uri);
+
+        // 2. Upload to R2 (Primary)
+        if (R2_URL && R2_SECRET) {
+            try {
+                const r2TargetUrl = `${R2_URL.replace(/\/$/, '')}/avatars/${fileName}`;
+                await fetch(r2TargetUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${R2_SECRET}`,
+                        'Content-Type': 'image/webp'
+                    },
+                    body: blob
+                });
+            } catch (r2Err) {
+                console.warn("R2 Upload failed, continuing with Firebase:", r2Err);
+            }
+        }
+
+        // 3. Upload to Firebase (Backup/Meta)
+        const storageRef = ref(storage, storagePath);
+        await uploadBytes(storageRef, blob, { contentType: 'image/webp' });
+
+        // 4. Update Profile
+        const userRef = doc(db, 'users', user.uid);
+        await firestoreUpdateDoc(userRef, {
+            avatar_url: storagePath,
+            updated_at: serverTimestamp()
+        });
+
+        // 5. Cleanup OLD avatar
+        const oldAvatar = state.profile?.avatar_url;
+        if (oldAvatar && oldAvatar.startsWith('avatars/') && oldAvatar !== storagePath) {
+            (async () => {
+                try {
+                    const cleanOldPath = oldAvatar.replace(/^avatars\//, '');
+                    await deleteObject(ref(storage, oldAvatar));
+                    if (R2_URL && R2_SECRET) {
+                        const r2DeleteUrl = `${R2_URL.replace(/\/$/, '')}/avatars/${cleanOldPath}`;
+                        await fetch(r2DeleteUrl, {
+                            method: 'DELETE',
+                            headers: { 'Authorization': `Bearer ${R2_SECRET}` }
+                        });
+                    }
+                } catch (cleanupErr) { /* non-critical */ }
+            })();
+        }
+
+        return { success: true, url: storagePath };
+    } catch (error: any) {
+        console.error("uploadAvatar error:", error);
+        return { error: error.code || error.message || "Unknown Upload Error" };
+    }
+}

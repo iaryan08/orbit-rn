@@ -10,20 +10,23 @@ import Animated, {
     runOnJS,
     Easing
 } from 'react-native-reanimated';
-import { Bell, X } from 'lucide-react-native';
+import { Bell, X, Heart, Mail, Image as ImageIcon, Smile, Sparkles, MessageSquare, Megaphone, Calendar } from 'lucide-react-native';
+import { ScrollView, FlatList, TouchableOpacity } from 'react-native';
+import { formatDistanceToNow } from 'date-fns';
 import { Colors, Spacing, Radius, Typography } from '../constants/Theme';
 import { ANIM_ENTER, ANIM_EXIT } from '../constants/Animation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOrbitStore } from '../lib/store';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
+import { markAsRead } from '../lib/notifications';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAWER_HEIGHT = SCREEN_HEIGHT * 0.75;
 
 export function NotificationDrawer() {
     const insets = useSafeAreaInsets();
-    const { isNotificationDrawerOpen, setNotificationDrawerOpen } = useOrbitStore();
+    const { isNotificationDrawerOpen, setNotificationDrawerOpen, notifications, profile, couple } = useOrbitStore();
 
     const translateY = useSharedValue(SCREEN_HEIGHT);
 
@@ -110,13 +113,51 @@ export function NotificationDrawer() {
                     </View>
 
                     <View style={styles.content}>
-                        <View style={styles.emptyState}>
-                            <View style={styles.emptyIconCircle}>
-                                <Bell size={32} color="rgba(255,255,255,0.1)" />
+                        {notifications.length === 0 ? (
+                            <View style={styles.emptyState}>
+                                <View style={styles.emptyIconCircle}>
+                                    <Bell size={32} color="rgba(255,255,255,0.1)" />
+                                </View>
+                                <Text style={styles.emptyText}>All caught up!</Text>
+                                <Text style={styles.emptySubtext}>You have no new notifications.</Text>
                             </View>
-                            <Text style={styles.emptyText}>All caught up!</Text>
-                            <Text style={styles.emptySubtext}>You have no new notifications.</Text>
-                        </View>
+                        ) : (
+                            <FlatList
+                                data={notifications}
+                                keyExtractor={(item) => item.id}
+                                contentContainerStyle={{ paddingBottom: 40 }}
+                                showsVerticalScrollIndicator={false}
+                                renderItem={({ item }) => {
+                                    const Icon = getNotificationIcon(item.type);
+                                    const timeStr = item.created_at ? formatDistanceToNow(item.created_at, { addSuffix: true }) : 'Recently';
+
+                                    return (
+                                        <TouchableOpacity
+                                            style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
+                                            onPress={() => {
+                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                                if (!item.is_read && profile?.id) {
+                                                    markAsRead(profile.id, item.id);
+                                                }
+                                                closeDrawer();
+                                            }}
+                                        >
+                                            <View style={[styles.itemIconContainer, { backgroundColor: getNotificationColor(item.type) + '20' }]}>
+                                                <Icon size={18} color={getNotificationColor(item.type)} />
+                                            </View>
+                                            <View style={styles.itemTextContainer}>
+                                                <View style={styles.itemHeader}>
+                                                    <Text style={styles.itemTitle}>{item.title}</Text>
+                                                    <Text style={styles.itemTime}>{timeStr.toUpperCase()}</Text>
+                                                </View>
+                                                <Text style={styles.itemMessage} numberOfLines={2}>{item.message}</Text>
+                                            </View>
+                                            {!item.is_read && <View style={styles.unreadDot} />}
+                                        </TouchableOpacity>
+                                    );
+                                }}
+                            />
+                        )}
                     </View>
                 </Animated.View>
             </GestureDetector>
@@ -239,4 +280,90 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sans,
         color: 'rgba(255,255,255,0.4)',
     },
+    notificationItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 16,
+        paddingHorizontal: 12,
+        borderRadius: Radius.lg,
+        marginBottom: 8,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,254,0.05)',
+    },
+    unreadItem: {
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(251,113,133,0.15)',
+    },
+    itemIconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 16,
+    },
+    itemTextContainer: {
+        flex: 1,
+    },
+    itemHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'baseline',
+        marginBottom: 4,
+    },
+    itemTitle: {
+        fontSize: 14,
+        fontFamily: Typography.sansBold,
+        color: 'white',
+        flex: 1,
+        marginRight: 8,
+    },
+    itemTime: {
+        fontSize: 9,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.3)',
+        letterSpacing: 0.5,
+    },
+    itemMessage: {
+        fontSize: 13,
+        fontFamily: Typography.sans,
+        color: 'rgba(255,255,255,0.6)',
+        lineHeight: 18,
+    },
+    unreadDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: Colors.dark.rose[500],
+        marginLeft: 12,
+    },
 });
+
+function getNotificationIcon(type: string) {
+    switch (type) {
+        case 'mood': return Smile;
+        case 'letter': return Mail;
+        case 'memory': return ImageIcon;
+        case 'moment': return ImageIcon;
+        case 'intimacy': return Heart;
+        case 'spark': return Sparkles;
+        case 'heartbeat': return Heart;
+        case 'announcement': return Megaphone;
+        case 'bucket_list': return Sparkles;
+        case 'calendar': return Calendar;
+        default: return Bell;
+    }
+}
+
+function getNotificationColor(type: string) {
+    switch (type) {
+        case 'mood': return '#A78BFA';
+        case 'letter': return '#60A5FA';
+        case 'memory': return '#F472B6';
+        case 'intimacy': return '#FB7185';
+        case 'spark': return '#FBBF24';
+        case 'announcement': return '#34D399';
+        default: return Colors.dark.rose[400];
+    }
+}

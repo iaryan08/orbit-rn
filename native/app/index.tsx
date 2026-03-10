@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, BackHandler, ToastAndroid } from 'react-native';
+import { View, StyleSheet, BackHandler, ToastAndroid, AppState } from 'react-native';
 import { auth, rtdb } from '../lib/firebase';
 import { onIdTokenChanged } from 'firebase/auth';
 import { useOrbitStore } from '../lib/store';
@@ -21,30 +21,48 @@ import { initializeDatabase } from '../lib/db/db';
 import { getPublicStorageUrl } from '../lib/storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
+const LazyTab = React.memo(({ index, children, activeTabIndex }: { index: number, children: React.ReactNode, activeTabIndex: number }) => {
+    const isNear = Math.abs(activeTabIndex - index) <= 1;
+    const [hasBeenActive, setHasBeenActive] = useState(false);
+
+    useEffect(() => {
+        if (isNear) setHasBeenActive(true);
+    }, [isNear]);
+
+    if (!hasBeenActive && !isNear) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
+    return <View style={{ flex: 1 }}>{children}</View>;
+});
+
+import { initializeMediaEngine } from '../lib/media';
+
 export default function Index() {
-    const { activeTabIndex, setTabIndex, navigationSource, scrollOffset, isPagerScrollEnabled, setPagerScrollEnabled, fetchData, appMode, setAppMode, loading, couple, memories, initAppMode } = useOrbitStore();
+    const {
+        activeTabIndex, setTabIndex, navigationSource, scrollOffset,
+        isPagerScrollEnabled, setPagerScrollEnabled, fetchData,
+        appMode, setAppMode, loading, couple, memories, letters, profile, initAppMode,
+        runJanitor
+    } = useOrbitStore();
     const [user, setUser] = useState<any>(null);
     const [isAuthChecking, setIsAuthChecking] = useState(true);
     const [isPagerReady, setIsPagerReady] = useState(false);
-    const fetchCalledRef = useRef(false);
+    const fetchCalledForId = useRef<string | null>(null);
+    const fetchCleanupRef = useRef<(() => void) | null>(null);
     const pagerRef = useRef<PagerView>(null);
     const lastBackPressRef = useRef(0);
     const EXIT_THRESHOLD_MS = 1800;
     const insets = useSafeAreaInsets();
     const router = useRouter();
 
-    // Redirect to login if not authenticated
+    // Redirect handled at _layout level to avoid linking conflicts
     useEffect(() => {
-        if (!isAuthChecking && !user) {
-            console.log("[Index] Redirecting to /login");
-            router.replace('/login');
-        }
+        // Nothing here, redirect is in RootLayoutNav
     }, [user, isAuthChecking]);
 
     useEffect(() => {
         console.log("[Index] Mounting...");
         const setup = async () => {
             await initializeDatabase(); // Best in Class: Setup SQLite
+            await initializeMediaEngine(); // Scan local media for zero-flicker boot
             initAppMode(); // Load persisted mode and set initial tab
         };
         setup();
@@ -61,21 +79,36 @@ export default function Index() {
                     console.warn("[Index] Failed to fetch refreshed token", e);
                 }
 
-                if (!fetchCalledRef.current) {
-                    fetchCalledRef.current = true;
-                    fetchData(u.uid);
+                // Fetch user data if not already loading/loaded for THIS UID
+                if (fetchCalledForId.current !== u.uid) {
+                    if (fetchCleanupRef.current) fetchCleanupRef.current();
+                    fetchCalledForId.current = u.uid;
+                    fetchCleanupRef.current = fetchData(u.uid);
                 }
             } else {
-                // Reset flag on sign-out to allow hydration on next sign-in
-                fetchCalledRef.current = false;
+                fetchCalledForId.current = null;
+                if (fetchCleanupRef.current) {
+                    fetchCleanupRef.current();
+                    fetchCleanupRef.current = null;
+                }
             }
         });
 
         return () => {
             unsub();
-            if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+            if (fetchCleanupRef.current) fetchCleanupRef.current();
         };
     }, []);
+
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (nextState) => {
+            if (nextState === 'background' || nextState === 'inactive') {
+                console.log("[Index] App backgrounded. Running Janitor...");
+                runJanitor();
+            }
+        });
+        return () => sub.remove();
+    }, [runJanitor]);
 
     // Global Presence Heartbeat
     useEffect(() => {
@@ -128,34 +161,15 @@ export default function Index() {
         return () => sub.remove();
     }, [activeTabIndex, setTabIndex]);
 
-    const isSyncingRef = useRef(false);
-    const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isProgrammaticRef = useRef(false);
-    const didAutoSyncRef = useRef(false);
-
-    // Auto-sync when couple is ready AND memories are missing image_urls (stale SQLite)
-    useEffect(() => {
-        if (!couple?.id || didAutoSyncRef.current) return;
-        const { memories: currentMemories } = useOrbitStore.getState();
-        const hasStaleMemories = currentMemories.some(
-            (m: any) => !m.image_urls && !m.image_url
-        );
-        if (hasStaleMemories) {
-            didAutoSyncRef.current = true;
-            useOrbitStore.getState().syncNow();
-        }
-    }, [couple?.id, memories]);
 
     // Sync PagerView with store index reliably (Source-Prioritized)
     useEffect(() => {
         if (pagerRef.current && navigationSource === 'tap') {
-            console.log(`[Index] Driving Pager to: ${activeTabIndex} (Source: tap)`);
             isProgrammaticRef.current = true;
 
             // Critical: Tick-delay to ensure native side is receptive after state update
-            const runTimer = setTimeout(() => {
-                pagerRef.current?.setPage(activeTabIndex);
-            }, 0);
+            pagerRef.current?.setPage(activeTabIndex);
 
             // Keep this lock short to avoid making swipe feel disabled after tap navigation.
             const resetTimer = setTimeout(() => {
@@ -164,23 +178,12 @@ export default function Index() {
                 useOrbitStore.setState({ navigationSource: 'swipe' });
             }, 320);
 
-            return () => {
-                clearTimeout(runTimer);
-                clearTimeout(resetTimer);
-            };
+            return () => clearTimeout(resetTimer);
         }
     }, [activeTabIndex, navigationSource]);
 
-    // Best in Class: Predictive Asset Prewarming
-    // Temporarily disabled to prevent network spikes on initial load.
+    // Update app mode based on current tab
     useEffect(() => {
-        if (!user || loading) return;
-        // Pre-warming logic can be re-enabled with lower concurrency/priority if needed.
-    }, [activeTabIndex, loading]);
-
-    // Auto-sync dock mode (Ultra-responsive)
-    useEffect(() => {
-        // Lunara screens are now 5 (Lunara) and 6 (Partner)
         if (activeTabIndex === 5 || activeTabIndex === 6) {
             setAppMode('lunara');
         } else if ([1, 2, 3, 4, 7].includes(activeTabIndex)) {
@@ -188,14 +191,23 @@ export default function Index() {
         }
     }, [activeTabIndex]);
 
-    console.log(`[Index] Render - user: ${!!user}, loading: ${loading}, authChecking: ${isAuthChecking}`);
+    // Predicted Assets (Pre-warming)
+    useEffect(() => {
+        // Disabled to minimize network use
+    }, [activeTabIndex]);
 
-    if (isAuthChecking || (user && loading)) {
+    if (isAuthChecking) {
         return <LoadingScreen />;
     }
 
     if (!user) {
+        // The _layout handles redirect, but we return a blank view to prevent flash
         return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+    }
+
+    // Best in Class: Prevent flickering by only showing loader on cold boot if NO data exists
+    if (loading && memories.length === 0 && letters.length === 0 && !profile) {
+        return <LoadingScreen />;
     }
 
     return (
@@ -218,28 +230,44 @@ export default function Index() {
                 onLayout={() => setIsPagerReady(true)}
             >
                 <View key="0">
-                    {isPagerReady ? <SyncCinemaScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
+                    <LazyTab index={0} activeTabIndex={activeTabIndex}>
+                        {isPagerReady ? <SyncCinemaScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
+                    </LazyTab>
                 </View>
                 <View key="1">
-                    <DashboardScreen />
+                    <LazyTab index={1} activeTabIndex={activeTabIndex}>
+                        <DashboardScreen />
+                    </LazyTab>
                 </View>
                 <View key="2">
-                    {isPagerReady ? <LettersScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
+                    <LazyTab index={2} activeTabIndex={activeTabIndex}>
+                        {isPagerReady ? <LettersScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
+                    </LazyTab>
                 </View>
                 <View key="3">
-                    {isPagerReady ? <MemoriesScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
+                    <LazyTab index={3} activeTabIndex={activeTabIndex}>
+                        {isPagerReady ? <MemoriesScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
+                    </LazyTab>
                 </View>
                 <View key="4">
-                    <IntimacyScreen />
+                    <LazyTab index={4} activeTabIndex={activeTabIndex}>
+                        <IntimacyScreen />
+                    </LazyTab>
                 </View>
                 <View key="5">
-                    <LunaraScreen />
+                    <LazyTab index={5} activeTabIndex={activeTabIndex}>
+                        <LunaraScreen />
+                    </LazyTab>
                 </View>
                 <View key="6">
-                    <PartnerScreen />
+                    <LazyTab index={6} activeTabIndex={activeTabIndex}>
+                        <PartnerScreen />
+                    </LazyTab>
                 </View>
                 <View key="7">
-                    <SettingsScreen />
+                    <LazyTab index={7} activeTabIndex={activeTabIndex}>
+                        <SettingsScreen />
+                    </LazyTab>
                 </View>
             </PagerView>
         </View>

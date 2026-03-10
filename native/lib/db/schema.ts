@@ -20,6 +20,7 @@ export const memories = sqliteTable('memories', {
     read_by: text('read_by'), // JSON array of user IDs
     created_at: integer('created_at'), // Firebase timestamp (ms)
     updated_at: integer('updated_at'), // Crucial for Delta Sync
+    deleted: integer('deleted', { mode: 'boolean' }).default(false),
 });
 
 export const polaroids = sqliteTable('polaroids', {
@@ -28,7 +29,9 @@ export const polaroids = sqliteTable('polaroids', {
     caption: text('caption'),
     created_at: integer('created_at'),
     user_id: text('user_id'),
+    polaroid_date: text('polaroid_date'), // Missing field found
     updated_at: integer('updated_at'),
+    deleted: integer('deleted', { mode: 'boolean' }).default(false),
 });
 
 export const letters = sqliteTable('letters', {
@@ -67,6 +70,7 @@ export const bucketList = sqliteTable('bucket_list', {
     created_at: integer('created_at'),
     created_by: text('created_by').notNull(),
     updated_at: integer('updated_at'),
+    deleted: integer('deleted', { mode: 'boolean' }).default(false),
 });
 export const musicState = sqliteTable('music_state', {
     id: text('id').primaryKey(), // We'll use a fixed key like 'current_session' or couple_id
@@ -79,12 +83,28 @@ export const musicState = sqliteTable('music_state', {
     updated_at: integer('updated_at'), // Remote sync timestamp
 });
 
+export const couples = sqliteTable('couples', {
+    id: text('id').primaryKey(),
+    user1_id: text('user1_id'),
+    user2_id: text('user2_id'),
+    anniversary_date: text('anniversary_date'),
+    paired_at: text('paired_at'),
+    wallpaper_url: text('wallpaper_url'),
+    updated_at: integer('updated_at'),
+});
+
 export const profiles = sqliteTable('profiles', {
     id: text('id').primaryKey(),
     display_name: text('display_name'),
     avatar_url: text('avatar_url'),
     couple_id: text('couple_id'),
     partner_id: text('partner_id'),
+    partner_nickname: text('partner_nickname'),
+    custom_wallpaper_url: text('custom_wallpaper_url'),
+    background_aesthetic: text('background_aesthetic'),
     is_partner: integer('is_partner', { mode: 'boolean' }).default(false),
+    location_city: text('location_city'),
+    location_json: text('location_json'), // Stringified location object {temp, lat, long, etc}
+    bio: text('bio'),
     updated_at: integer('updated_at'),
 });

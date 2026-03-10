@@ -16,7 +16,8 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.aryan.orbitv2",
+      "package": "com.orbit.app",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.READ_MEDIA_IMAGES",

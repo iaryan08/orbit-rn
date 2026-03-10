@@ -28,19 +28,32 @@ export async function registerForPushNotificationsAsync() {
             return;
         }
 
-        // Learn more about projectId here: https://docs.expo.dev/push-notifications/push-notifications-setup/#configure-projectid
+        // 1. Get Expo Push Token (for Expo's service if needed)
         token = (await Notifications.getExpoPushTokenAsync({
             projectId: '8dba604e-7f8f-4bf1-bd84-e70058ab1e45',
         })).data;
-        console.log('[Push] Token:', token);
+        console.log('[Push] Expo Token:', token);
 
-        // Save token to Firestore
+        // 2. Get Native Device Token (FCM for Website API)
+        let nativeToken;
+        try {
+            nativeToken = (await Notifications.getDevicePushTokenAsync()).data;
+            console.log('[Push] Native Device Token:', nativeToken);
+        } catch (e) {
+            console.warn('[Push] Could not get native device token:', e);
+        }
+
+        // Save tokens to Firestore
         const user = auth.currentUser;
-        if (user && token) {
-            const userRef = doc(db, 'users', user.uid);
-            await setDoc(userRef, {
-                push_tokens: arrayUnion(token)
-            }, { merge: true });
+        if (user) {
+            const updates: any = {};
+            if (token) updates.push_tokens = arrayUnion(token);
+            if (nativeToken) updates.fcm_token = nativeToken;
+
+            if (Object.keys(updates).length > 0) {
+                const userRef = doc(db, 'users', user.uid);
+                await setDoc(userRef, updates, { merge: true });
+            }
         }
     } else {
         console.log('Must use physical device for Push Notifications');

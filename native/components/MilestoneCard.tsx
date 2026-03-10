@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Platform } from 'react-native';
 import { Calendar, Clock, ChevronDown, Check, Sparkles } from 'lucide-react-native';
-import Animated, { useAnimatedStyle, withSpring, withTiming, useSharedValue, Easing } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, withSpring, withTiming, useSharedValue } from 'react-native-reanimated';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
 import { useOrbitStore } from '../lib/store';
 import { logIntimacyMilestone } from '../lib/auth';
 import * as Haptics from 'expo-haptics';
 import { auth } from '../lib/firebase';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format } from 'date-fns';
+import { parseSafeDate } from '../lib/utils';
 
 interface MilestoneCardProps {
     id: string;
@@ -31,9 +34,18 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
     const [content, setContent] = useState(userContent || '');
     const [date, setDate] = useState(userDate || existingData?.milestone_date || '');
     const [time, setTime] = useState(userTime || existingData?.milestone_time || '');
+
+    // Dual date state for partner if needed
+    const partnerDateValue = isUser1 ? existingData?.date_user2 : existingData?.date_user1;
+    const partnerTimeValue = isUser1 ? existingData?.time_user2 : existingData?.time_user1;
+
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [showTimePicker, setShowTimePicker] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [hasNewSuccess, setHasNewSuccess] = useState(false);
     const successTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const hasDualDates = ['first_kiss', 'first_surprise', 'first_memory'].includes(id);
 
     React.useEffect(() => {
         if (!isSaving) {
@@ -86,7 +98,7 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
     }, []);
 
     const animatedContentStyle = useAnimatedStyle(() => ({
-        height: expansion.value * 500,
+        height: expansion.value * (hasDualDates ? 600 : 520),
         opacity: expansion.value,
         marginTop: expansion.value * 16,
     }));
@@ -96,14 +108,14 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
     }));
 
     return (
-        <Animated.View style={styles.container}>
+        <View style={styles.container}>
             <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={toggleExpand}
                 style={styles.header}
             >
-                <View style={[styles.iconContainer, hasNewSuccess && styles.iconSuccess]}>
-                    {hasNewSuccess ? <Sparkles size={20} color="white" /> : icon}
+                <View style={[styles.iconContainer, (hasNewSuccess || (userContent && userDate)) && styles.iconSuccess]}>
+                    {(hasNewSuccess) ? <Sparkles size={20} color="white" /> : icon}
                 </View>
 
                 <View style={styles.titleGroup}>
@@ -125,31 +137,57 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
                     <View style={styles.row}>
                         <View style={styles.half}>
                             <Text style={styles.label}>DATE</Text>
-                            <View style={styles.inputWrapperRow}>
+                            <TouchableOpacity
+                                style={styles.inputWrapperRow}
+                                onPress={() => setShowDatePicker(true)}
+                            >
                                 <Calendar size={14} color="rgba(255,150,150,0.3)" />
-                                <TextInput
-                                    style={styles.smallInput}
-                                    placeholder="mm/dd/yyyy"
-                                    placeholderTextColor="rgba(255,255,255,0.15)"
-                                    value={date}
-                                    onChangeText={setDate}
-                                />
-                            </View>
+                                <Text style={styles.pickerText}>
+                                    {date ? (() => {
+                                        const d = parseSafeDate(date);
+                                        return d ? format(d, 'MMM dd, yyyy') : 'Invalid Date';
+                                    })() : 'Select Date'}
+                                </Text>
+                            </TouchableOpacity>
                         </View>
                         <View style={styles.half}>
                             <Text style={styles.label}>TIME</Text>
-                            <View style={styles.inputWrapperRow}>
+                            <TouchableOpacity
+                                style={styles.inputWrapperRow}
+                                onPress={() => setShowTimePicker(true)}
+                            >
                                 <Clock size={14} color="rgba(255,150,150,0.3)" />
-                                <TextInput
-                                    style={styles.smallInput}
-                                    placeholder="--:-- --"
-                                    placeholderTextColor="rgba(255,255,255,0.15)"
-                                    value={time}
-                                    onChangeText={setTime}
-                                />
-                            </View>
+                                <Text style={styles.pickerText}>
+                                    {time ? time : 'Select Time'}
+                                </Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
+
+                    {showDatePicker && (
+                        <DateTimePicker
+                            value={date ? new Date(date) : new Date()}
+                            mode="date"
+                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                            maximumDate={new Date()}
+                            onChange={(event, selectedDate) => {
+                                setShowDatePicker(false);
+                                if (selectedDate) setDate(format(selectedDate, 'yyyy-MM-dd'));
+                            }}
+                        />
+                    )}
+
+                    {showTimePicker && (
+                        <DateTimePicker
+                            value={new Date()}
+                            mode="time"
+                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                            onChange={(event, selectedTime) => {
+                                setShowTimePicker(false);
+                                if (selectedTime) setTime(format(selectedTime, 'hh:mm a'));
+                            }}
+                        />
+                    )}
 
                     <Text style={styles.label}>MY HEART</Text>
                     <View style={styles.inputWrapper}>
@@ -163,6 +201,33 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
                         />
                     </View>
 
+                    {hasDualDates && (
+                        <View>
+                            <Text style={styles.label}>PARTNER'S DATE & TIME</Text>
+                            <View style={[styles.row, { marginTop: 8 }]}>
+                                <View style={styles.half}>
+                                    <View style={[styles.inputWrapperRow, styles.partnerInputRow]}>
+                                        <Calendar size={14} color="rgba(255,255,255,0.1)" />
+                                        <Text style={styles.partnerPickerText}>
+                                            {partnerDateValue ? (() => {
+                                                const d = parseSafeDate(partnerDateValue);
+                                                return d ? format(d, 'MMM dd, yyyy') : 'Invalid Date';
+                                            })() : 'No date set'}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <View style={styles.half}>
+                                    <View style={[styles.inputWrapperRow, styles.partnerInputRow]}>
+                                        <Clock size={14} color="rgba(255,255,255,0.1)" />
+                                        <Text style={styles.partnerPickerText}>
+                                            {partnerTimeValue ? partnerTimeValue : 'No time set'}
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+                        </View>
+                    )}
+
                     <Text style={styles.label}>YOUR PERSPECTIVE</Text>
                     <View style={[styles.inputWrapper, styles.partnerInputWrapper]}>
                         <Text style={[styles.textInput, styles.partnerContentText]}>
@@ -171,9 +236,9 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
                     </View>
 
                     <TouchableOpacity
-                        style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+                        style={[styles.saveButton, (isSaving || !content.trim()) && styles.saveButtonDisabled]}
                         onPress={handleSave}
-                        disabled={isSaving}
+                        disabled={isSaving || !content.trim()}
                     >
                         {isSaving ? (
                             <Text style={styles.saveButtonText}>SAVING...</Text>
@@ -186,30 +251,26 @@ export function MilestoneCard({ id, title, description, icon, existingData, isPa
                     </TouchableOpacity>
                 </View>
             </Animated.View>
-        </Animated.View>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         marginHorizontal: 0,
-        marginBottom: 12, // Tighter gap
-        borderRadius: 0, // 100 VW feel
-        borderWidth: 0,
+        marginBottom: 12,
+        borderRadius: 0,
         borderBottomWidth: 1,
         borderBottomColor: 'rgba(255,255,255,0.05)',
         overflow: 'hidden',
         backgroundColor: 'rgba(20, 20, 20, 0.6)',
-    },
-    cardPressed: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: Spacing.lg,
-        paddingVertical: 24, // Taller header
+        paddingVertical: 24,
     },
     iconContainer: {
         width: 48,
@@ -227,6 +288,7 @@ const styles = StyleSheet.create({
     },
     titleGroup: {
         flex: 1,
+        marginLeft: 16,
     },
     title: {
         color: 'white',
@@ -277,6 +339,22 @@ const styles = StyleSheet.create({
         height: 44,
         gap: 8,
     },
+    pickerText: {
+        color: 'white',
+        fontSize: 13,
+        fontFamily: Typography.sans,
+        flex: 1,
+    },
+    partnerInputRow: {
+        backgroundColor: 'rgba(255,255,255,0.01)',
+        borderColor: 'rgba(255,255,255,0.03)',
+    },
+    partnerPickerText: {
+        color: 'rgba(255,255,255,0.2)',
+        fontSize: 12,
+        fontFamily: Typography.sans,
+        flex: 1,
+    },
     textInput: {
         color: 'white',
         fontSize: 14,
@@ -298,12 +376,6 @@ const styles = StyleSheet.create({
     half: {
         flex: 1,
         gap: 8,
-    },
-    smallInput: {
-        color: 'white',
-        fontSize: 12,
-        fontFamily: Typography.sans,
-        flex: 1,
     },
     saveButton: {
         height: 48,

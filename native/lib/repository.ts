@@ -1,13 +1,37 @@
 import { db_local } from './db/db';
 import { db as firebaseDb } from './firebase';
 import { collection, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore';
-import { memories, letters, moods, bucketList, syncMetadata, polaroids, musicState, profiles } from './db/schema';
+import { memories, letters, moods, bucketList, syncMetadata, polaroids, musicState, profiles, couples } from './db/schema';
 import { eq, sql } from 'drizzle-orm';
 
 class Repository {
     // Profiling & Personalization Caching
     async getProfiles() {
         return db_local.select().from(profiles).all();
+    }
+
+    async getCouple(id: string) {
+        return db_local.select().from(couples).where(eq(couples.id, id)).get();
+    }
+
+    async saveCouple(id: string, data: any) {
+        const payload = {
+            id,
+            user1_id: data.user1_id || null,
+            user2_id: data.user2_id || null,
+            anniversary_date: data.anniversary_date || null,
+            paired_at: data.paired_at || null,
+            wallpaper_url: data.wallpaper_url || null,
+            updated_at: Date.now(),
+        };
+        try {
+            await db_local.insert(couples).values(payload as any).onConflictDoUpdate({
+                target: couples.id,
+                set: payload as any
+            });
+        } catch (e) {
+            console.warn("[Repo] saveCouple failed:", e);
+        }
     }
 
     async saveProfile(id: string, data: any, isPartner = false) {
@@ -17,13 +41,28 @@ class Repository {
             avatar_url: data.avatar_url || null,
             couple_id: data.couple_id || null,
             partner_id: data.partner_id || null,
+            partner_nickname: data.partner_nickname || null,
+            custom_wallpaper_url: data.custom_wallpaper_url || (data.wallpaper_url) || null,
+            background_aesthetic: data.background_aesthetic || null,
+            bio: data.bio || null,
+            location_city: data.location_city || (data.location?.city) || null,
+            location_json: data.location ? JSON.stringify(data.location) : (data.location_json || null),
             is_partner: isPartner ? 1 : 0,
-            updated_at: Date.now()
+            updated_at: Date.now(),
+            // Add any other profile fields here if they are not already present
+            // For example, if there's a 'status' field:
+            // status: data.status || null,
+            // If there's a 'preferences' field that needs JSON stringification:
+            // preferences: data.preferences ? JSON.stringify(data.preferences) : null,
         };
-        await db_local.insert(profiles).values(payload as any).onConflictDoUpdate({
-            target: profiles.id,
-            set: payload as any
-        });
+        try {
+            await db_local.insert(profiles).values(payload as any).onConflictDoUpdate({
+                target: profiles.id,
+                set: payload as any
+            });
+        } catch (e) {
+            console.warn("[Repo] saveProfile failed:", e);
+        }
     }
 
     // Generic Delta Sync Engine
@@ -35,13 +74,14 @@ class Repository {
 
             // 2. Fetch only new/updated from Firestore
             const ref = collection(firebaseDb, 'couples', coupleId, subPath);
-            const syncField = lastSync === 0 ? 'created_at' : 'updated_at';
 
+            // Standardize on updated_at for pure delta sync.
+            // If lastSync is 0, we pull the 50 most recent items to avoid a massive 10MBPS blast.
             const q = query(
                 ref,
-                where(syncField, '>', Timestamp.fromMillis(lastSync)),
-                orderBy(syncField, 'asc'),
-                limit(100)
+                where('updated_at', '>', Timestamp.fromMillis(lastSync)),
+                orderBy('updated_at', 'asc'),
+                limit(lastSync === 0 ? 50 : 100)
             );
 
             const snap = await getDocs(q);
@@ -76,6 +116,10 @@ class Repository {
                     sanitizedData.title = normalizedTitle;
                 }
 
+                if (name === 'polaroids') {
+                    sanitizedData.polaroid_date = data.polaroid_date || null;
+                }
+
                 await db_local.insert(table).values({
                     id: doc.id,
                     ...sanitizedData,
@@ -87,6 +131,7 @@ class Repository {
                     is_vanish: data.is_vanish ? 1 : 0,
                     is_completed: data.is_completed ? 1 : 0,
                     is_private: data.is_private ? 1 : 0,
+                    deleted: data.deleted ? 1 : 0,
                 } as any).onConflictDoUpdate({
                     target: table.id,
                     set: {
@@ -113,7 +158,7 @@ class Repository {
     }
 
     async getMemories() {
-        const results = await db_local.select().from(memories).orderBy(sql`${memories.created_at} DESC`).all();
+        const results = await db_local.select().from(memories).where(sql`${memories.deleted} IS NOT 1`).orderBy(sql`${memories.created_at} DESC`).all();
         return results.map(row => ({
             ...row,
             image_urls: row.image_urls ? JSON.parse(row.image_urls) : null,
@@ -136,11 +181,12 @@ class Repository {
     }
 
     async getBucketList() {
-        const results = await db_local.select().from(bucketList).orderBy(sql`${bucketList.created_at} DESC`).all();
+        const results = await db_local.select().from(bucketList).where(eq(bucketList.deleted, false)).orderBy(sql`${bucketList.created_at} DESC`).all();
         return results.map(row => ({
             ...row,
             is_completed: !!row.is_completed,
-            is_private: !!row.is_private
+            is_private: !!row.is_private,
+            deleted: !!row.deleted
         }));
     }
 
@@ -163,11 +209,18 @@ class Repository {
     }
 
     async deleteBucketItem(id: string) {
-        await db_local.delete(bucketList).where(eq(bucketList.id, id));
+        // Physical delete is handled by sync cleaner, logical delete for now
+        await db_local.update(bucketList)
+            .set({ deleted: 1, updated_at: Date.now() } as any)
+            .where(eq(bucketList.id, id));
     }
 
     async getPolaroids() {
-        return db_local.select().from(polaroids).orderBy(sql`${polaroids.created_at} DESC`).all();
+        return db_local.select().from(polaroids).where(sql`${polaroids.deleted} IS NOT 1`).orderBy(sql`${polaroids.created_at} DESC`).all();
+    }
+
+    async deleteMemory(id: string) {
+        await db_local.delete(memories).where(eq(memories.id, id));
     }
 
     // Music State Persistence

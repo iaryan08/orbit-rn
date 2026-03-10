@@ -27,7 +27,7 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress }:
 
     const handleProfilePress = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        setTabIndex(7, 'tap'); // Navigate to Settings reliably
+        setTabIndex(7, 'tap');
     };
 
     const avatarUrl = useMemo(() =>
@@ -36,6 +36,7 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress }:
 
     return (
         <View style={styles.headerContent}>
+            {/* Left-pinned Pill */}
             <TouchableOpacity
                 style={styles.pillContainer}
                 activeOpacity={0.7}
@@ -45,7 +46,7 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress }:
                 }}
             >
                 <BlurView
-                    intensity={30}
+                    intensity={35}
                     tint="dark"
                     style={[styles.blur, isLunara && styles.lunaraBlur]}
                     experimentalBlurMethod="dimezisBlurView"
@@ -61,14 +62,14 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress }:
                 </BlurView>
             </TouchableOpacity>
 
-
+            {/* Right-pinned Profile */}
             <TouchableOpacity
                 style={styles.profileContainer}
                 onPress={handleProfilePress}
             >
                 <ProfileAvatar
                     url={avatarUrl}
-                    size={52}
+                    size={48} // Balanced premium size
                 />
             </TouchableOpacity>
         </View>
@@ -77,14 +78,15 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress }:
 
 const styles = StyleSheet.create({
     headerContent: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: Spacing.sm, // Extreme viewport optimization
         width: '100%',
+        height: 68, // Precision height as requested
+        flexDirection: 'row',
+        alignItems: 'center', // Vertical centering for both elements
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
     },
     pillContainer: {
-        // No flex: 1 so it wraps content
+        // Naturally centered by flex row
     },
     blur: {
         flexDirection: 'row',
@@ -109,14 +111,14 @@ const styles = StyleSheet.create({
     },
     text: {
         color: 'white',
-        fontSize: 12,
-        letterSpacing: 2,
+        fontSize: 11,
+        letterSpacing: 1.5,
         fontFamily: Typography.sansBold,
     },
     lunaraText: {
         color: '#d8b4fe',
-        letterSpacing: 2,
-        fontSize: 12,
+        letterSpacing: 1.5,
+        fontSize: 11,
     },
     divider: {
         width: 1,
@@ -129,9 +131,10 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
     },
     profileContainer: {
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 26,
+        borderWidth: 1.2,
+        borderColor: 'rgba(255,255,255,0.15)',
+        borderRadius: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 });
-

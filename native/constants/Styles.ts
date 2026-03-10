@@ -9,28 +9,27 @@ import { Colors, Spacing, Typography } from './Theme';
 export const GlobalStyles = StyleSheet.create({
     // Standardized screen header container
     standardHeader: {
-        paddingTop: 0,
-        paddingBottom: Spacing.xl,
-        paddingHorizontal: Spacing.md,
+        paddingTop: 10,
+        paddingBottom: 32,
+        paddingHorizontal: Spacing.xl,
     },
 
     // Primary title (e.g., "Dashboard", "Settings")
     standardTitle: {
-        fontSize: 48,
-        fontFamily: Typography.serif,
+        fontSize: 34,
+        fontFamily: Typography.serifBold,
         color: 'white',
-        letterSpacing: -1,
+        letterSpacing: -0.5,
         marginBottom: 4,
         textAlign: 'left',
     },
 
     // Sub-header tags (e.g., "IDENTITY · SPACE")
     standardSubtitle: {
-        fontSize: 10,
-        fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 2.5,
-        textTransform: 'uppercase',
+        fontSize: 11,
+        fontFamily: Typography.serifItalic,
+        color: 'rgba(255,255,255,0.4)',
+        letterSpacing: 1.5,
         textAlign: 'left',
     },
 
@@ -53,8 +52,7 @@ export const GlobalStyles = StyleSheet.create({
         fontSize: 10,
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 2.5,
-        textTransform: 'uppercase',
+        letterSpacing: 2,
         textAlign: 'center',
     },
 });

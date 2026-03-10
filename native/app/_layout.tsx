@@ -12,22 +12,20 @@ import { MoodLoggerDrawer } from "../components/MoodLoggerDrawer";
 import { MediaViewer } from "../components/MediaViewer";
 import { SearchPalette } from "../components/SearchPalette";
 import { ConnectionSync } from "../components/ConnectionSync";
+import { AppLockOverlay } from "../components/AppLockOverlay";
 import {
     useFonts,
-    Outfit_400Regular,
-    Outfit_700Bold,
-} from '@expo-google-fonts/outfit';
+    Syne_400Regular,
+    Syne_700Bold,
+} from '@expo-google-fonts/syne';
 import {
-    CormorantGaramond_300Light,
-    CormorantGaramond_400Regular,
-    CormorantGaramond_500Medium,
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_700Bold,
-    CormorantGaramond_400Regular_Italic,
-} from '@expo-google-fonts/cormorant-garamond';
+    BodoniModa_400Regular,
+    BodoniModa_700Bold,
+    BodoniModa_400Regular_Italic,
+} from '@expo-google-fonts/bodoni-moda';
 import {
-    PinyonScript_400Regular,
-} from '@expo-google-fonts/pinyon-script';
+    MeaCulpa_400Regular,
+} from '@expo-google-fonts/mea-culpa';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from "react";
 import { useOrbitStore } from '../lib/store';
@@ -82,13 +80,12 @@ function RootLayoutNav() {
     }, [!!authUser]);
 
     const [fontsLoaded, fontError] = useFonts({
-        Outfit_400Regular,
-        Outfit_700Bold,
-        CormorantGaramond_300Light,
-        CormorantGaramond_400Regular,
-        CormorantGaramond_500Medium,
-        CormorantGaramond_600SemiBold,
-        PinyonScript_400Regular,
+        Syne_400Regular,
+        Syne_700Bold,
+        BodoniModa_400Regular,
+        BodoniModa_700Bold,
+        BodoniModa_400Regular_Italic,
+        MeaCulpa_400Regular,
         // Apple Color Emoji for Signal-style consistency on Android
         'AppleColorEmoji': require('../assets/fonts/AppleColorEmoji.ttf'),
     });
@@ -145,6 +142,7 @@ function RootLayoutNav() {
                 {isAuthenticated && <MediaViewer />}
                 {isAuthenticated && <SearchPalette />}
                 {isAuthenticated && <ConnectionSync />}
+                {isAuthenticated && <AppLockOverlay />}
                 <StatusBar style="light" />
             </ThemeProvider>
         </GestureHandlerRootView>

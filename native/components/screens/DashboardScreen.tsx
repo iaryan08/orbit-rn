@@ -16,15 +16,17 @@ import { PartnerHeader } from '../../components/PartnerHeader';
 import {
     RelationshipStats,
     IntimacyAlert,
-    AuraBoard,
+    ConnectionBoard,
     ImportantDatesCountdown,
     LocationWidget,
     DailyInspirationWidget,
     MenstrualPhaseWidget,
     BucketListWidget,
-    LetterPreviewWidget
+    LetterPreviewWidget,
+    MusicHeartbeat
 } from '../../components/DashboardWidgets';
 import { GlassCard } from '../../components/GlassCard';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import * as Haptics from 'expo-haptics';
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, withDelay, withTiming, Easing, runOnJS, LinearTransition, FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,7 +38,6 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { submitPolaroid } from '../../lib/auth';
 import { storage } from '../../lib/firebase';
-import { ref } from 'firebase/storage';
 import { updateWeatherAndLocation } from '../../lib/weather';
 
 const { width } = Dimensions.get('window');
@@ -44,7 +45,8 @@ const { width } = Dimensions.get('window');
 export function DashboardScreen() {
     const {
         profile, partnerProfile, couple, fetchData, polaroids, letters,
-        memories, moods, milestones, cycleLogs, idToken, setTabIndex, activeTabIndex, appMode
+        memories, moods, milestones, cycleLogs, idToken, setTabIndex, activeTabIndex, appMode,
+        addPolaroidOptimistic
     } = useOrbitStore();
     const [user, setUser] = useState<any>(auth.currentUser);
     const insets = useSafeAreaInsets();
@@ -103,19 +105,40 @@ export function DashboardScreen() {
     const confirmPolaroidUpload = async () => {
         if (!pendingPolaroidUri) return;
 
+        // INSTANT UI FEEDBACK: Close modal and add to local state immediately
+        setIsTitleModalVisible(false);
+        const titleToSend = polaroidTitle || 'A moment shared';
+        const uriToProcess = pendingPolaroidUri;
+
+        addPolaroidOptimistic(uriToProcess, titleToSend);
+
+        setPolaroidTitle('');
+        setPendingPolaroidUri(null);
+
+        // Perform background work (Compression + Storage + Firestore)
         setIsUploading(true);
         try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-            // 1. Transform for 2.2K WEBP
+            // 1. Safety Check: Prohibit RAW formats (DNG/RAW/NEF) to save 10-year storage
+            const extension = uriToProcess.split('.').pop()?.toLowerCase();
+            const forbidden = ['dng', 'raw', 'nef', 'arw', 'cr2'];
+            if (extension && forbidden.includes(extension)) {
+                Alert.alert('High-Res Only', 'RAW files are too large for our 10-year storage plan. Please select a standard high-res photo.');
+                setIsUploading(false);
+                return;
+            }
+
+            // 2. High-End Transform (2.2K Retina WEBP @ 0.85)
             const manipResult = await ImageManipulator.manipulateAsync(
-                pendingPolaroidUri,
+                uriToProcess,
                 [{ resize: { width: 2200 } }],
-                { compress: 0.8, format: ImageManipulator.SaveFormat.WEBP }
+                { compress: 0.85, format: ImageManipulator.SaveFormat.WEBP }
             );
 
-            // 2. Upload to R2 (Direct XHR)
-            const cleanPath = `polaroids/${auth.currentUser?.uid}_${getTodayIST()}.webp`;
+            // 3. Direct-to-Cloud Upload
+            const todayStr = getTodayIST();
+            const cleanPath = `polaroids/${auth.currentUser?.uid}_${todayStr}.webp`;
             const r2Url = `${process.env.EXPO_PUBLIC_UPLOAD_URL?.replace(/\/$/, '')}/memories/${cleanPath}`;
 
             const blob = await fetch(manipResult.uri).then(r => r.blob());
@@ -125,35 +148,18 @@ export function DashboardScreen() {
                 xhr.open('PUT', r2Url, true);
                 xhr.setRequestHeader('Authorization', `Bearer ${process.env.EXPO_PUBLIC_UPLOAD_SECRET}`);
                 xhr.setRequestHeader('Content-Type', 'image/webp');
-
-                xhr.onerror = () => reject(new Error('Network error during Polaroid upload'));
-                xhr.timeout = 45000;
-                xhr.ontimeout = () => reject(new Error('Polaroid upload timed out'));
-
-                xhr.onload = () => {
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        resolve();
-                    } else {
-                        reject(new Error(`Upload failed with status: ${xhr.status}`));
-                    }
-                };
+                xhr.onerror = () => reject(new Error('Polaroid Network Error'));
+                xhr.timeout = 50000;
+                xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`Status: ${xhr.status}`));
                 xhr.send(blob as any);
             });
 
-            // 3. Save to Firestore
-            await submitPolaroid(cleanPath, polaroidTitle || 'A moment shared');
+            // 3. Metadata Broadcast
+            await submitPolaroid(cleanPath, titleToSend);
 
-            // 4. Cleanup
-            setIsTitleModalVisible(false);
-            setPolaroidTitle('');
-            setPendingPolaroidUri(null);
-
-            if (auth.currentUser) {
-                fetchData(auth.currentUser.uid);
-            }
+            // LEVERAGE DELTA SYNC: Do not call fetchData manually.
         } catch (err) {
-            console.error('Polaroid processing error:', err);
-            Alert.alert('Upload Failed', 'Failed to process or upload your image.');
+            console.error('[InstantCRUD] Polaroid background failure:', err);
         } finally {
             setIsUploading(false);
         }
@@ -179,7 +185,7 @@ export function DashboardScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         try {
             await Promise.all([
-                fetchData(user.uid),
+                useOrbitStore.getState().syncNow(),
                 updateWeatherAndLocation()
             ]);
         } finally {
@@ -198,42 +204,36 @@ export function DashboardScreen() {
         }
     }, []);
 
-    // Morphing: Standardized thresholds for professional overlap
+    // Morphing: Standardized thresholds for professional overlap - Snappier
     const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [0, 70], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [10, 50], [1, 0], Extrapolate.CLAMP),
         transform: [
-            { scale: interpolate(scrollOffset.value, [0, 70], [1, 0.9], Extrapolate.CLAMP) },
-            { translateY: interpolate(scrollOffset.value, [0, 70], [0, -12], Extrapolate.CLAMP) }
+            { scale: interpolate(scrollOffset.value, [10, 50], [1, 0.9], Extrapolate.CLAMP) },
+            { translateY: interpolate(scrollOffset.value, [10, 50], [0, -10], Extrapolate.CLAMP) }
         ]
     }));
 
     const sublineAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [0, 50], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [0, 40], [1, 0], Extrapolate.CLAMP),
     }));
 
     const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [30, 80], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [30, 80], [10, 0], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [30, 60], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [30, 60], [8, 0], Extrapolate.CLAMP) }]
     }));
 
     // Avatar Morphing Style: Disappear when pill is visible
     const avatarMorphStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [20, 80], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [10, 50], [1, 0], Extrapolate.CLAMP),
         transform: [
-            { scale: interpolate(scrollOffset.value, [20, 80], [1, 0.8], Extrapolate.CLAMP) },
-            { translateY: interpolate(scrollOffset.value, [20, 80], [0, -15], Extrapolate.CLAMP) }
+            { scale: interpolate(scrollOffset.value, [10, 50], [1, 0.8], Extrapolate.CLAMP) },
+            { translateY: interpolate(scrollOffset.value, [10, 50], [0, -10], Extrapolate.CLAMP) }
         ]
     }));
 
-    // Entry Animations for Widgets
-    const widgetOpacity = useSharedValue(0);
-    const widgetTranslateY = useSharedValue(20);
-
-    useEffect(() => {
-        const config = { duration: 300, easing: Easing.out(Easing.exp) };
-        widgetOpacity.value = withDelay(300, withTiming(1, config));
-        widgetTranslateY.value = withDelay(300, withTiming(0, config));
-    }, []);
+    // Entry Animations for Widgets - Optimized to avoid blinks on remount
+    const widgetOpacity = useSharedValue(1);
+    const widgetTranslateY = useSharedValue(0);
 
     const widgetAnimatedStyle = useAnimatedStyle(() => ({
         opacity: widgetOpacity.value,
@@ -263,7 +263,7 @@ export function DashboardScreen() {
             <Animated.ScrollView
                 ref={scrollRef}
                 style={styles.content}
-                contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + Spacing.md }]}
+                contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 80, paddingBottom: 100 }]}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
@@ -365,8 +365,6 @@ export function DashboardScreen() {
                                         timestamp: Date.now(),
                                         type: 'spark'
                                     });
-                                    // Also show local feedback/navigate
-                                    setTabIndex(3);
                                 }}
                             >
                                 <Svg style={StyleSheet.absoluteFill}>
@@ -402,6 +400,10 @@ export function DashboardScreen() {
 
 
                             <View style={styles.borderBottomWrapper}>
+                                <MusicHeartbeat />
+                            </View>
+
+                            <View style={styles.borderBottomWrapper}>
                                 <RelationshipStats
                                     couple={couple}
                                     lettersCount={letters.length}
@@ -415,24 +417,24 @@ export function DashboardScreen() {
                                     <View style={styles.quickLoggingSection}>
                                         <View style={styles.supportHeader}>
                                             <Plus size={16} color={Colors.dark.indigo[400]} />
-                                            <Text style={styles.supportTitle}>QUICK LOG</Text>
+                                            <Text style={styles.supportTitle}>Quick Log</Text>
                                         </View>
                                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.supportScroll}>
                                             <TouchableOpacity style={styles.logChip} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
                                                 <Smile size={14} color="white" />
-                                                <Text style={styles.logChipText}>HAPPY</Text>
+                                                <Text style={styles.logChipText}>Happy</Text>
                                             </TouchableOpacity>
                                             <TouchableOpacity style={styles.logChip} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
                                                 <Thermometer size={14} color="white" />
-                                                <Text style={styles.logChipText}>CRAMPS</Text>
+                                                <Text style={styles.logChipText}>Cramps</Text>
                                             </TouchableOpacity>
                                             <TouchableOpacity style={styles.logChip} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
                                                 <Moon size={14} color="white" />
-                                                <Text style={styles.logChipText}>TIRED</Text>
+                                                <Text style={styles.logChipText}>Tired</Text>
                                             </TouchableOpacity>
                                             <TouchableOpacity style={styles.logChip} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
                                                 <Activity size={14} color="white" />
-                                                <Text style={styles.logChipText}>BLOATED</Text>
+                                                <Text style={styles.logChipText}>Bloated</Text>
                                             </TouchableOpacity>
                                         </ScrollView>
                                     </View>
@@ -445,7 +447,7 @@ export function DashboardScreen() {
                                     <View style={styles.supportHistorySection}>
                                         <View style={styles.supportHeader}>
                                             <Heart size={16} color={Colors.dark.rose[400]} />
-                                            <Text style={styles.supportTitle}>SUPPORT HISTORY</Text>
+                                            <Text style={styles.supportTitle}>Support History</Text>
                                         </View>
                                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.supportScroll}>
                                             {periodSupportHistory.map(item => (
@@ -467,7 +469,7 @@ export function DashboardScreen() {
                             </View>
 
                             <View style={styles.borderBottomWrapper}>
-                                <AuraBoard
+                                <ConnectionBoard
                                     profile={profile}
                                     partnerProfile={partnerProfile}
                                     cycleLogs={cycleLogs}
@@ -482,7 +484,7 @@ export function DashboardScreen() {
                                             <Text style={styles.polaroidTitle}>Daily Polaroid</Text>
                                         </View>
                                         <View style={styles.momentBadge}>
-                                            <Text style={styles.momentBadgeText}>MOMENT</Text>
+                                            <Text style={styles.momentBadgeText}>Moment</Text>
                                         </View>
                                     </View>
                                     <View style={styles.stackSection}>
@@ -526,7 +528,7 @@ export function DashboardScreen() {
                 <View style={{ height: 120 }} />
             </Animated.ScrollView>
 
-            {/* Sticky Header Pill - Pin to Top with proper Z-Index */}
+            {/* Sticky Header Pill & Profile - Pin to Top with proper Z-Index */}
             <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
                 <HeaderPill title="Space" scrollOffset={scrollOffset} onPress={scrollToTop} />
             </Animated.View>
@@ -590,12 +592,21 @@ const styles = StyleSheet.create({
         pointerEvents: 'box-none',
         // Removed alignItems: center to allow HeaderPill internal alignment
     },
+    headerProfileBtn: {
+        position: 'absolute',
+        right: Spacing.md,
+        top: 4, // Vertically center within the 60px header
+        zIndex: 1010,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        borderRadius: 26,
+        overflow: 'hidden',
+    },
     content: {
         flex: 1,
     },
     scrollContent: {
         paddingTop: 0,
-        paddingBottom: 200,
+        paddingBottom: 100,
     },
     feedSection: {
         width: '100%',
@@ -607,27 +618,42 @@ const styles = StyleSheet.create({
         paddingTop: 20,
         paddingBottom: 2,
     },
-    standardHeader: GlobalStyles.standardHeader,
-    standardTitle: GlobalStyles.standardTitle,
-    standardSubtitle: GlobalStyles.standardSubtitle,
+    standardHeader: {
+        paddingHorizontal: Spacing.xl,
+        paddingTop: 20,
+        paddingBottom: 24,
+    },
+    standardTitle: {
+        fontSize: 32,
+        fontFamily: Typography.serifBold,
+        color: 'white',
+        letterSpacing: -0.5,
+    },
+    standardSubtitle: {
+        fontSize: 11,
+        fontFamily: Typography.serifItalic,
+        color: 'rgba(255,255,255,0.4)',
+        letterSpacing: 1.5,
+        marginTop: 4,
+    },
     quickActionsContainer: {
         flexDirection: 'row',
-        justifyContent: 'flex-start',
-        gap: 16,
-        paddingTop: 8,
-        paddingBottom: Spacing.xl,
-        paddingHorizontal: Spacing.md,
+        justifyContent: 'center',
+        gap: 12,
+        paddingTop: 12,
+        paddingBottom: 40,
+        paddingHorizontal: Spacing.xl,
     },
     quickActionGlass: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
+        width: 60,
+        height: 60,
+        borderRadius: 30,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-        backgroundColor: 'rgba(255,255,255,0.08)', // Slightly more opaque for better visibility without elevation
+        borderColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(255,255,255,0.02)',
         justifyContent: 'center',
         alignItems: 'center',
-        overflow: 'hidden', // Ensure no overflow from children or artifacts
+        overflow: 'hidden',
     },
     widgetsGrid: {
         flexDirection: 'column',
@@ -664,9 +690,10 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     polaroidTitle: {
-        color: Colors.dark.foreground,
-        fontSize: 20,
-        fontFamily: Typography.serif,
+        color: 'white',
+        fontSize: 22,
+        fontFamily: Typography.serifBold,
+        letterSpacing: -0.2,
     },
     momentBadge: {
         paddingHorizontal: 10,
@@ -677,9 +704,9 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255,255,255,0.1)',
     },
     momentBadgeText: {
-        fontSize: 8,
+        fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.3)',
         letterSpacing: 2,
     },
     canvasArea: {
@@ -737,13 +764,15 @@ const styles = StyleSheet.create({
     },
     passionAlertTitle: {
         color: 'white',
-        fontSize: 16,
-        fontFamily: Typography.serif,
+        fontSize: 20,
+        fontFamily: Typography.serifBold,
+        letterSpacing: -0.3,
     },
     passionAlertSub: {
-        color: 'rgba(255,255,255,0.6)',
-        fontSize: 12,
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 13,
         fontFamily: Typography.serifItalic,
+        marginTop: 2,
     },
     supportHistorySection: {
         paddingVertical: 20,

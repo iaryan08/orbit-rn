@@ -99,7 +99,7 @@ export function predictNextPeriod(history: string[], defaultLength = 28): CycleP
     };
 }
 
-export const AURA_COLORS: Record<string, string> = {
+export const VIBE_COLORS: Record<string, string> = {
     'Lavender': 'rgba(168, 85, 247, 0.15)', // Menstrual
     'Soft Teal': 'rgba(45, 212, 191, 0.12)', // Follicular
     'Amber Glow': 'rgba(251, 191, 36, 0.15)', // Ovulation

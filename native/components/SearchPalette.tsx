@@ -221,7 +221,11 @@ export function SearchPalette() {
     const show = () => {
         opacity.value = withTiming(1, ANIM_FADE_IN);
         translateY.value = withTiming(0, ANIM_FADE_IN);
-        inputRef.current?.focus();
+
+        // Force immediate focus without waiting for transition
+        setTimeout(() => {
+            inputRef.current?.focus();
+        }, 50);
     };
 
     const hide = useCallback(() => {

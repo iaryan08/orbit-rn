@@ -7,7 +7,8 @@ import Animated, {
     withSpring,
     interpolate,
     runOnJS,
-    withTiming
+    withTiming,
+    SharedValue
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
@@ -20,14 +21,7 @@ const AnimatedImage = Animated.createAnimatedComponent(Image);
 
 const SWIPE_THRESHOLD = 60;
 const SHAKE_THRESHOLD = 2.5;
-
-interface PolaroidData {
-    id: string;
-    image_url: string;
-    caption?: string;
-    created_at: any;
-    user_id?: string;
-}
+import { PolaroidData } from '../lib/store/types';
 
 interface PolaroidStackProps {
     userPolaroid: PolaroidData | null;
@@ -99,13 +93,28 @@ export function PolaroidStack({
     );
 }
 
-function PolaroidCard({ data, label, isActive, index, translateX, onPress, authToken }: any) {
+interface PolaroidCardProps {
+    data: PolaroidData | null;
+    label: string;
+    isActive: boolean;
+    index: number;
+    translateX: SharedValue<number>;
+    onPress: () => void;
+    authToken?: string | null;
+}
+
+import { usePersistentMedia } from '../lib/media';
+
+function PolaroidCard({ data, label, isActive, index, translateX, onPress, authToken }: PolaroidCardProps) {
     const [developProgress, setDevelopProgress] = useState(100);
     const [isShaking, setIsShaking] = useState(false);
 
-    const imageUrl = useMemo(() =>
+    const rawUrl = useMemo(() =>
         getPublicStorageUrl(data?.image_url, 'memories', authToken),
         [data?.image_url, authToken]);
+
+    // Use the optimized media engine with content-stable ID (URL)
+    const sourceUri = usePersistentMedia(data?.image_url, rawUrl || undefined, isActive);
 
     // Shake Detector logic (only for active card and newly added data)
     useEffect(() => {
@@ -164,7 +173,7 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
                         {data ? (
                             <>
                                 <AnimatedImage
-                                    source={{ uri: imageUrl || undefined }}
+                                    source={{ uri: sourceUri || undefined }}
                                     style={[styles.image, imageStyle]}
                                     contentFit="cover"
                                     transition={200}
@@ -196,7 +205,7 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
                         <View style={styles.timeWrapper}>
                             <View style={styles.timeDot} />
                             <Text style={styles.time}>
-                                {data?.created_at ? '03:28 PM · MAR 7' : 'WAITING...'}
+                                {data?.created_at ? '03:28 PM · Mar 7' : 'Waiting...'}
                             </Text>
                         </View>
                     </View>
@@ -252,8 +261,7 @@ const styles = StyleSheet.create({
     emptyText: {
         fontSize: 10,
         color: '#A3A3A3',
-        fontWeight: '700',
-        textTransform: 'uppercase',
+        fontFamily: Typography.sansBold,
         marginTop: 4,
     },
     ownerBadge: {
@@ -267,10 +275,9 @@ const styles = StyleSheet.create({
     },
     ownerText: {
         color: 'white',
-        fontSize: 9,
-        fontWeight: '800',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
+        fontSize: 10,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 0.2,
     },
     developingOverlay: {
         ...StyleSheet.absoluteFillObject,
@@ -280,9 +287,8 @@ const styles = StyleSheet.create({
     },
     developingText: {
         color: 'white',
-        fontSize: 10,
-        fontWeight: '900',
-        textTransform: 'uppercase',
+        fontSize: 11,
+        fontFamily: Typography.sansBold,
         marginTop: 8,
     },
     captionContainer: {
@@ -323,9 +329,8 @@ const styles = StyleSheet.create({
     },
     footerLabel: {
         color: 'rgba(251, 113, 133, 0.4)',
-        fontSize: 10,
-        fontWeight: '900',
-        textTransform: 'uppercase',
-        letterSpacing: 2,
+        fontSize: 11,
+        fontFamily: Typography.sansBold,
+        letterSpacing: 1,
     }
 });

@@ -37,12 +37,12 @@ const FloatingHeart = ({ delay = 0, x = 0 }: { delay?: number; x?: number }) => 
     useEffect(() => {
         opacity.value = withDelay(delay, withSequence(
             withTiming(1, { duration: 400 }),
-            withDelay(400, withTiming(0, { duration: 400 }))
+            withDelay(800, withTiming(0, { duration: 800 }))
         ));
-        translateY.value = withDelay(delay, withTiming(-100, { duration: 1200, easing: Easing.out(Easing.quad) }));
+        translateY.value = withDelay(delay, withTiming(-250, { duration: 2500, easing: Easing.out(Easing.quad) }));
         scale.value = withDelay(delay, withSequence(
-            withSpring(1.2),
-            withTiming(0.8, { duration: 800 })
+            withSpring(1.5),
+            withTiming(0.8, { duration: 1500 })
         ));
     }, []);
 
@@ -58,7 +58,39 @@ const FloatingHeart = ({ delay = 0, x = 0 }: { delay?: number; x?: number }) => 
 
     return (
         <Animated.View style={style}>
-            <Heart size={24} color={Colors.dark.rose[400]} fill={Colors.dark.rose[400] + '66'} />
+            <Heart size={28} color={Colors.dark.rose[400]} fill={Colors.dark.rose[400] + '88'} />
+        </Animated.View>
+    );
+};
+
+const SparkleItem = ({ delay = 0, x = 0, y = 0 }: { delay?: number; x?: number; y?: number }) => {
+    const opacity = useSharedValue(0);
+    const scale = useSharedValue(0);
+
+    useEffect(() => {
+        opacity.value = withDelay(delay, withSequence(
+            withTiming(1, { duration: 300 }),
+            withTiming(0, { duration: 600 })
+        ));
+        scale.value = withDelay(delay, withSequence(
+            withSpring(1.2),
+            withTiming(0, { duration: 800 })
+        ));
+    }, []);
+
+    const style = useAnimatedStyle(() => ({
+        opacity: opacity.value,
+        transform: [
+            { translateX: x },
+            { translateY: y },
+            { scale: scale.value }
+        ],
+        position: 'absolute'
+    }));
+
+    return (
+        <Animated.View style={style}>
+            <Sparkles size={16} color={Colors.dark.amber[400]} fill={Colors.dark.amber[400]} />
         </Animated.View>
     );
 };
@@ -115,47 +147,39 @@ export function ConnectionSync() {
         return () => off(partnerPresenceRef, 'value', unsub);
     }, [couple?.id, partnerProfile?.id]);
 
-    // Letter Listener: Trigger when partner sends a letter
+    const letters = useOrbitStore(state => state.letters);
+
+    // Letter Listener: Trigger when partner sends a letter (Store-driven)
     useEffect(() => {
-        if (!couple?.id || !partnerProfile?.id) return;
+        if (!partnerProfile?.id || !letters.length) return;
 
-        const lettersRef = collection(db, 'couples', couple.id, 'letters');
-        const q = query(
-            lettersRef,
-            where('sender_id', '==', partnerProfile.id),
-            orderBy('created_at', 'desc'),
-            limit(1)
-        );
+        const partnerLetters = letters.filter(l => l.sender_id === partnerProfile.id);
+        if (partnerLetters.length === 0) return;
 
-        let isInitial = true;
-        const unsub = onSnapshot(q, async (snapshot) => {
-            if (snapshot.empty) return;
+        const latestLetter = partnerLetters[0]; // Already sorted by created_at desc in store
+        const letterId = latestLetter.id;
 
-            const letterDoc = snapshot.docs[0];
-            const letterId = letterDoc.id;
-            const data = letterDoc.data();
+        const checkLatest = async () => {
+            const lastSeenId = await AsyncStorage.getItem(`last_seen_letter_${partnerProfile.id}`);
 
-            if (isInitial) {
-                // Save the current most recent letter ID so we only notify on NEW ones henceforth
+            if (!lastSeenId) {
+                // Initialize on first ever load
                 await AsyncStorage.setItem(`last_seen_letter_${partnerProfile.id}`, letterId);
-                isInitial = false;
                 return;
             }
 
-            const lastSeenId = await AsyncStorage.getItem(`last_seen_letter_${partnerProfile.id}`);
             if (letterId !== lastSeenId) {
                 await AsyncStorage.setItem(`last_seen_letter_${partnerProfile.id}`, letterId);
 
-                // Extra safety: Verify it's not a super old letter just synced
-                const createdAt = data.created_at as Timestamp;
-                if (createdAt && (Date.now() - createdAt.toMillis()) < 3600000) { // Within 1 hour
+                // Within 1 hour to avoid notifying on very old synced data
+                if (latestLetter.created_at && (Date.now() - latestLetter.created_at) < 3600000) {
                     runOnJS(triggerInteraction)('letter');
                 }
             }
-        });
+        };
 
-        return unsub;
-    }, [couple?.id, partnerProfile?.id]);
+        checkLatest();
+    }, [letters, partnerProfile?.id]);
 
     const triggerInteraction = (type: 'heartbeat' | 'spark' | 'connection' | 'letter') => {
         if (type === 'heartbeat') {
@@ -188,8 +212,8 @@ export function ConnectionSync() {
     }, [interactionType]);
 
     const overlayStyle = useAnimatedStyle(() => ({
-        backgroundColor: '#000000', // Solid Premium Black
-        opacity: withTiming(1, { duration: 400 }),
+        backgroundColor: 'rgba(0,0,0,0.35)', // Slightly dim the dash for focus
+        opacity: withTiming(interactionType ? 1 : 0, { duration: 400 }),
     }));
 
     if (!interactionType) return null;
@@ -201,7 +225,7 @@ export function ConnectionSync() {
             style={[styles.overlay, overlayStyle]}
             pointerEvents="none"
         >
-            <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} />
+            <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill} />
 
             <View style={styles.centerContainer}>
                 <Animated.View
@@ -211,10 +235,21 @@ export function ConnectionSync() {
                 >
                     {interactionType === 'heartbeat' && (
                         <View style={StyleSheet.absoluteFill}>
-                            <FloatingHeart delay={0} x={-50} />
-                            <FloatingHeart delay={200} x={40} />
-                            <FloatingHeart delay={400} x={-10} />
-                            <FloatingHeart delay={600} x={55} />
+                            <FloatingHeart delay={0} x={-80} />
+                            <FloatingHeart delay={200} x={60} />
+                            <FloatingHeart delay={400} x={-20} />
+                            <FloatingHeart delay={600} x={100} />
+                            <FloatingHeart delay={800} x={20} />
+                        </View>
+                    )}
+
+                    {interactionType === 'spark' && (
+                        <View style={StyleSheet.absoluteFill}>
+                            <SparkleItem delay={0} x={-40} y={-40} />
+                            <SparkleItem delay={100} x={50} y={-20} />
+                            <SparkleItem delay={200} x={-10} y={60} />
+                            <SparkleItem delay={300} x={70} y={30} />
+                            <SparkleItem delay={400} x={0} y={-80} />
                         </View>
                     )}
 
@@ -222,8 +257,9 @@ export function ConnectionSync() {
                         entering={ZoomIn.springify()}
                         style={[
                             styles.iconCircle,
-                            interactionType === 'spark' && { borderColor: Colors.dark.amber[400] },
-                            interactionType === 'letter' && { borderColor: Colors.dark.rose[400] }
+                            interactionType === 'spark' && { borderColor: Colors.dark.amber[400], backgroundColor: Colors.dark.amber[900] + '33' },
+                            interactionType === 'letter' && { borderColor: Colors.dark.rose[400], backgroundColor: Colors.dark.rose[900] + '33' },
+                            interactionType === 'heartbeat' && { borderColor: Colors.dark.rose[400], backgroundColor: Colors.dark.rose[900] + '33' }
                         ]}
                     >
                         {interactionType === 'heartbeat' && <Heart size={36} color={Colors.dark.rose[400]} fill={Colors.dark.rose[400]} />}
@@ -235,19 +271,19 @@ export function ConnectionSync() {
                     <View style={styles.textContainer}>
                         <Text style={styles.title}>
                             {interactionType === 'connection'
-                                ? `${partnerProfile?.display_name?.split(' ')[0] || 'Partner'} Connected`
+                                ? `${partnerProfile?.display_name?.split(' ')[0] || 'Partner'} Joined`
                                 : interactionType === 'spark'
-                                    ? 'Spark Received'
+                                    ? 'A Spark for You'
                                     : interactionType === 'letter'
-                                        ? 'Letter Received'
-                                        : 'Heartbeat Received'
+                                        ? 'New Letter'
+                                        : 'Thinking of You'
                             }
                         </Text>
                         <View style={[
                             styles.bar,
-                            interactionType === 'spark' ? { backgroundColor: Colors.dark.amber[400] + '66' } :
-                                interactionType === 'letter' ? { backgroundColor: Colors.dark.rose[400] + '66' } :
-                                    { backgroundColor: Colors.dark.rose[400] + '66' }
+                            interactionType === 'spark' ? { backgroundColor: Colors.dark.amber[400] } :
+                                interactionType === 'letter' ? { backgroundColor: Colors.dark.rose[400] } :
+                                    { backgroundColor: Colors.dark.rose[400] }
                         ]} />
                     </View>
                 </Animated.View>

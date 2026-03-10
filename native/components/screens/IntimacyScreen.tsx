@@ -10,7 +10,7 @@ import { HeaderPill } from '../../components/HeaderPill';
 import { useOrbitStore } from '../../lib/store';
 
 import { MilestoneCard } from '../MilestoneCard';
-import { Heart, Sparkles, MapPin, Camera, Music, Gift, Coffee, Star, Plus, Check, Trash2, ChevronDown, ChevronUp, Trophy, Target, Lock, Unlock } from 'lucide-react-native';
+import { Heart, Sparkles, MapPin, Camera, Music, Gift, Coffee, Star, Plus, Check, Trash2, ChevronDown, ChevronUp, Trophy, Target, Lock, Unlock, MessageSquare, Waves, Moon, Infinity, CloudMoon, Home, Film, HeartPulse } from 'lucide-react-native';
 import { addBucketItem, toggleBucketItem, deleteBucketItem } from '../../lib/auth';
 import { TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -19,13 +19,21 @@ import Svg, { Circle, Path } from 'react-native-svg';
 // Local milestone configurations
 
 const MILESTONES = [
-    { id: 'first_meet', title: 'First Meeting', description: 'WHERE IT ALL BEGAN', prompt: 'Where did you first lock eyes?', icon: <MapPin size={22} color={Colors.dark.indigo[400]} /> },
-    { id: 'first_kiss', title: 'First Kiss', description: 'THAT MAGICAL MOMENT', prompt: 'Tell the story of that first spark...', icon: <Heart size={22} color={Colors.dark.rose[500]} /> },
-    { id: 'first_date', title: 'First Date', description: 'OUR FIRST ADVENTURE', prompt: 'What made our first date so special?', icon: <Sparkles size={22} color={Colors.dark.amber[400]} /> },
-    { id: 'first_memory', title: 'First Memory', description: 'CORE MEMORY UNLOCKED', prompt: 'A moment that stays with you forever...', icon: <Camera size={22} color={Colors.dark.indigo[400]} /> },
-    { id: 'first_song', title: 'Our Song', description: 'THE RHYTHM OF US', prompt: 'Why is this our melody?', icon: <Music size={22} color={Colors.dark.rose[500]} /> },
-    { id: 'first_surprise', title: 'First Surprise', description: 'LITTLE MOMENTS', prompt: 'That time you were truly caught off guard...', icon: <Gift size={22} color={Colors.dark.amber[400]} /> },
-    { id: 'first_trip', title: 'First Trip', description: 'WANDERLUST TOGETHER', prompt: 'Our first horizon together...', icon: <MapPin size={22} color={Colors.dark.indigo[400]} /> },
+    { id: 'first_talk', title: 'First Talk', description: 'The Beginning', prompt: 'When was the first talk?', icon: <MessageSquare size={22} color={Colors.dark.indigo[400]} /> },
+    { id: 'first_hug', title: 'First Hug', description: 'Warm Embrace', prompt: 'First meaningful hug?', icon: <Heart size={22} color={Colors.dark.rose[500]} /> },
+    { id: 'first_kiss', title: 'First Kiss', description: 'That Magic', prompt: 'How did the first kiss begin?', icon: <Heart size={22} color={Colors.dark.rose[500]} /> },
+    { id: 'first_french_kiss', title: 'First French Kiss', description: 'The Spark', prompt: 'First deep kiss?', icon: <Flame size={22} color={Colors.dark.amber[400]} /> },
+    { id: 'first_sex', title: 'First Sex', description: 'Pure Connection', prompt: 'First encounter?', icon: <Sparkles size={22} color={Colors.dark.indigo[400]} /> },
+    { id: 'first_oral', title: 'First Oral Sex', description: 'Shared Pleasure', prompt: 'When was this shared?', icon: <Waves size={22} color={Colors.dark.rose[500]} /> },
+    { id: 'first_time_together', title: 'First Bedtime', description: 'Sweet Dreams', prompt: 'First night together?', icon: <Moon size={22} color={Colors.dark.indigo[400]} /> },
+    { id: 'first_surprise', title: 'First Surprise', description: 'Little Moments', prompt: 'First intimate surprise?', icon: <Gift size={22} color={Colors.dark.amber[400]} /> },
+    { id: 'first_memory', title: 'First Memory', description: 'Core Memory', prompt: 'A favorite early memory?', icon: <Camera size={22} color={Colors.dark.indigo[400]} /> },
+    { id: 'first_confession', title: 'First Confession', description: 'Open Hearts', prompt: 'What was the first secret?', icon: <Unlock size={22} color={Colors.dark.rose[500]} /> },
+    { id: 'first_promise', title: 'First Promise', description: 'Eternal Word', prompt: 'First meaningful promise?', icon: <Infinity size={22} color={Colors.dark.amber[400]} /> },
+    { id: 'first_night_together', title: 'First Night Apart', description: 'Missing You', prompt: 'How was the first night apart?', icon: <CloudMoon size={22} color={Colors.dark.indigo[400]} /> },
+    { id: 'first_time_alone', title: 'First Time Alone', description: 'Our Space', prompt: 'First private evening with your partner?', icon: <Home size={22} color={Colors.dark.rose[500]} /> },
+    { id: 'first_movie_date', title: 'First Movie Date', description: 'Reel Love', prompt: 'First movie date with your partner?', icon: <Film size={22} color={Colors.dark.amber[400]} /> },
+    { id: 'first_intimate_moment', title: 'First Intimate Moment', description: 'Romantic Spark', prompt: 'First romantic expression to your partner?', icon: <HeartPulse size={22} color={Colors.dark.indigo[400]} /> },
 ];
 
 export function IntimacyScreen() {
@@ -52,8 +60,8 @@ export function IntimacyScreen() {
         });
     }, [bucketList, profile?.id]);
 
-    const completedCount = bucketList.filter(i => i.is_completed).length;
-    const totalCount = bucketList.length;
+    const completedCount = filteredBucket.filter(i => i.is_completed).length;
+    const totalCount = filteredBucket.length;
     const progress = totalCount === 0 ? 0 : (completedCount / totalCount);
 
     const handleAdd = () => {
@@ -120,13 +128,13 @@ export function IntimacyScreen() {
             <Animated.ScrollView
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
-                contentContainerStyle={{ paddingTop: insets.top + Spacing.md, paddingBottom: 200 }}
+                contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: 100 }}
                 keyboardShouldPersistTaps="handled"
                 nestedScrollEnabled={true}
             >
                 <View style={styles.standardHeader}>
                     <Animated.Text style={[styles.standardTitle, titleAnimatedStyle]}>Intimacy</Animated.Text>
-                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>PRECIOUS · MILESTONES</Animated.Text>
+                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>Precious · Milestones</Animated.Text>
                 </View>
 
                 <View style={styles.content}>
@@ -139,7 +147,7 @@ export function IntimacyScreen() {
                                 </View>
                                 <View>
                                     <Text style={styles.bucketTitle}>Our Bucket List</Text>
-                                    <Text style={styles.bucketSubtitle}>DREAMS WE'LL CHASE TOGETHER</Text>
+                                    <Text style={styles.bucketSubtitle}>Dreams We'll Chase Together</Text>
                                 </View>
                             </View>
 
@@ -230,7 +238,7 @@ export function IntimacyScreen() {
                         </View>
                     </GlassCard>
 
-                    <Text style={styles.sectionTitle}>MILESTONES</Text>
+                    <Text style={styles.sectionTitle}>Milestones</Text>
                     {MILESTONES.map((m) => (
                         <MilestoneCard
                             key={m.id}

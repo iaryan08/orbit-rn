@@ -37,3 +37,19 @@ export async function sendNotification({
         return { success: false, error: error.message };
     }
 }
+
+export async function markAsRead(userId: string, notificationId: string) {
+    if (!userId || !notificationId) return { success: false };
+    try {
+        const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+        const notifRef = doc(db, 'users', userId, 'notifications', notificationId);
+        await updateDoc(notifRef, {
+            is_read: true,
+            updated_at: serverTimestamp() || new Date().toISOString()
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error("[Notification] Failed to mark as read:", error);
+        return { success: false, error: error.message };
+    }
+}

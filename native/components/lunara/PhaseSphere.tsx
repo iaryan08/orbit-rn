@@ -39,15 +39,15 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5 }: PhaseSpherePr
     const colors = useMemo(() => {
         switch (phase) {
             case 'Menstrual':
-                return { primary: '#6d28d9', secondary: '#4c1d95', glow: '#a78bfa', aura: 'rgba(109, 40, 217, 0.2)' };
+                return { primary: '#6d28d9', secondary: '#4c1d95', glow: '#a78bfa', halo: 'rgba(109, 40, 217, 0.2)' };
             case 'Follicular':
-                return { primary: '#0d9488', secondary: '#0f766e', glow: '#2dd4bf', aura: 'rgba(13, 148, 136, 0.2)' };
+                return { primary: '#0d9488', secondary: '#0f766e', glow: '#2dd4bf', halo: 'rgba(13, 148, 136, 0.2)' };
             case 'Ovulatory':
-                return { primary: '#d97706', secondary: '#b45309', glow: '#fbbf24', aura: 'rgba(217, 119, 6, 0.3)' };
+                return { primary: '#d97706', secondary: '#b45309', glow: '#fbbf24', halo: 'rgba(217, 119, 6, 0.3)' };
             case 'Luteal':
-                return { primary: '#be123c', secondary: '#9f1239', glow: '#fb7185', aura: 'rgba(190, 18, 60, 0.2)' };
+                return { primary: '#be123c', secondary: '#9f1239', glow: '#fb7185', halo: 'rgba(190, 18, 60, 0.2)' };
             default:
-                return { primary: '#4b5563', secondary: '#374151', glow: '#9ca3af', aura: 'rgba(75, 85, 99, 0.1)' };
+                return { primary: '#4b5563', secondary: '#374151', glow: '#9ca3af', halo: 'rgba(75, 85, 99, 0.1)' };
         }
     }, [phase]);
 
@@ -58,12 +58,12 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5 }: PhaseSpherePr
     return (
         <View style={styles.container}>
             <Canvas style={{ width: width, height: width }}>
-                {/* External Aura Glow - 100% Hardware Safe (No Blur) */}
+                {/* External Halo Glow - 100% Hardware Safe (No Blur) */}
                 <Circle cx={width / 2} cy={width / 2} r={SPHERE_SIZE / 1.3}>
                     <RadialGradient
                         c={vec(width / 2, width / 2)}
                         r={SPHERE_SIZE / 1.3}
-                        colors={[colors.aura, 'transparent']}
+                        colors={[colors.halo, 'transparent']}
                     />
                 </Circle>
 

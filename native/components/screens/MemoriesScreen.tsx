@@ -25,6 +25,7 @@ import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion } from 
 import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, getStorage, type FirebaseStorage } from 'firebase/storage';
 import { app, auth, db, storage, projectId } from '../../lib/firebase';
 import { usePersistentMedia, getPersistentPath } from '../../lib/media';
+import { sendNotification } from '../../lib/notifications';
 
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
@@ -103,18 +104,17 @@ const MemoryImage = React.memo(({
     const [isLoading, setIsLoading] = useState(true);
     const [isMuted, setIsMuted] = useState(true);
 
-    // PERSISTENCE FIX: Track if we have already triggered loading for this item.
-    // Once it loads, we avoid "shifting black" by keeping the source.
-    const [hasTriggered, setHasTriggered] = useState(false);
-    useEffect(() => {
-        if (isActive && isParentVisible && isTabActive) {
-            setHasTriggered(true);
-        }
-    }, [isActive, isParentVisible, isTabActive]);
+    const isVisible = isActive && isParentVisible && isTabActive;
+    const isNetworkAllowed = isVisible; // Only download if visible
 
-    const sourceUri = (idToken && hasTriggered) ? (rawUrl || '') : '';
+    // PERSISTENCE ENGINE: Check local file system before network
+    // Instagram Pattern: Visibility-Gated Networking
+    const persistentSource = usePersistentMedia(id as string, rawUrl as string, isNetworkAllowed);
 
-    const player = useVideoPlayer(videoMedia && sourceUri ? sourceUri : '', (p) => {
+    // Safety: Keep the source stable to avoid blinks on tab switch.
+    const sourceUri = persistentSource || '';
+
+    const player = useVideoPlayer(videoMedia ? sourceUri : '', (p) => {
         p.loop = true;
         p.muted = isMuted;
         p.staysActiveInBackground = false;
@@ -122,41 +122,48 @@ const MemoryImage = React.memo(({
 
     useEffect(() => {
         if (!videoMedia || !sourceUri) return;
-        try { player.replace({ uri: sourceUri }); } catch { }
+        try {
+            // Standard Source Replacement logic
+            player.replace({ uri: sourceUri });
+        } catch { }
     }, [sourceUri, videoMedia, player]);
 
     useEffect(() => {
-        if (!videoMedia) return;
+        if (!videoMedia || !sourceUri) return;
         const sub = player.addListener('statusChange', (payload: any) => {
             if (payload?.status === 'playing' || payload?.status === 'readyToPlay') {
                 setIsLoading(false);
             }
         });
         return () => sub.remove();
-    }, [videoMedia, player]);
+    }, [videoMedia, player, sourceUri]);
 
     useEffect(() => {
         if (!videoMedia) return;
-        // Optimization: Control playback without clearing the source.
-        if (isActive && isParentVisible && isTabActive && !isMediaViewerOpen) {
+        // Strictly control playback based on actual visibility
+        if (isVisible && !isMediaViewerOpen) {
             player.muted = isMuted;
             player.play();
         } else {
             player.pause();
             player.muted = true;
         }
-    }, [videoMedia, isMuted, isActive, isParentVisible, isTabActive, isMediaViewerOpen, player]);
+    }, [videoMedia, isMuted, isVisible, isMediaViewerOpen, player]);
 
     if (videoMedia) {
         return (
             <View style={styles.mediaFull}>
-                <VideoView
-                    player={player}
-                    style={StyleSheet.absoluteFill}
-                    contentFit="cover"
-                    nativeControls={false}
-                    allowsFullscreen={false}
-                />
+                {sourceUri ? (
+                    <VideoView
+                        player={player}
+                        style={StyleSheet.absoluteFill}
+                        contentFit="cover"
+                        nativeControls={false}
+                        allowsFullscreen={false}
+                    />
+                ) : (
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: '#050505' }]} />
+                )}
                 <TouchableOpacity
                     style={styles.videoTapOverlay}
                     activeOpacity={1}
@@ -333,7 +340,7 @@ const MemoryCard = React.memo(({
                                 <MemoryImage
                                     key={i}
                                     url={url}
-                                    id={`${item.id}_${i}`} // Unique ID for each image in the memory
+                                    id={url}
                                     idToken={idToken}
                                     isActive={i === activeImageIndex}
                                     isParentVisible={isPrimaryVisible}
@@ -345,7 +352,11 @@ const MemoryCard = React.memo(({
                                             const memoryRef = doc(db, 'couples', couple?.id, 'memories', item.id);
                                             updateDoc(memoryRef, {
                                                 read_by: arrayUnion(profile.id)
-                                            }).catch(err => console.error("Error marking memory read:", err));
+                                            }).catch(err => {
+                                                if (!err.message?.includes('No document to update')) {
+                                                    console.warn("[Memories] Failed to mark read:", err);
+                                                }
+                                            });
                                         }
                                     }}
                                 />
@@ -719,8 +730,8 @@ export function MemoriesScreen() {
                     try {
                         const manipulated = await ImageManipulator.manipulateAsync(
                             media.uri,
-                            [{ resize: { width: 2200 } }], // Professional 2.2K standardization
-                            { compress: 0.92, format: ImageManipulator.SaveFormat.WEBP }
+                            [{ resize: { width: 1600 } }], // Professional balanced resolution
+                            { compress: 0.80, format: ImageManipulator.SaveFormat.WEBP }
                         );
                         finalUri = manipulated.uri;
                         extension = 'webp';
@@ -731,14 +742,20 @@ export function MemoriesScreen() {
 
                 if (media.type === 'video') {
                     try {
-                        const compressed = await VideoCompressor.compress(
-                            media.uri,
-                            {
-                                compressionMethod: 'auto',
-                                // removed minimumFileSizeForCompress to compress everything
-                            }
-                        );
-                        finalUri = compressed;
+                        const info = await FileSystem.getInfoAsync(media.uri);
+                        const originalSize = info.exists ? info.size : 10000000;
+
+                        // Only compress if original is > 3MB
+                        if (originalSize > 3 * 1024 * 1024) {
+                            const compressed = await VideoCompressor.compress(
+                                media.uri,
+                                {
+                                    compressionMethod: 'auto',
+                                    maxSize: 1280,   // Downscale to 720p for extreme efficiency
+                                }
+                            );
+                            finalUri = compressed;
+                        }
                         extension = 'mp4';
                     } catch (e) {
                         console.error("Video compression failed, using original:", e);
@@ -763,6 +780,18 @@ export function MemoriesScreen() {
             };
 
             await addDoc(collection(db, 'couples', couple.id, 'memories'), memoryData);
+
+            // Send notification to partner
+            if (partnerProfile?.id) {
+                await sendNotification({
+                    recipientId: partnerProfile.id,
+                    actorId: senderId,
+                    type: 'memory',
+                    title: 'New Memory Shared! ✨',
+                    message: `${profile?.display_name || 'Your partner'} uploaded a new moment: "${title.trim()}"`,
+                    actionUrl: '/memories'
+                }).catch(err => console.error("Error sending memory notification:", err));
+            }
 
             // Instantly pull it into the local SQLite store so it renders
             await syncNow();
@@ -848,11 +877,11 @@ export function MemoriesScreen() {
     const listHeader = useMemo(() => (
         <View style={styles.standardHeader}>
             <Animated.View style={[styles.headerTitleRow, titleAnimatedStyle]}>
-                <Animated.Text style={[styles.standardTitle, appMode === 'lunara' && styles.lunaraPageTitle, { marginRight: 20 }]}>
+                <Animated.Text style={[styles.standardTitle, appMode === 'lunara' && styles.lunaraPageTitle]}>
                     {appMode === 'lunara' ? 'Discovery' : 'Memories'}
                 </Animated.Text>
                 <TouchableOpacity style={styles.addMemoryBtn} onPress={openComposer}>
-                    <Plus color="white" size={24} strokeWidth={2.5} />
+                    <Plus color="white" size={20} strokeWidth={2.5} />
                 </TouchableOpacity>
             </Animated.View>
             <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>
@@ -891,7 +920,7 @@ export function MemoriesScreen() {
                 drawDistance={400}
                 removeClippedSubviews
                 nestedScrollEnabled={true}
-                contentContainerStyle={[styles.listContent, { paddingTop: insets.top + Spacing.md }]}
+                contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: 200 }}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
@@ -1104,9 +1133,10 @@ const styles = StyleSheet.create({
     headerTitleRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'flex-start',
+        justifyContent: 'space-between',
         marginBottom: 4,
         width: '100%',
+        paddingRight: 4,
     },
     standardTitle: GlobalStyles.standardTitle,
     lunaraPageTitle: {
@@ -1114,12 +1144,17 @@ const styles = StyleSheet.create({
     },
     standardSubtitle: GlobalStyles.standardSubtitle,
     addMemoryBtn: {
-        width: 44,
-        height: 44,
-        backgroundColor: Colors.dark.rose[600],
-        borderRadius: 22,
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: Colors.dark.rose[500],
         justifyContent: 'center',
         alignItems: 'center',
+        shadowColor: Colors.dark.rose[500],
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
     },
     modalHeader: {
         flexDirection: 'row',

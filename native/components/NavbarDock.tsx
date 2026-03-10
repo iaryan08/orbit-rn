@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated, {
-    useAnimatedStyle, withTiming, useSharedValue, withSequence, withDelay
+    useAnimatedStyle, withTiming, useSharedValue, withSequence, withDelay, LinearTransition, FadeIn, FadeOut
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 
@@ -26,7 +26,6 @@ export function NavbarDock() {
     const {
         activeTabIndex,
         setTabIndex,
-        scrollOffset,
         setNotificationDrawerOpen,
         appMode,
         toggleAppMode,
@@ -36,7 +35,6 @@ export function NavbarDock() {
 
     const isLunara = appMode === 'lunara';
 
-    // NAVIGATION DEFINITIONS
     const moonNavItems = [
         { name: 'Dashboard', icon: LayoutDashboard, tabIndex: 1 },
         { name: 'Letters', icon: Mail, tabIndex: 2 },
@@ -50,16 +48,9 @@ export function NavbarDock() {
     ];
     const navItems = isLunara ? lunaraNavItems : moonNavItems;
 
-    // The dock remains strictly centered at all times
-
     const activeNavIndex = navItems.findIndex(item => item.tabIndex === activeTabIndex);
     const isActiveInDock = activeNavIndex >= 0;
 
-    /**
-     * PILL INTERPOLATION: INSTANT SNAP
-     * Maps the pill absolutely to the active index position using a fast spring.
-     * ZERO DEPENDENCY on the sluggish Android PagerView scroll offset.
-     */
     const pillTranslateX = useSharedValue(isActiveInDock ? activeNavIndex * SLOT : 0);
 
     useEffect(() => {
@@ -82,15 +73,14 @@ export function NavbarDock() {
 
     useEffect(() => {
         if (shouldHideDock) {
-            dockHideY.value = withTiming(150, { duration: 80 });
-            dockOpacity.value = withTiming(0, { duration: 80 });
+            dockHideY.value = withTiming(150, { duration: 100 });
+            dockOpacity.value = withTiming(0, { duration: 100 });
         } else {
-            dockHideY.value = withTiming(0, { duration: 80 });
-            dockOpacity.value = withTiming(1, { duration: 80 });
+            dockHideY.value = withTiming(0, { duration: 100 });
+            dockOpacity.value = withTiming(1, { duration: 100 });
         }
     }, [shouldHideDock]);
 
-    // ANIMATED STYLES
     const animatedIndicatorStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: pillTranslateX.value }],
     }));
@@ -110,8 +100,7 @@ export function NavbarDock() {
             style={[styles.dockContainer, { bottom: Math.max(insets.bottom, 12) }, animatedDockContainerStyle]}
             pointerEvents={shouldHideDock ? 'none' : 'box-none'}
         >
-            <Animated.View style={[styles.dockWrapper]}>
-
+            <View style={styles.dockWrapper}>
                 {/* Bell Capsule */}
                 <BlurView intensity={30} tint="dark" experimentalBlurMethod="dimezisBlurView" style={[styles.sideCapsule, { borderColor: activeBorder }]}>
                     <TouchableOpacity style={styles.sideBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setNotificationDrawerOpen(true); }}>
@@ -120,7 +109,7 @@ export function NavbarDock() {
                 </BlurView>
 
                 {/* Main Navigation Capsule */}
-                <BlurView intensity={30} tint="dark" experimentalBlurMethod="dimezisBlurView" style={[styles.middleCapsule, { borderColor: activeBorder }]}>
+                <BlurView intensity={45} tint="dark" experimentalBlurMethod="dimezisBlurView" style={[styles.middleCapsule, { borderColor: activeBorder }]}>
                     <View style={styles.middleContent}>
                         {isActiveInDock && (
                             <Animated.View style={[styles.pillTrack, animatedIndicatorStyle]}>
@@ -144,14 +133,13 @@ export function NavbarDock() {
                                             if (item.name === 'Dashboard' || item.name === 'Lunara' || item.name === 'Discover') {
                                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
                                                 toggleAppMode();
-                                                setTabIndex(isLunara ? 1 : 5, 'tap');
                                             }
                                         }}
                                         delayLongPress={400}
                                     >
                                         <Icon
                                             size={20}
-                                            color={isActive ? (isLunara ? '#d8b4fe' : '#fff') : 'rgba(255,255,255,0.4)'}
+                                            color={isActive ? '#fff' : 'rgba(255,255,255,0.4)'}
                                             strokeWidth={isActive ? 2.5 : 2}
                                         />
                                     </TouchableOpacity>
@@ -167,8 +155,7 @@ export function NavbarDock() {
                         <Search size={20} color="rgba(255,255,255,0.5)" strokeWidth={2} />
                     </TouchableOpacity>
                 </BlurView>
-
-            </Animated.View>
+            </View>
         </Animated.View>
     );
 }
@@ -182,16 +169,21 @@ const styles = StyleSheet.create({
     middleContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, gap: BTN_GAP, position: 'relative' },
     navBtn: { width: BTN_SIZE, height: BTN_SIZE, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
     navRow: { flexDirection: 'row', alignItems: 'center', gap: BTN_GAP },
-    pillTrack: { position: 'absolute', left: 10, top: (DOCK_HEIGHT - BTN_SIZE - 2.4) / 2, width: BTN_SIZE, height: BTN_SIZE, zIndex: 0 },
+    pillTrack: {
+        position: 'absolute',
+        left: 10,
+        top: 0, // Match the top of the navBtn within middleContent
+        width: BTN_SIZE,
+        height: BTN_SIZE, // Match the height of the navBtn
+        zIndex: 0
+    },
     activePill: {
         flex: 1,
         borderRadius: 999,
         borderWidth: 1,
-        backgroundColor: 'transparent',
-        overflow: 'visible',
-        shadowColor: '#10b981',
+        backgroundColor: 'rgba(255,255,255,0.05)',
         shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.08,
+        shadowOpacity: 0.1,
         shadowRadius: 4,
     },
 });

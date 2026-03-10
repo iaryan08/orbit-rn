@@ -38,7 +38,8 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
 
         set({ isRefreshingForecast: true });
         try {
-            const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://orbit-rn-beta.vercel.app';
+            const debugApiUrl = get().debugApiUrl;
+            const API_URL = debugApiUrl || process.env.EXPO_PUBLIC_API_URL || 'https://orbit-rn-beta.vercel.app';
 
             const response = await fetch(`${API_URL}/api/lunara/refresh`, {
                 method: 'POST',

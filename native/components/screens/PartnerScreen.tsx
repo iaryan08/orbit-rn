@@ -189,21 +189,21 @@ export function PartnerScreen() {
                     )}
                 </GlassCard>
 
-                {/* Aura Tracking / Vitality */}
-                <View style={styles.auraRow}>
-                    <GlassCard style={styles.auraBox} intensity={8}>
-                        <View style={styles.auraIconBox}>
+                {/* Vibe Tracking / Vitality */}
+                <View style={styles.vibeRow}>
+                    <GlassCard style={styles.vibeBox} intensity={8}>
+                        <View style={styles.vibeIconBox}>
                             <Zap size={18} color={Colors.dark.amber[400]} />
                         </View>
-                        <Text style={styles.auraVal}>85%</Text>
-                        <Text style={styles.auraLab}>VITALITY</Text>
+                        <Text style={styles.vibeVal}>85%</Text>
+                        <Text style={styles.vibeLab}>VITALITY</Text>
                     </GlassCard>
-                    <GlassCard style={styles.auraBox} intensity={8}>
-                        <View style={styles.auraIconBox}>
+                    <GlassCard style={styles.vibeBox} intensity={8}>
+                        <View style={styles.vibeIconBox}>
                             <Activity size={18} color={Colors.dark.indigo[400]} />
                         </View>
-                        <Text style={styles.auraVal}>CALM</Text>
-                        <Text style={styles.auraLab}>STATE</Text>
+                        <Text style={styles.vibeVal}>CALM</Text>
+                        <Text style={styles.vibeLab}>VIBE</Text>
                     </GlassCard>
                 </View>
 
@@ -412,19 +412,19 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
         color: 'rgba(255,160,255,0.4)',
     },
-    auraRow: {
+    vibeRow: {
         flexDirection: 'row',
         gap: 12,
         marginBottom: Spacing.md,
     },
-    auraBox: {
+    vibeBox: {
         flex: 1,
         padding: 16,
         borderRadius: Radius.lg,
         alignItems: 'center',
         gap: 4,
     },
-    auraIconBox: {
+    vibeIconBox: {
         width: 32,
         height: 32,
         borderRadius: Radius.md,
@@ -433,12 +433,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 4,
     },
-    auraVal: {
+    vibeVal: {
         fontSize: 16,
         fontFamily: Typography.serif,
         color: 'white',
     },
-    auraLab: {
+    vibeLab: {
         fontSize: 8,
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.3)',

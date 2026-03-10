@@ -14,6 +14,7 @@ import { FlashList } from '@shopify/flash-list';
 import { getPartnerName } from '../../lib/utils';
 import * as Haptics from 'expo-haptics';
 import { format } from 'date-fns';
+import { sendNotification } from '../../lib/notifications';
 
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
@@ -186,7 +187,7 @@ export function LettersScreen() {
     const listHeader = useMemo(() => (
         <View style={styles.standardHeader}>
             <Animated.View style={[styles.headerTitleRow, titleAnimatedStyle]}>
-                <Animated.Text style={[styles.standardTitle, { marginRight: 20 }]}>Letters</Animated.Text>
+                <Animated.Text style={styles.standardTitle}>Letters</Animated.Text>
                 <TouchableOpacity
                     style={styles.addLetterBtn}
                     onPress={() => {
@@ -194,7 +195,7 @@ export function LettersScreen() {
                         setIsComposeVisible(true);
                     }}
                 >
-                    <Plus color="white" size={24} strokeWidth={2.5} />
+                    <Plus color="white" size={20} strokeWidth={2.5} />
                 </TouchableOpacity>
             </Animated.View>
             <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>MESSAGES · CONNECTION</Animated.Text>
@@ -271,6 +272,21 @@ export function LettersScreen() {
 
             await addDoc(lettersRef, letterData);
 
+            // Send notification to partner
+            if (partnerProfile?.id) {
+                const isLater = isScheduled && delayMs > (1000 * 60 * 5); // More than 5 mins in future
+                await sendNotification({
+                    recipientId: partnerProfile.id,
+                    actorId: senderId,
+                    type: 'letter',
+                    title: isLater ? 'A Surprise is Coming! 💌' : 'New Letter Received ✉️',
+                    message: isLater
+                        ? `${profile?.display_name || 'Your partner'} scheduled a heartfelt letter for you. It'll unlock soon! ✨`
+                        : `${profile?.display_name || 'Your partner'} sent you a new letter: "${title.trim() || 'Untitled'}"`,
+                    actionUrl: '/letters'
+                }).catch(err => console.error("Error sending letter notification:", err));
+            }
+
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             closeCompose();
             setTitle('');
@@ -300,7 +316,7 @@ export function LettersScreen() {
                 drawDistance={700}
                 removeClippedSubviews
                 nestedScrollEnabled={true}
-                contentContainerStyle={[styles.listContent, { paddingTop: insets.top + Spacing.md, paddingBottom: 200 }]}
+                contentContainerStyle={[styles.listContent, { paddingTop: insets.top + 80, paddingBottom: 200 }]}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
@@ -602,14 +618,15 @@ const styles = StyleSheet.create({
     headerTitleRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'flex-start',
+        justifyContent: 'space-between',
         marginBottom: 4,
         width: '100%',
+        paddingRight: 4,
     },
     addLetterBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
+        width: 42,
+        height: 42,
+        borderRadius: 21,
         backgroundColor: Colors.dark.rose[500],
         justifyContent: 'center',
         alignItems: 'center',

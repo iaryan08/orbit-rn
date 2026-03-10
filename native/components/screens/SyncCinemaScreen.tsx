@@ -96,7 +96,7 @@ export function SyncCinemaScreen() {
 
     const reactionScale = useSharedValue(0);
     const reactionOpacity = useSharedValue(0);
-    const auraPulse = useSharedValue(1);
+    const energyPulse = useSharedValue(1);
 
     // Music State
     const [showMusicSearch, setShowMusicSearch] = useState(false);
@@ -457,10 +457,10 @@ export function SyncCinemaScreen() {
         setShowMusicSearch(false);
     };
 
-    // Aura Breathing loop
+    // Energy Breathing loop
     useEffect(() => {
         if (isFocused) {
-            auraPulse.value = withRepeat(
+            energyPulse.value = withRepeat(
                 withTiming(1.15, { duration: 3000, easing: Easing.inOut(Easing.quad) }),
                 -1,
                 true
@@ -728,8 +728,8 @@ export function SyncCinemaScreen() {
         reactionScale.value = 0;
         reactionOpacity.value = 1;
 
-        // Visual feedback inside Skia Aura
-        auraPulse.value = withSequence(withTiming(1.3, { duration: 200 }), withTiming(1, { duration: 200 }));
+        // Visual feedback inside Skia Halo
+        energyPulse.value = withSequence(withTiming(1.3, { duration: 200 }), withTiming(1, { duration: 200 }));
 
         reactionScale.value = withSequence(withTiming(1.2, { duration: 200 }), withTiming(1, { duration: 100 }));
         reactionOpacity.value = withDelay(2000, withTiming(0, { duration: 400 }, (f) => f && runOnJS(safeSetIncomingReaction)(null)));

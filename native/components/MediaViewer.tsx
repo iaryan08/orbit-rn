@@ -37,6 +37,7 @@ import { doc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
 const { width, height } = Dimensions.get('window');
+import { usePersistentMedia } from '../lib/media';
 
 const ViewerMedia = React.memo(({
     url,
@@ -55,26 +56,36 @@ const ViewerMedia = React.memo(({
     onLoadStart: () => void;
     onLoadEnd: () => void;
 }) => {
-    const resolvedUrl = useMemo(() => getPublicStorageUrl(url, bucket, idToken) || undefined, [url, bucket, idToken]);
+    const rawUrl = getPublicStorageUrl(url, bucket, idToken);
     const videoMedia = useMemo(() => isVideoUrl(url), [url]);
-    const player = useVideoPlayer(videoMedia && idToken && isOpen ? (resolvedUrl || '') : '', (p) => {
+
+    // Use the optimized media engine with content-stable ID (URL)
+    // We pass isActive as isVisible to only trigger network downloads for the CURRENT slide.
+    // However, local files will load instantly for all slides since they are sticky.
+    const sourceUri = usePersistentMedia(url, rawUrl || undefined, isActive && isOpen);
+
+    const player = useVideoPlayer(videoMedia ? (sourceUri || '') : '', (p) => {
         p.loop = true;
     });
 
     useEffect(() => {
-        if (!videoMedia || !resolvedUrl || !isOpen) return;
-        try { player.replace({ uri: resolvedUrl }); } catch { }
-    }, [resolvedUrl, videoMedia, player, isOpen]);
+        if (!videoMedia || !sourceUri || !isOpen) return;
+        try {
+            player.replace({ uri: sourceUri });
+        } catch { }
+    }, [sourceUri, videoMedia, player, isOpen]);
 
     useEffect(() => {
         if (!videoMedia) return;
-        if (isActive) onLoadEnd();
+        // Only trigger onLoadEnd once we have a source
+        if (sourceUri) onLoadEnd();
+
         if (isOpen && isActive) {
             player.play();
         } else {
             player.pause();
         }
-    }, [videoMedia, isOpen, isActive, player, onLoadEnd]);
+    }, [videoMedia, isOpen, isActive, player, onLoadEnd, sourceUri]);
 
     if (videoMedia) {
         return (
@@ -91,7 +102,7 @@ const ViewerMedia = React.memo(({
 
     return (
         <Image
-            source={{ uri: resolvedUrl }}
+            source={{ uri: sourceUri }}
             style={styles.fullImage}
             resizeMode="contain"
             onLoadStart={onLoadStart}
@@ -248,10 +259,11 @@ export function MediaViewer() {
 
     const handleDelete = async () => {
         const mediaRef = getMediaDocRef();
-        if (!mediaRef) {
+        if (!mediaId || !type || !couple?.id) {
             Alert.alert("Error", "Missing couple or media context.");
             return;
         }
+
         Alert.alert("Delete", "Permanently delete this memory?", [
             { text: "Cancel", style: "cancel" },
             {
@@ -260,7 +272,21 @@ export function MediaViewer() {
                 onPress: async () => {
                     try {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        await deleteDoc(mediaRef);
+
+                        // NEW Orbit V2 Pattern: Integrated Optimistic Soft-Delete
+                        if (type === 'memory') {
+                            const item = memories.find(m => m.id === mediaId);
+                            if (item) {
+                                useOrbitStore.getState().deleteMemoryOptimistic(item);
+                            } else {
+                                // Fallback for edge cases
+                                await deleteDoc(mediaRef!);
+                            }
+                        } else {
+                            // Polaroids use simple delete for now
+                            await deleteDoc(mediaRef!);
+                        }
+
                         handleClose();
                     } catch (err: any) {
                         Alert.alert("Error", `Failed to delete: ${err?.message || 'Unknown error'}`);

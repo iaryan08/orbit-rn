@@ -30,12 +30,15 @@ export const Colors = {
         },
         amber: {
             400: '#fbbf24',
+            900: '#78350f',
         },
         emerald: {
             400: '#34d399',
+            900: '#064e3b',
         },
         indigo: {
             400: '#818cf8',
+            900: '#312e81',
         }
     },
     light: {
@@ -79,12 +82,12 @@ export const Radius = {
 };
 
 export const Typography = {
-    sans: 'Outfit_400Regular',
-    sansBold: 'Outfit_700Bold',
-    serif: 'CormorantGaramond_400Regular',
-    serifBold: 'CormorantGaramond_700Bold',
-    serifItalic: 'CormorantGaramond_400Regular_Italic',
-    script: 'PinyonScript_400Regular',
+    sans: 'Syne_400Regular',
+    sansBold: 'Syne_700Bold',
+    serif: 'BodoniModa_400Regular',
+    serifBold: 'BodoniModa_700Bold',
+    serifItalic: 'BodoniModa_400Regular_Italic',
+    script: 'MeaCulpa_400Regular',
     emoji: 'AppleColorEmoji',
 };
 

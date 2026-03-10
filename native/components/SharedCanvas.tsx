@@ -24,13 +24,14 @@ import {
 } from '@shopify/react-native-skia';
 import { useOrbitStore } from '../lib/store';
 import { db, rtdb } from '../lib/firebase';
-import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection, query, orderBy, limit } from 'firebase/firestore';
 import { ref, onValue, set as rtdbSet, onDisconnect } from 'firebase/database';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, FadeIn } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, runOnJS, FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
+import { BlurView } from 'expo-blur';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const LOGICAL_SIZE = 1500;
@@ -146,6 +147,12 @@ export function SharedCanvas() {
     const uiLastY = useSharedValue(0);
     const uiHasPoint = useSharedValue(false);
     const lastJsDispatchAt = useSharedValue(0);
+    const rasterizedBaseRef = useRef<any>(null); // SkImage of flattened background
+    const lastBakedIdRef = useRef<string | null>(null);
+    const committedPath = useSharedValue(Skia.Path.Make());
+    const committedColor = useSharedValue('#ffffff');
+    const committedWidth = useSharedValue(3);
+    const committedIsEraser = useSharedValue(false);
 
     const handleSaveToGallery = async () => {
         try {
@@ -224,82 +231,80 @@ export function SharedCanvas() {
         return unsub;
     }, [couple?.id, partnerProfile?.id]);
 
-    // ── Helper: Re-bake background strokes into a single Picture layer ───────────
+    // ── GPU Baking: Rasterize background strokes into a single Texture layer ───────────
     const backgroundPicture = React.useMemo(() => {
         const nextIds = strokes.map(s => s.id);
         const prevIds = pictureCacheRef.current.ids;
-        const appendOnly =
-            prevIds.length > 0 &&
-            nextIds.length > prevIds.length &&
-            prevIds.every((id, idx) => id === nextIds[idx]);
 
         const recorder = Skia.PictureRecorder();
         const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE));
+
         const paint = Skia.Paint();
         paint.setStyle(PaintStyle.Stroke);
         paint.setStrokeCap(StrokeCap.Round);
         paint.setStrokeJoin(StrokeJoin.Round);
 
-        if (appendOnly && pictureCacheRef.current.picture) {
-            canvas.drawPicture(pictureCacheRef.current.picture);
-            for (let i = prevIds.length; i < strokes.length; i++) {
-                const s = strokes[i];
-                paint.setColor(Skia.Color(s.color));
-                paint.setStrokeWidth(s.width);
-                paint.setBlendMode(s.isEraser ? BlendMode.Clear : BlendMode.SrcOver);
-                const path = s.skPath || pointsToPath(s.points);
-                if (path) canvas.drawPath(path, paint);
-            }
-        } else {
-            strokes.forEach(s => {
-                paint.setColor(Skia.Color(s.color));
-                paint.setStrokeWidth(s.width);
-                paint.setBlendMode(s.isEraser ? BlendMode.Clear : BlendMode.SrcOver);
-                const path = s.skPath || pointsToPath(s.points);
-                if (path) canvas.drawPath(path, paint);
-            });
-        }
+        strokes.forEach(s => {
+            paint.setColor(Skia.Color(s.color));
+            paint.setStrokeWidth(s.width);
+            paint.setBlendMode(s.isEraser ? BlendMode.Clear : BlendMode.SrcOver);
+            const path = s.skPath || pointsToPath(s.points);
+            if (path) canvas.drawPath(path, paint);
+        });
 
         const picture = recorder.finishRecordingAsPicture();
         pictureCacheRef.current = { picture, ids: nextIds };
         return picture;
     }, [strokes, pointsToPath]);
 
-    // ── Firestore: Load Whole State ──────────────────────────────────────────
+    // ── Incremental Firestore Sync ───────────────────────────────────────────
     useEffect(() => {
         if (!couple?.id) return;
-        const unsub = onSnapshot(doc(db, 'couples', couple.id, 'doodles', 'latest'), (doc) => {
-            if (doc.exists()) {
+
+        const strokesRef = collection(db, 'couples', couple.id, 'doodle_strokes');
+        const q = query(strokesRef, orderBy('createdAt', 'asc'));
+
+        const unsub = onSnapshot(q, (snap) => {
+            const remoteStrokes: Stroke[] = [];
+            snap.docs.forEach((doc) => {
                 const data = doc.data();
-                if (data.path_data) {
+                if (data.points_json) {
                     try {
-                        const parsed = JSON.parse(data.path_data) as Stroke[];
-                        if (Array.isArray(parsed)) {
-                            // High Performance: Pre-calculate Skia Paths for whole collection
-                            const withPaths = parsed.map((s, idx) => ({
-                                ...s,
-                                id: s.id || `legacy-${idx}-${Date.now()}`,
-                                skPath: pointsToPath(s.points) || undefined
-                            }));
-                            setStrokes(prev => {
-                                if (pendingLocalWriteRef.current) return prev;
-                                // Prevent brief server-lag snapshots from wiping fresh local strokes.
-                                if (Date.now() - lastLocalStrokeAtRef.current < 2500 && withPaths.length < prev.length) {
-                                    return prev;
-                                }
-                                return withPaths;
-                            });
-                        }
-                    } catch (e) {
-                        console.error("[SharedCanvas] JSON Parse error:", e);
-                    }
+                        const points = JSON.parse(data.points_json);
+                        remoteStrokes.push({
+                            id: doc.id,
+                            points,
+                            color: data.color,
+                            width: data.width,
+                            isEraser: !!data.isEraser,
+                            skPath: pointsToPath(points) || undefined
+                        });
+                    } catch (e) { }
                 }
-            } else {
-                setStrokes([]);
-            }
+            });
+
+            setStrokes(prev => {
+                if (pendingLocalWriteRef.current) return prev;
+                // Basic reconciliation - remote replaces local if not drawing
+                return remoteStrokes;
+            });
         });
-        return unsub;
+
+        return () => unsub();
     }, [couple?.id, pointsToPath]);
+
+    const saveStrokeToCloud = async (stroke: Stroke) => {
+        if (!couple?.id) return;
+        const strokeRef = doc(db, 'couples', couple.id, 'doodle_strokes', stroke.id);
+        await setDoc(strokeRef, {
+            color: stroke.color,
+            width: stroke.width,
+            isEraser: !!stroke.isEraser,
+            points_json: JSON.stringify(stroke.points),
+            createdAt: serverTimestamp(),
+            userId: profile?.id
+        });
+    };
 
     // ── RTDB: Listen for Partner's Active Stroke & Viewport ───────────────────
     useEffect(() => {
@@ -445,37 +450,11 @@ export function SharedCanvas() {
         broadcastCanvasEvent(payload);
     };
 
-    const persistStrokesNow = useCallback(async (nextStrokes: Stroke[]) => {
-        if (!couple?.id) return;
-        try {
-            await setDoc(doc(db, 'couples', couple.id, 'doodles', 'latest'), {
-                couple_id: couple.id,
-                user_id: profile?.id,
-                path_data: JSON.stringify(nextStrokes),
-                updated_at: serverTimestamp()
-            });
-        } finally {
-            pendingLocalWriteRef.current = false;
-        }
-    }, [couple?.id, profile?.id]);
-
-    const schedulePersist = useCallback((nextStrokes: Stroke[]) => {
-        if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-        persistTimerRef.current = setTimeout(() => {
-            persistTimerRef.current = null;
-            void persistStrokesNow(nextStrokes);
-        }, FIRESTORE_PERSIST_MS);
-    }, [persistStrokesNow]);
-
     useEffect(() => {
         return () => {
-            if (persistTimerRef.current) {
-                clearTimeout(persistTimerRef.current);
-                persistTimerRef.current = null;
-                void persistStrokesNow(latestStrokesRef.current);
-            }
+            // No cleanup needed for incremental saves
         };
-    }, [persistStrokesNow]);
+    }, []);
 
     const startDrawing = (x: number, y: number) => {
         if (!canDraw) return;
@@ -559,12 +538,10 @@ export function SharedCanvas() {
         };
 
         if (finalStroke.points.length < 2) {
-            activePath.value = Skia.Path.Make();
             currentPoints.current = [];
             currentStrokeIdRef.current = null;
             syncedPointCountRef.current = 0;
             broadcastDelta({ event: 'drawing-state', isDrawing: false });
-            if (ENABLE_DEBUG_CHIP) setDebugIsDrawing(false);
             return;
         }
 
@@ -575,17 +552,19 @@ export function SharedCanvas() {
         broadcastDelta({ type: 'end', id: strokeId });
         broadcastDelta({ event: 'drawing-state', isDrawing: false });
 
-        // Reset local path state after a short delay to prevent flicker/disappearance
-        // while React re-renders the backgroundPicture with the new stroke.
-        setTimeout(() => {
-            activePath.value = Skia.Path.Make();
-            currentPoints.current = [];
-            currentStrokeIdRef.current = null;
-            syncedPointCountRef.current = 0;
-            if (ENABLE_DEBUG_CHIP) setDebugIsDrawing(false);
-        }, 60);
+        // Instant handover: the Stroke UI element will take over from the worklet path
+        // without a visible blink. 
+        committedPath.value = Skia.Path.Make();
 
-        schedulePersist(updated);
+        // Reset buffer control
+        currentPoints.current = [];
+        currentStrokeIdRef.current = null;
+        syncedPointCountRef.current = 0;
+
+        // Incremental Persistent Save (Atomic)
+        void saveStrokeToCloud(finalStroke).finally(() => {
+            pendingLocalWriteRef.current = false;
+        });
     };
 
     const mapLocalPointToLogical = (localX: number, localY: number) => {
@@ -646,18 +625,9 @@ export function SharedCanvas() {
                     activePath.value = nextPath;
                     uiHasPoint.value = true;
                 } else {
-                    const dx = x - uiLastX.value;
-                    const dy = y - uiLastY.value;
-                    const jump = Math.hypot(dx, dy);
-                    if (jump > LIVE_PATH_MAX_JUMP_PX) {
-                        const nextPath = activePath.value.copy();
-                        nextPath.moveTo(x, y);
-                        activePath.value = nextPath;
-                    } else {
-                        const nextPath = activePath.value.copy();
-                        nextPath.lineTo(x, y);
-                        activePath.value = nextPath;
-                    }
+                    const nextPath = activePath.value.copy();
+                    nextPath.lineTo(x, y);
+                    activePath.value = nextPath;
                 }
                 uiLastX.value = x;
                 uiLastY.value = y;
@@ -679,6 +649,9 @@ export function SharedCanvas() {
             'worklet';
             isDrawing.value = false;
             uiHasPoint.value = false;
+            // Immediate UI Thread "Commit" to prevent drawing-ghost after lift
+            committedPath.value = activePath.value.copy();
+            activePath.value = Skia.Path.Make();
             runOnJS(endDrawing)();
         })
         .onFinalize(() => {
@@ -686,6 +659,8 @@ export function SharedCanvas() {
             if (isDrawing.value) {
                 isDrawing.value = false;
                 uiHasPoint.value = false;
+                committedPath.value = activePath.value.copy();
+                activePath.value = Skia.Path.Make();
                 runOnJS(endDrawing)();
             }
         })
@@ -728,11 +703,12 @@ export function SharedCanvas() {
         pendingLocalWriteRef.current = true;
         lastLocalStrokeAtRef.current = Date.now();
         setStrokes(next);
-        if (persistTimerRef.current) {
-            clearTimeout(persistTimerRef.current);
-            persistTimerRef.current = null;
-        }
-        await persistStrokesNow(next);
+
+        // Permanent Sync: Delete stroke from Firestore
+        const { deleteDoc, doc } = require('firebase/firestore');
+        await deleteDoc(doc(db, 'couples', couple.id, 'doodle_strokes', last.id));
+
+        pendingLocalWriteRef.current = false;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     };
 
@@ -744,11 +720,11 @@ export function SharedCanvas() {
         pendingLocalWriteRef.current = true;
         lastLocalStrokeAtRef.current = Date.now();
         setStrokes(next);
-        if (persistTimerRef.current) {
-            clearTimeout(persistTimerRef.current);
-            persistTimerRef.current = null;
-        }
-        await persistStrokesNow(next);
+
+        // Permanent Sync: Restore stroke to Firestore
+        await saveStrokeToCloud(last);
+
+        pendingLocalWriteRef.current = false;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     };
 
@@ -757,16 +733,19 @@ export function SharedCanvas() {
         lastLocalStrokeAtRef.current = Date.now();
         pendingLocalWriteRef.current = true;
         setStrokes([]);
-        if (persistTimerRef.current) {
-            clearTimeout(persistTimerRef.current);
-            persistTimerRef.current = null;
-        }
-        await persistStrokesNow([]);
+
+        // Batch delete the collection (Atomic sweep)
+        const { getDocs, deleteDoc } = require('firebase/firestore');
+        const strokesRef = collection(db, 'couples', couple.id, 'doodle_strokes');
+        const snap = await getDocs(strokesRef);
+
+        await Promise.all(snap.docs.map(doc => deleteDoc(doc.ref)));
 
         // Clear active remote drawing indicator.
         broadcastDelta({ event: 'drawing-state', isDrawing: false });
 
         setShowClearConfirm(false);
+        pendingLocalWriteRef.current = false;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     };
 
@@ -838,6 +817,17 @@ export function SharedCanvas() {
                                     strokeCap="round"
                                     strokeJoin="round"
                                 />
+
+                                {/* Committed Buffer (Flicker Prevention) */}
+                                <Path
+                                    path={committedPath}
+                                    color={activeTool === 'eraser' ? '#070707' : activeColor}
+                                    style="stroke"
+                                    strokeWidth={activeTool === 'eraser' ? 20 : 3}
+                                    strokeCap="round"
+                                    strokeJoin="round"
+                                    opacity={useSharedValue(1)}
+                                />
                             </>
                         ) : (
                             <Group transform={useAnimatedStyle(() => ({
@@ -908,7 +898,7 @@ export function SharedCanvas() {
             <View style={styles.topHeader} pointerEvents="box-none">
                 <View style={[styles.guestbookBlur, { backgroundColor: 'rgba(15,15,15,0.8)' }]}>
                     <View style={styles.guestbookPill}>
-                        <Text style={styles.guestbookText}>SHARED GUESTBOOK</Text>
+                        <Text style={styles.guestbookText}>Shared Guestbook</Text>
                     </View>
                 </View>
 
@@ -964,98 +954,104 @@ export function SharedCanvas() {
                 <View style={styles.menuContainer}>
                     {isMenuOpen && (
                         <Animated.View
-                            entering={FadeIn.duration(200)}
-                            style={styles.expandedPill}
+                            entering={FadeIn.duration(250)}
+                            exiting={FadeOut.duration(200)}
+                            style={styles.menuWrapper}
                         >
-                            <TouchableOpacity
-                                style={styles.closeBtn}
-                                onPress={() => {
-                                    setIsMenuOpen(false);
-                                    setShowColorPicker(false);
-                                }}
-                            >
-                                <X size={14} color="white" />
-                            </TouchableOpacity>
+                            <BlurView intensity={25} tint="dark" style={styles.menuBlurOverlay}>
+                                <View style={styles.expandedPill}>
+                                    <TouchableOpacity
+                                        style={styles.closeBtn}
+                                        onPress={() => {
+                                            setIsMenuOpen(false);
+                                            setShowColorPicker(false);
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                        }}
+                                    >
+                                        <X size={14} color="white" />
+                                    </TouchableOpacity>
 
-                            <View style={styles.menuDivider} />
+                                    <View style={styles.menuDivider} />
 
-                            <TouchableOpacity
-                                style={styles.menuIconBtn}
-                                onPress={() => {
-                                    if (canvasMode === 'readOnly' || !couple?.id) return;
-                                    setShowClearConfirm(true);
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                }}
-                            >
-                                <Trash2 size={16} color="rgba(255,255,255,0.4)" />
-                            </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.menuIconBtn}
+                                        onPress={() => {
+                                            if (canvasMode === 'readOnly' || !couple?.id) return;
+                                            setShowClearConfirm(true);
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                        }}
+                                    >
+                                        <Trash2 size={16} color="rgba(255,255,255,0.4)" />
+                                    </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.menuIconBtn} onPress={handleRedo}>
-                                <Redo2 size={16} color={redoStrokes.length > 0 ? "white" : "rgba(255,255,255,0.2)"} />
-                            </TouchableOpacity>
+                                    <TouchableOpacity style={styles.menuIconBtn} onPress={handleRedo}>
+                                        <Redo2 size={16} color={redoStrokes.length > 0 ? "white" : "rgba(255,255,255,0.2)"} />
+                                    </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.menuIconBtn} onPress={handleUndo}>
-                                <Undo2 size={16} color="white" />
-                            </TouchableOpacity>
+                                    <TouchableOpacity style={styles.menuIconBtn} onPress={handleUndo}>
+                                        <Undo2 size={16} color="white" />
+                                    </TouchableOpacity>
 
-                            <TouchableOpacity
-                                style={[styles.menuIconBtn, canvasMode === 'pan' && styles.activeMenuBtn]}
-                                onPress={() => {
-                                    const nextMode = canvasMode === 'pan' ? 'draw' : 'pan';
-                                    setCanvasMode(nextMode);
-                                    if (nextMode === 'draw') setActiveTool('pen');
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                }}
-                            >
-                                {canvasMode === 'pan' ? (
-                                    <Edit2 size={14} color="white" />
-                                ) : (
-                                    <Move size={14} color="white" />
-                                )}
-                            </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.menuIconBtn, canvasMode === 'pan' && styles.activeMenuBtn]}
+                                        onPress={() => {
+                                            const nextMode = canvasMode === 'pan' ? 'draw' : 'pan';
+                                            setCanvasMode(nextMode);
+                                            if (nextMode === 'draw') setActiveTool('pen');
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                        }}
+                                    >
+                                        {canvasMode === 'pan' ? (
+                                            <Edit2 size={14} color="white" />
+                                        ) : (
+                                            <Move size={14} color="white" />
+                                        )}
+                                    </TouchableOpacity>
 
-                            <TouchableOpacity
-                                style={[styles.menuIconBtn, activeTool === 'eraser' && styles.activeMenuBtn]}
-                                onPress={() => {
-                                    setActiveTool('eraser');
-                                    setCanvasMode('draw');
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                }}
-                            >
-                                <Eraser size={14} color="white" />
-                            </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.menuIconBtn, activeTool === 'eraser' && styles.activeMenuBtn]}
+                                        onPress={() => {
+                                            setActiveTool('eraser');
+                                            setCanvasMode('draw');
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                        }}
+                                    >
+                                        <Eraser size={14} color="white" />
+                                    </TouchableOpacity>
 
-                            <View style={styles.menuDivider} />
+                                    <View style={styles.menuDivider} />
 
-                            <TouchableOpacity
-                                style={styles.rainbowPill}
-                                onPress={() => {
-                                    setShowColorPicker(!showColorPicker);
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                }}
-                            >
-                                <View style={[styles.rainbowInnerCircle, { borderColor: showColorPicker ? 'white' : 'transparent' }]}>
-                                    <Image
-                                        source={require('../assets/rainbow-picker.png')}
-                                        style={styles.rainbowImg}
-                                    />
+                                    <TouchableOpacity
+                                        style={styles.rainbowPill}
+                                        onPress={() => {
+                                            setShowColorPicker(!showColorPicker);
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                        }}
+                                    >
+                                        <View style={[styles.rainbowInnerCircle, { borderColor: showColorPicker ? 'white' : 'transparent' }]}>
+                                            <Image
+                                                source={require('../assets/rainbow-picker.png')}
+                                                style={styles.rainbowImg}
+                                            />
+                                        </View>
+                                    </TouchableOpacity>
+
+                                    {/* Color Presets */}
+                                    {PRESET_COLORS.map(c => (
+                                        <TouchableOpacity
+                                            key={c}
+                                            onPress={() => {
+                                                setActiveColor(c);
+                                                setActiveTool('pen');
+                                                setCanvasMode('draw');
+                                                setShowColorPicker(false);
+                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                            }}
+                                            style={[styles.colorDot, { backgroundColor: c }, activeColor === c && activeTool === 'pen' && styles.activeDot]}
+                                        />
+                                    ))}
                                 </View>
-                            </TouchableOpacity>
-
-                            {/* Color Presets */}
-                            {PRESET_COLORS.map(c => (
-                                <TouchableOpacity
-                                    key={c}
-                                    onPress={() => {
-                                        setActiveColor(c);
-                                        setActiveTool('pen');
-                                        setCanvasMode('draw');
-                                        setShowColorPicker(false);
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                    }}
-                                    style={[styles.colorDot, { backgroundColor: c }, activeColor === c && activeTool === 'pen' && styles.activeDot]}
-                                />
-                            ))}
+                            </BlurView>
                         </Animated.View>
                     )}
 
@@ -1121,6 +1117,20 @@ const styles = StyleSheet.create({
         gap: 12,
         alignItems: 'center',
     },
+    menuWrapper: {
+        borderRadius: 100,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.15)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 10,
+    },
+    menuBlurOverlay: {
+        borderRadius: 100,
+    },
     menuContainer: {
         flexDirection: 'row-reverse',
         alignItems: 'center',
@@ -1184,18 +1194,9 @@ const styles = StyleSheet.create({
     expandedPill: {
         flexDirection: 'row-reverse',
         alignItems: 'center',
-        backgroundColor: 'rgba(15, 15, 15, 0.95)',
-        borderRadius: 100,
-        paddingHorizontal: 6,
-        paddingVertical: 3,
+        paddingHorizontal: 8,
+        paddingVertical: 5,
         gap: 6,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 10,
     },
     colorDot: {
         width: 16,
@@ -1358,10 +1359,10 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(244, 63, 94, 0.4)',
     },
     guestbookText: {
-        fontSize: 9,
+        fontSize: 10,
         fontFamily: Typography.sansBold,
         color: '#fb7185',
-        letterSpacing: 1.5,
+        letterSpacing: 0.5,
     },
     syncIndicator: {
         flexDirection: 'row',
