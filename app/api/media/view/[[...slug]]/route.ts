@@ -255,14 +255,14 @@ export async function GET(request: NextRequest) {
     // TIER 2: Not used anymore (Supabase removed)
 
     if (!blob) {
-        // Cache this 404 for 5 minutes server-side so we don't spam CF Workers again
-        mediaNotFoundCache.set(CACHE_KEY, Date.now() + 5 * 60 * 1000);
+        // Cache this 404 for 5 seconds server-side so we don't spam CF Workers, but recover quickly
+        mediaNotFoundCache.set(CACHE_KEY, Date.now() + 5 * 1000);
         console.warn(`[MediaView] 404 NOT FOUND: bucket=${bucket}, path=${path}. Tried paths:`, tryPaths);
         return new NextResponse(JSON.stringify({ error: "Media not found" }), {
             status: 404,
             headers: {
                 "Content-Type": "application/json",
-                "Cache-Control": "public, max-age=300, stale-while-revalidate=600"
+                "Cache-Control": "public, max-age=5, stale-while-revalidate=10"
             }
         });
     }

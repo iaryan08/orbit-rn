@@ -29,16 +29,14 @@ export function getPublicStorageUrl(path: string | null | undefined, bucket: str
     const cleanPath = path.replace(/^\/+/, '');
 
     // Prevent double bucket prefixes (e.g. avatars/avatars/...)
-    const startsWithAnyBucket = ['avatars/', 'memories/', 'bucket_list/', 'letters/', 'profiles/'].some(p => cleanPath.startsWith(p));
+    const startsWithAnyBucket = ['avatars/', 'memories/', 'bucket_list/', 'letters/'].some(p => cleanPath.startsWith(p));
     const finalPath = startsWithAnyBucket ? cleanPath : `${bucket}/${cleanPath}`;
     const cleanFinalPath = finalPath.replace(/\/\//g, '/');
 
     const apiBase = getApiBase();
     // Use development IP for stability on Wi-Fi
     const isLocal = apiBase.includes('192.168.') || apiBase.includes('10.') || apiBase.includes('localhost');
-    const authParam = (authToken && !cleanFinalPath.includes('profiles/') && !cleanFinalPath.includes('avatars/'))
-        ? `?auth=${encodeURIComponent(authToken)}`
-        : '';
+    const authParam = authToken ? `?auth=${encodeURIComponent(authToken)}` : '';
 
     if (isLocal || !CDN_BASE) {
         return `${apiBase}/api/media/view/${cleanFinalPath}${authParam}`;

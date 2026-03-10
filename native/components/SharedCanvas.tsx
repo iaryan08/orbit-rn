@@ -262,30 +262,27 @@ export function SharedCanvas() {
         if (!couple?.id) return;
 
         const strokesRef = collection(db, 'couples', couple.id, 'doodle_strokes');
-        const q = query(strokesRef, orderBy('createdAt', 'asc'));
+        const q = query(strokesRef); // Pull all strokes to handle legacy data without timestamps
 
         const unsub = onSnapshot(q, (snap) => {
-            const remoteStrokes: Stroke[] = [];
-            snap.docs.forEach((doc) => {
+            const remoteStrokes: Stroke[] = snap.docs.map((doc: any) => {
                 const data = doc.data();
-                if (data.points_json) {
-                    try {
-                        const points = JSON.parse(data.points_json);
-                        remoteStrokes.push({
-                            id: doc.id,
-                            points,
-                            color: data.color,
-                            width: data.width,
-                            isEraser: !!data.isEraser,
-                            skPath: pointsToPath(points) || undefined
-                        });
-                    } catch (e) { }
-                }
-            });
+                const points = data.points_json ? JSON.parse(data.points_json) : [];
+                return {
+                    id: doc.id,
+                    points,
+                    color: data.color,
+                    width: data.width,
+                    isEraser: !!data.isEraser,
+                    createdAt: data.createdAt || 0,
+                    skPath: pointsToPath(points) || undefined
+                };
+            }).filter(s => s.points.length > 0)
+                .sort((a, b) => a.createdAt - b.createdAt);
 
             setStrokes(prev => {
                 if (pendingLocalWriteRef.current) return prev;
-                // Basic reconciliation - remote replaces local if not drawing
+                // High-fidelity reconciliation: remote is truth
                 return remoteStrokes;
             });
         });
@@ -301,7 +298,7 @@ export function SharedCanvas() {
             width: stroke.width,
             isEraser: !!stroke.isEraser,
             points_json: JSON.stringify(stroke.points),
-            createdAt: serverTimestamp(),
+            createdAt: Date.now(), // Use High-Performance Client Timestamp to avoid Indexing Delays
             userId: profile?.id
         });
     };
@@ -739,7 +736,7 @@ export function SharedCanvas() {
         const strokesRef = collection(db, 'couples', couple.id, 'doodle_strokes');
         const snap = await getDocs(strokesRef);
 
-        await Promise.all(snap.docs.map(doc => deleteDoc(doc.ref)));
+        await Promise.all(snap.docs.map((d: any) => deleteDoc(d.ref)));
 
         // Clear active remote drawing indicator.
         broadcastDelta({ event: 'drawing-state', isDrawing: false });

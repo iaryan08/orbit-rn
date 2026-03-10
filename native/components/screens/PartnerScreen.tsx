@@ -159,6 +159,10 @@ export function PartnerScreen() {
                     <View style={styles.meterContainer}>
                         <LibidoMeter level={partnerLogsToday?.sex_drive || 'medium'} />
                         <Text style={styles.meterSub}>{getPartnerName(profile, partnerProfile).toUpperCase()}</Text>
+                        {/* <Text style={[
+                                            styles.meterSub,
+                                            { color: levelIndex === 0 ? '#22c55e' : levelIndex === 1 ? '#eab308' : levelIndex === 2 ? '#f97316' : '#ef4444' }
+                                        ]}></Text> */}
                     </View>
 
                     <View style={styles.sliderWrapper}>

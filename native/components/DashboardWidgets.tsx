@@ -108,7 +108,7 @@ export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCou
 });
 
 export const ConnectionBoard = React.memo(({ profile, partnerProfile, cycleLogs }: any) => {
-    const { setMoodDrawerOpen, moods, loading, sendHeartbeatOptimistic } = useOrbitStore();
+    const { setMoodDrawerOpen, moods, loading, sendHeartbeatOptimistic, idToken } = useOrbitStore();
     const today = getTodayIST();
     const myId = profile?.id;
     const partnerId = partnerProfile?.id;
@@ -123,12 +123,12 @@ export const ConnectionBoard = React.memo(({ profile, partnerProfile, cycleLogs 
     const partnerNote = partnerLatestMood?.mood_text || cycleLogs[partnerId]?.[today]?.note || '';
 
     const myAvatarUrl = useMemo(() =>
-        getPublicStorageUrl(profile?.avatar_url, 'avatars'),
-        [profile?.avatar_url]);
+        getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
+        [profile?.avatar_url, idToken]);
 
     const partnerAvatarUrl = useMemo(() =>
-        getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars'),
-        [partnerProfile?.avatar_url]);
+        getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars', idToken),
+        [partnerProfile?.avatar_url, idToken]);
 
     const myName = profile?.display_name?.split(' ')[0] || 'You';
     const partnerName = partnerProfile?.display_name?.split(' ')[0] || 'Partner';

@@ -19,7 +19,7 @@ interface PartnerHeaderProps {
 }
 
 export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHeaderProps) {
-    const { sendHeartbeatOptimistic } = useOrbitStore();
+    const { sendHeartbeatOptimistic, idToken } = useOrbitStore();
     const pulseAnim = useRef(new Animated.Value(1)).current;
     const [isPartnerActive, setIsPartnerActive] = useState(false);
     const [serverOffset, setServerOffset] = useState(0);
@@ -63,12 +63,12 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
     }, [coupleId, partnerProfile?.id, serverOffset]);
 
     const userAvatarUrl = useMemo(() =>
-        getPublicStorageUrl(profile?.avatar_url, 'avatars'),
-        [profile?.avatar_url]);
+        getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
+        [profile?.avatar_url, idToken]);
 
     const partnerAvatarUrl = useMemo(() =>
-        getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars'),
-        [partnerProfile?.avatar_url]);
+        getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars', idToken),
+        [partnerProfile?.avatar_url, idToken]);
 
     const handlePressIn = () => {
         Animated.spring(pulseAnim, {
