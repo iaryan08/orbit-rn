@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Pressable, Dimensions, Platform } from 'react-native';
 import { db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { Image } from 'expo-image';
@@ -19,6 +19,7 @@ import { Emoji } from './Emoji';
 import Svg, { Circle } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const AnimatedHeart = Animated.createAnimatedComponent(Heart);
 
 const MOOD_EMOJIS: Record<string, string> = {
     happy: '😊',
@@ -43,7 +44,7 @@ interface RelationshipStatsProps {
     memoriesCount: number;
 }
 
-export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCount }: RelationshipStatsProps) => {
+export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCount, isActive = true }: RelationshipStatsProps & { isActive?: boolean }) => {
     const daysTogether = useMemo(() => {
         const startDate = couple?.anniversary_date || couple?.paired_at || couple?.created_at;
         if (!startDate) return 0;
@@ -57,6 +58,10 @@ export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCou
     const scale = useSharedValue(1);
 
     React.useEffect(() => {
+        if (!isActive) {
+            scale.value = withTiming(1);
+            return;
+        }
         // Dual-pulse organic heartbeat (Systole & Diastole)
         scale.value = withRepeat(
             withSequence(
@@ -68,18 +73,25 @@ export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCou
             -1,
             false
         );
-    }, []);
+    }, [isActive]);
 
+    const { isLiteMode } = useOrbitStore();
     const animatedHeartStyle = useAnimatedStyle(() => {
+        // Budget devices (Redmi 10) skip expensive shadow & rotation loops
+        if (isLiteMode) return { transform: [{ scale: (scale.value + 1) / 2 }] };
+
         const glowIntensity = (scale.value - 1) * 2;
         return {
             transform: [
                 { scale: scale.value },
-                { rotate: `${(scale.value - 1) * 5}deg` } // Subtle lean
+                { rotate: `${(scale.value - 1) * 5}deg` }
             ],
-            shadowOpacity: 0.3 + glowIntensity,
-            shadowRadius: 10 + glowIntensity * 15,
-            shadowColor: Colors.dark.rose[500],
+            // Only apply high-end shadows on non-lite devices (Android overhead)
+            ...(Platform.OS === 'ios' && {
+                shadowOpacity: 0.3 + glowIntensity,
+                shadowRadius: 10 + glowIntensity * 15,
+                shadowColor: Colors.dark.rose[500],
+            })
         };
     });
 
@@ -88,7 +100,12 @@ export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCou
             <GlassCard style={styles.statsCard} intensity={12}>
                 <View style={styles.statsRow}>
                     <View style={styles.statMini}>
-                        <Heart size={24} color={Colors.dark.rose[400]} fill={Colors.dark.rose[400]} />
+                        <AnimatedHeart
+                            size={24}
+                            color={Colors.dark.rose[400]}
+                            fill={Colors.dark.rose[400]}
+                            style={animatedHeartStyle}
+                        />
                         <Text style={styles.statMiniValue}>{daysTogether}</Text>
                     </View>
 
@@ -229,10 +246,9 @@ export const ConnectionBoard = React.memo(({ profile, partnerProfile, cycleLogs 
 });
 
 export const MusicHeartbeat = React.memo(() => {
-    const musicState = useOrbitStore(state => state.musicState);
-    if (!musicState?.is_playing || !musicState?.current_track) return null;
-
-    const track = musicState.current_track;
+    const isPlaying = useOrbitStore(state => state.musicState?.is_playing);
+    const track = useOrbitStore(state => state.musicState?.current_track);
+    if (!isPlaying || !track) return null;
 
     return (
         <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(300)} layout={LinearTransition}>
@@ -255,7 +271,7 @@ export const MusicHeartbeat = React.memo(() => {
     );
 });
 
-export const IntimacyAlert = React.memo(({ profile, partnerProfile, cycleLogs }: any) => {
+export const IntimacyAlert = React.memo(({ profile, partnerProfile, cycleLogs, isActive = true }: any) => {
     const today = getTodayIST();
     const partnerId = partnerProfile?.id;
     const partnerLogsToday = (partnerId && cycleLogs[partnerId]) ? cycleLogs[partnerId][today] : null;
@@ -311,15 +327,16 @@ export const IntimacyAlert = React.memo(({ profile, partnerProfile, cycleLogs }:
             -1,
             false
         );
-    }, [pulse, shimmer]);
+    }, [isActive]);
 
+    const { isLiteMode } = useOrbitStore();
     const iconPulseStyle = useAnimatedStyle(() => ({
-        transform: [{ scale: 1 + pulse.value * 0.08 }],
-        shadowOpacity: 0.18 + pulse.value * 0.28,
+        transform: [{ scale: 1 + pulse.value * (isLiteMode ? 0.04 : 0.08) }],
+        opacity: isLiteMode ? 1 : 0.6 + pulse.value * 0.4
     }));
 
     const auraStyle = useAnimatedStyle(() => ({
-        opacity: 0.14 + shimmer.value * 0.22,
+        opacity: isLiteMode ? 0 : 0.14 + shimmer.value * 0.22,
         transform: [{ scale: 0.92 + shimmer.value * 0.12 }],
     }));
 
@@ -346,7 +363,7 @@ export const IntimacyAlert = React.memo(({ profile, partnerProfile, cycleLogs }:
     );
 });
 
-export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile, couple }: any) => {
+export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile, couple, isActive = true }: any) => {
     const partnerName = getPartnerName(null, partnerProfile);
     const parseEventDate = useCallback((rawDate: any, rawTime?: any): Date | null => {
         let date = parseSafeDate(rawDate);
@@ -521,11 +538,17 @@ export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile,
     const sparkFloat = useSharedValue(0);
 
     useEffect(() => {
+        if (!isActive) return;
         const timer = setInterval(() => setNow(new Date()), 60000);
         return () => clearInterval(timer);
-    }, []);
+    }, [isActive]);
 
     useEffect(() => {
+        if (!isActive) {
+            cardGlow.value = 0.55;
+            sparkFloat.value = 0;
+            return;
+        }
         cardGlow.value = withRepeat(
             withSequence(
                 withTiming(0.9, { duration: 2200, easing: Easing.inOut(Easing.quad) }),
@@ -542,7 +565,7 @@ export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile,
             -1,
             false
         );
-    }, [cardGlow, sparkFloat]);
+    }, [isActive, cardGlow, sparkFloat]);
 
     const cardGlowStyle = useAnimatedStyle(() => ({
         opacity: cardGlow.value,
@@ -559,6 +582,8 @@ export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile,
         transform: [{ translateY: -2 - (1 - sparkFloat.value) * 8 }],
     }));
 
+    const { isLiteMode } = useOrbitStore();
+
     if (upcomingEvents.length === 0) return null;
 
     const event = upcomingEvents[0];
@@ -574,15 +599,16 @@ export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile,
     const primaryDiff = getDiff(event.date);
     const secondaryEvent = upcomingEvents.length > 1 ? upcomingEvents[1] : null;
     const secondaryDiff = secondaryEvent ? getDiff(secondaryEvent.date) : null;
-
     return (
         <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(400)} layout={LinearTransition}>
             <GlassCard style={styles.countdownCardRedesign} intensity={8}>
-                <View pointerEvents="none" style={styles.countdownFxLayer}>
-                    <Animated.View style={[styles.countdownGlow, cardGlowStyle]} />
-                    <Animated.View style={[styles.countdownSpark, styles.countdownSparkA, sparkStyleA]} />
-                    <Animated.View style={[styles.countdownSpark, styles.countdownSparkB, sparkStyleB]} />
-                </View>
+                {!isLiteMode && (
+                    <View pointerEvents="none" style={styles.countdownFxLayer}>
+                        <Animated.View style={[styles.countdownGlow, cardGlowStyle]} />
+                        <Animated.View style={[styles.countdownSpark, styles.countdownSparkA, sparkStyleA]} />
+                        <Animated.View style={[styles.countdownSpark, styles.countdownSparkB, sparkStyleB]} />
+                    </View>
+                )}
                 <View style={styles.countdownHeaderRow}>
                     <View style={styles.countdownTitleGroup}>
                         <Calendar size={16} color="rgba(255,255,255,0.4)" strokeWidth={2} />
@@ -675,12 +701,17 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     return R * c;
 }
 
-export const MarqueeText = ({ children, style }: { children: string, style?: any }) => {
+export const MarqueeText = ({ children, style, isActive = true }: { children: string, style?: any, isActive?: boolean }) => {
+    const { isLiteMode } = useOrbitStore();
     const translateX = useSharedValue(0);
     const [containerWidth, setContainerWidth] = useState(0);
     const [textWidth, setTextWidth] = useState(0);
 
     useEffect(() => {
+        if (isLiteMode || !isActive) {
+            translateX.value = 0;
+            return;
+        }
         // Add a 2px buffer to prevent flickering due to sub-pixel measurement rounding
         if (containerWidth > 0 && textWidth > (containerWidth + 2)) {
             const distance = textWidth + 120;
@@ -696,7 +727,7 @@ export const MarqueeText = ({ children, style }: { children: string, style?: any
         } else {
             translateX.value = 0;
         }
-    }, [textWidth, containerWidth]); // Removed children: we only reset if physical dimensions change
+    }, [textWidth, containerWidth, isActive]); // Added isActive
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: translateX.value }]
@@ -748,14 +779,15 @@ export const MarqueeText = ({ children, style }: { children: string, style?: any
     );
 };
 
-export const LocationWidget = React.memo(({ profile, partnerProfile, couple }: any) => {
+export const LocationWidget = React.memo(({ profile, partnerProfile, couple, isActive = true }: any) => {
     const [currentTime, setCurrentTime] = useState(new Date());
 
     useEffect(() => {
+        if (!isActive) return;
         const timer = setInterval(() => setCurrentTime(new Date()), 60000);
         updateLocation().catch(console.error);
         return () => clearInterval(timer);
-    }, []);
+    }, [isActive]);
 
     const formatTime = (date: Date) => {
         const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -800,7 +832,7 @@ export const LocationWidget = React.memo(({ profile, partnerProfile, couple }: a
                         <Text style={styles.locLabelText} numberOfLines={1}>
                             {myLoc?.city || 'Searching...'}
                         </Text>
-                        <MarqueeText style={styles.locFullAddress}>
+                        <MarqueeText style={styles.locFullAddress} isActive={isActive}>
                             {myLoc?.subtext || myLoc?.location_name || "-"}
                         </MarqueeText>
                         <Text style={styles.locTimeDisplay}>{formatTime(currentTime)}</Text>
@@ -830,7 +862,7 @@ export const LocationWidget = React.memo(({ profile, partnerProfile, couple }: a
                         <Text style={[styles.locLabelText, { textAlign: 'right' }]} numberOfLines={1}>
                             {partnerLoc?.city || 'No Signal'}
                         </Text>
-                        <MarqueeText style={[styles.locFullAddress, { textAlign: 'right' }]}>
+                        <MarqueeText style={[styles.locFullAddress, { textAlign: 'right' }]} isActive={isActive}>
                             {partnerLoc?.subtext || partnerLoc?.location_name || "-"}
                         </MarqueeText>
                         <Text style={styles.locTimeDisplay}>{partnerTimeStr}</Text>
@@ -846,7 +878,7 @@ export const LocationWidget = React.memo(({ profile, partnerProfile, couple }: a
     );
 });
 
-export const DailyInspirationWidget = React.memo(() => {
+export const DailyInspirationWidget = React.memo(({ variant = 'card' }: { variant?: 'card' | 'banner' }) => {
     const [activeTab, setActiveTab] = React.useState<'quote' | 'challenge' | 'tip'>('quote');
     const [notifEnabled, setNotifEnabled] = React.useState(false);
 
@@ -873,8 +905,30 @@ export const DailyInspirationWidget = React.memo(() => {
         }
     }, [activeTab]);
 
+    if (variant === 'banner') {
+        return (
+            <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(300)}>
+                <View style={styles.morningInsightBanner}>
+                    <View style={styles.morningInsightHeader}>
+                        <Sparkles size={16} color={Colors.dark.indigo[400]} />
+                        <Text style={styles.morningInsightLabel}>MORNING INSIGHT</Text>
+                    </View>
+                    <Text style={[
+                        styles.inspirationCardText,
+                        activeTab === 'quote' && styles.quoteItalicStyle,
+                        { fontSize: 15, color: 'rgba(255,255,255,0.9)' }
+                    ]}>
+                        {activeTab === 'quote' && <Text style={styles.quoteMark}>"</Text>}
+                        {content.text}
+                        {activeTab === 'quote' && <Text style={styles.quoteMark}>"</Text>}
+                    </Text>
+                </View>
+            </Animated.View>
+        );
+    }
+
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(600)}>
+        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(600)} renderToHardwareTextureAndroid={true}>
             <GlassCard style={styles.inspirationCard} intensity={10}>
                 <View style={styles.inspirationHeader}>
                     <Sparkles size={18} color={Colors.dark.indigo[400]} />
@@ -1207,7 +1261,7 @@ export const OnThisDayWidget = React.memo(() => {
 });
 
 const styles = StyleSheet.create({
-    statsCard: { margin: Spacing.sm, borderRadius: Radius.xxl, padding: 24, backgroundColor: 'rgba(255,255,255,0.02)' },
+    statsCard: { margin: Spacing.sm, borderRadius: Radius.xxl, padding: 24, backgroundColor: 'rgba(5, 5, 10, 0.8)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
     statsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
     statMini: { alignItems: 'center', gap: 8 },
     statMiniValue: { fontSize: 24, fontFamily: Typography.serifBold, color: 'white' },
@@ -1533,7 +1587,7 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         height: 220, // Final generous height
         justifyContent: 'center',
-        backgroundColor: 'transparent',
+        backgroundColor: 'rgba(5, 5, 10, 0.8)',
     },
     locHeader: {
         flexDirection: 'row',
@@ -1637,14 +1691,16 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.05)',
         zIndex: -1,
     },
-    inspirationCard: { margin: Spacing.sm, borderRadius: Radius.xl, padding: 24 },
+    inspirationCard: { margin: Spacing.sm, borderRadius: Radius.xl, padding: 24, backgroundColor: 'rgba(5, 5, 10, 0.8)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
     inspirationHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
     inspirationTitle: { color: 'white', fontSize: 20, fontFamily: Typography.serifBold, letterSpacing: -0.5 },
     letterPreviewCard: {
         margin: Spacing.sm,
         padding: 24,
         borderRadius: Radius.xl,
-        backgroundColor: 'rgba(255,255,255,0.02)',
+        backgroundColor: 'rgba(5, 5, 10, 0.8)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
     },
     letterPreviewHeader: {
         flexDirection: 'row',
@@ -1775,9 +1831,9 @@ const styles = StyleSheet.create({
     },
     inspirationCardText: {
         color: 'rgba(255,255,255,0.85)',
-        fontSize: 18,
+        fontSize: 15,
         fontFamily: Typography.serif,
-        lineHeight: 28,
+        lineHeight: 24,
         textAlign: 'left',
     },
     quoteItalicStyle: {
@@ -1979,5 +2035,23 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
+    },
+    morningInsightBanner: {
+        paddingVertical: 24,
+        paddingHorizontal: 20,
+        backgroundColor: 'rgba(255,255,255,0.01)',
+        marginBottom: 8,
+    },
+    morningInsightHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 12,
+    },
+    morningInsightLabel: {
+        fontSize: 10,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.4)',
+        letterSpacing: 2,
     },
 });

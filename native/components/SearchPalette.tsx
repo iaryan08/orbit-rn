@@ -12,7 +12,7 @@ import {
     Flame, Settings, Moon, Sparkles, Heart, BellRing, Compass, Shield,
     BookOpen, Camera, Calendar, ChevronRight, Zap, Layers
 } from 'lucide-react-native';
-import { BlurView } from 'expo-blur';
+
 import * as Haptics from 'expo-haptics';
 import { useOrbitStore } from '../lib/store';
 import { Emoji } from './Emoji';
@@ -168,16 +168,17 @@ function buildDynamicItems(memories: any[], letters: any[], milestones: any, sto
 }
 
 // Helper to render text with custom emojis
-function EmojiText({ text, style }: { text: string; style: any }) {
+// Helper to render text with custom emojis - Optimized with Memoization
+const EmojiText = React.memo(({ text, style }: { text: string; style: any }) => {
     if (!text) return null;
 
-    // Split text by common emojis used in the app
-    const parts = text.split(/(\u2705|\u2708\uFE0F|\u2709\uFE0F|\u270B|\u270C|\u270D|\u270F\uFE0F|\u2712\uFE0F|\u2714\uFE0F|\u2716\uFE0F|\u2728|\u2733\uFE0F|\u2734\uFE0F|\u2744\uFE0F|\u2747\uFE0F|\u274C|\u274E|\u2753|\u2754|\u2755|\u2757|\u2763\uFE0F|\u2764\uFE0F|\u27A1\uFE0F|\u27B0|\u27BF|\u2934\uFE0F|\u2935\uFE0F|\u2B05\uFE0F|\u2B06\uFE0F|\u2B07\uFE0F|\u2B1B|\u2B1C|\u2B50|\u2B55|\u3030\uFE0F|\u303D\uFE0F|\u3297\uFE0F|\u3299\uFE0F|[\uD83C-\uD83E][\uDC00-\uDFFF])/);
+    const parts = useMemo(() => {
+        return text.split(/(\u2705|\u2708\uFE0F|\u2709\uFE0F|\u270B|\u270C|\u270D|\u270F\uFE0F|\u2712\uFE0F|\u2714\uFE0F|\u2716\uFE0F|\u2728|\u2733\uFE0F|\u2734\uFE0F|\u2744\uFE0F|\u2747\uFE0F|\u274C|\u274E|\u2753|\u2754|\u2755|\u2757|\u2763\uFE0F|\u2764\uFE0F|\u27A1\uFE0F|\u27B0|\u27BF|\u2934\uFE0F|\u2935\uFE0F|\u2B05\uFE0F|\u2B06\uFE0F|\u2B07\uFE0F|\u2B1B|\u2B1C|\u2B50|\u2B55|\u3030\uFE0F|\u303D\uFE0F|\u3297\uFE0F|\u3299\uFE0F|[\uD83C-\uD83E][\uDC00-\uDFFF])/);
+    }, [text]);
 
     return (
         <Text style={style} numberOfLines={1}>
             {parts.map((part, i) => {
-                // If the part is an emoji, wrap it
                 if (part.match(/[\u2700-\u27BF]|[\uD83C-\uD83E][\uDC00-\uDFFF]/)) {
                     return <Emoji key={i} symbol={part} size={style.fontSize || 13} />;
                 }
@@ -185,7 +186,7 @@ function EmojiText({ text, style }: { text: string; style: any }) {
             })}
         </Text>
     );
-}
+});
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -288,7 +289,7 @@ export function SearchPalette() {
 
             {/* Panel */}
             <Animated.View style={[styles.panel, { top: insets.top + 12 }, panelStyle]} pointerEvents="box-none">
-                <BlurView intensity={50} tint="dark" experimentalBlurMethod="dimezisBlurView" style={styles.panelInner}>
+                <View style={[styles.panelInner, { backgroundColor: 'rgba(12, 12, 14, 0.94)', borderBottomLeftRadius: 32, borderBottomRightRadius: 32 }]}>
                     {/* Input Row */}
                     <View style={styles.inputRow}>
                         <Search size={17} color="rgba(255,255,255,0.4)" />
@@ -350,7 +351,7 @@ export function SearchPalette() {
                             );
                         }}
                     />
-                </BlurView>
+                </View>
             </Animated.View>
         </Modal>
     );

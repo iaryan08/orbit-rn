@@ -1,11 +1,11 @@
 import { Stack, usePathname } from "expo-router";
 import { ThemeProvider, DarkTheme } from "@react-navigation/native";
-import { useColorScheme } from "react-native";
+import { useColorScheme, View, Platform, KeyboardAvoidingView, ActivityIndicator } from "react-native";
 import { Colors } from "../constants/Theme";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NavbarDock } from "../components/NavbarDock";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useSafeAreaInsets, SafeAreaProvider } from "react-native-safe-area-context";
 import { DynamicBackground } from "../components/DynamicBackground";
 import { NotificationDrawer } from "../components/NotificationDrawer";
 import { MoodLoggerDrawer } from "../components/MoodLoggerDrawer";
@@ -13,6 +13,7 @@ import { MediaViewer } from "../components/MediaViewer";
 import { SearchPalette } from "../components/SearchPalette";
 import { ConnectionSync } from "../components/ConnectionSync";
 import { AppLockOverlay } from "../components/AppLockOverlay";
+import { PerfChip, usePerfMonitor } from "../components/PerfChip";
 import {
     useFonts,
     Syne_400Regular,
@@ -26,6 +27,15 @@ import {
 import {
     MeaCulpa_400Regular,
 } from '@expo-google-fonts/mea-culpa';
+import {
+    Outfit_400Regular,
+    Outfit_700Bold,
+} from '@expo-google-fonts/outfit';
+import {
+    CormorantGaramond_400Regular,
+    CormorantGaramond_700Bold,
+    CormorantGaramond_400Regular_Italic,
+} from '@expo-google-fonts/cormorant-garamond';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from "react";
 import { useOrbitStore } from '../lib/store';
@@ -49,6 +59,9 @@ function RootLayoutNav() {
 
     const pathname = usePathname();
     const router = useRouter();
+    const insets = useSafeAreaInsets();
+    const perfStats = usePerfMonitor('Layout');
+    const isDebugMode = useOrbitStore(s => s.isDebugMode);
     const isOverlayOpen = isNotificationDrawerOpen || mediaViewerState.isOpen;
 
     // undefined = still loading, null = signed out, object = signed in
@@ -86,6 +99,11 @@ function RootLayoutNav() {
         BodoniModa_700Bold,
         BodoniModa_400Regular_Italic,
         MeaCulpa_400Regular,
+        Outfit_400Regular,
+        Outfit_700Bold,
+        CormorantGaramond_400Regular,
+        CormorantGaramond_700Bold,
+        CormorantGaramond_400Regular_Italic,
         // Apple Color Emoji for Signal-style consistency on Android
         'AppleColorEmoji': require('../assets/fonts/AppleColorEmoji.ttf'),
     });
@@ -124,9 +142,11 @@ function RootLayoutNav() {
 
         <GestureHandlerRootView style={{ flex: 1 }}>
             <ThemeProvider value={CustomDarkTheme}>
-                <DynamicBackground
-                    isPaused={isOverlayOpen}
-                />
+                {isAuthenticated && !hideDock && (
+                    <DynamicBackground
+                        isPaused={isOverlayOpen}
+                    />
+                )}
                 <Stack
                     screenOptions={{
                         headerShown: false,
@@ -141,9 +161,15 @@ function RootLayoutNav() {
                 {isAuthenticated && <MoodLoggerDrawer />}
                 {isAuthenticated && <MediaViewer />}
                 {isAuthenticated && <SearchPalette />}
+                {/* Global Intimacy Layer: Always at the Top Z-Index */}
                 {isAuthenticated && <ConnectionSync />}
                 {isAuthenticated && <AppLockOverlay />}
                 <StatusBar style="light" />
+                {isDebugMode && (
+                    <View style={{ position: 'absolute', top: insets.top + 4, right: 204, zIndex: 10002 }}>
+                        <PerfChip name="LAYOUT" stats={perfStats} />
+                    </View>
+                )}
             </ThemeProvider>
         </GestureHandlerRootView>
     );

@@ -15,12 +15,13 @@ interface HeaderPillProps {
     showAt?: number;
     count?: number;
     onPress?: () => void;
+    onLongPress?: () => void;
 }
 
 import * as Haptics from 'expo-haptics';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 
-export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress }: HeaderPillProps) {
+export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, onLongPress }: HeaderPillProps) {
     const { profile, idToken, setTabIndex, activeTabIndex, appMode } = useOrbitStore();
     const insets = useSafeAreaInsets();
     const isLunara = appMode === 'lunara';
@@ -43,6 +44,10 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress }:
                 onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onPress?.();
+                }}
+                onLongPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                    onLongPress?.();
                 }}
             >
                 <BlurView

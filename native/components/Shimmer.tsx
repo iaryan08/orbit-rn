@@ -5,10 +5,10 @@ import Animated, {
     useAnimatedStyle,
     withRepeat,
     withTiming,
-    interpolate,
-    LinearTransition
+    interpolate
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useOrbitStore } from '../lib/store';
 
 interface ShimmerProps {
     width: number | string;
@@ -18,17 +18,22 @@ interface ShimmerProps {
 }
 
 export const Shimmer = ({ width, height, borderRadius = 8, style }: ShimmerProps) => {
+    const { isLiteMode } = useOrbitStore();
     const shimmerProgress = useSharedValue(-1);
 
     useEffect(() => {
+        if (isLiteMode) return;
+
         shimmerProgress.value = withRepeat(
             withTiming(1.2, { duration: 1200 }),
             -1,
             false
         );
-    }, []);
+    }, [isLiteMode]);
 
     const animatedStyle = useAnimatedStyle(() => {
+        if (isLiteMode) return { opacity: 0 };
+
         const translateX = interpolate(
             shimmerProgress.value,
             [-1, 1.2],
@@ -48,14 +53,16 @@ export const Shimmer = ({ width, height, borderRadius = 8, style }: ShimmerProps
             ]}
         >
             <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.05)' }]} />
-            <Animated.View style={[StyleSheet.absoluteFill, animatedStyle]}>
-                <LinearGradient
-                    colors={['transparent', 'rgba(255,255,255,0.08)', 'transparent']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={StyleSheet.absoluteFill}
-                />
-            </Animated.View>
+            {!isLiteMode && (
+                <Animated.View style={[StyleSheet.absoluteFill, animatedStyle]}>
+                    <LinearGradient
+                        colors={['transparent', 'rgba(255,255,255,0.08)', 'transparent']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={StyleSheet.absoluteFill}
+                    />
+                </Animated.View>
+            )}
         </View>
     );
 };

@@ -30,6 +30,7 @@ interface PolaroidStackProps {
     onPress?: (polaroid: PolaroidData) => void;
     onUploadPress?: () => void;
     authToken?: string | null;
+    isActive?: boolean;
 }
 
 export function PolaroidStack({
@@ -38,7 +39,8 @@ export function PolaroidStack({
     partnerName,
     onPress,
     onUploadPress,
-    authToken
+    authToken,
+    isActive = true
 }: PolaroidStackProps) {
     const [view, setView] = useState<'partner' | 'user'>('partner');
     const translateX = useSharedValue(0);
@@ -67,7 +69,7 @@ export function PolaroidStack({
                     <PolaroidCard
                         data={userPolaroid}
                         label="You"
-                        isActive={activeIndex === 1}
+                        isActive={isActive && activeIndex === 1}
                         index={1}
                         translateX={translateX}
                         onPress={() => userPolaroid ? onPress?.(userPolaroid) : onUploadPress?.()}
@@ -76,7 +78,7 @@ export function PolaroidStack({
                     <PolaroidCard
                         data={partnerPolaroid}
                         label={partnerName}
-                        isActive={activeIndex === 0}
+                        isActive={isActive && activeIndex === 0}
                         index={0}
                         translateX={translateX}
                         onPress={() => partnerPolaroid ? onPress?.(partnerPolaroid) : null}
@@ -205,7 +207,7 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
                         <View style={styles.timeWrapper}>
                             <View style={styles.timeDot} />
                             <Text style={styles.time}>
-                                {data?.created_at ? '03:28 PM · Mar 7' : 'Waiting...'}
+                                {data?.created_at ? new Date(data.created_at).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, day: 'numeric', month: 'short' }) : 'Waiting...'}
                             </Text>
                         </View>
                     </View>
@@ -256,13 +258,15 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#F5F5F5',
+        backgroundColor: '#000', // Premium deep ink
     },
     emptyText: {
         fontSize: 10,
-        color: '#A3A3A3',
+        color: 'rgba(255,255,255,0.4)',
         fontFamily: Typography.sansBold,
         marginTop: 4,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
     },
     ownerBadge: {
         position: 'absolute',

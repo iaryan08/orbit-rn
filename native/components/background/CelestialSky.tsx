@@ -3,7 +3,6 @@ import { View, Dimensions, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import Animated, { useSharedValue, withTiming, withRepeat, withSequence, useAnimatedStyle, SharedValue, useAnimatedProps } from 'react-native-reanimated';
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 import { BRIGHT_STARS } from '../../lib/astronomy/stars';
 
 interface CelestialSkyProps {
@@ -27,18 +26,13 @@ interface StarProps {
     starColor: number[];
 }
 
-const Star = React.memo(({ star, starColor, shimmer }: { star: any, starColor: number[], shimmer: SharedValue<number> }) => {
-    const animatedProps = useAnimatedProps(() => ({
-        opacity: star.opacity * (0.6 + shimmer.value * 0.4),
-    }));
-
+const Star = React.memo(({ star, starColor }: { star: any, starColor: number[] }) => {
     return (
-        <AnimatedCircle
+        <Circle
             cx={star.x}
             cy={star.y}
             r={star.size * 0.5}
-            fill={`rgba(${starColor[0]}, ${starColor[1]}, ${starColor[2]}, 1)`}
-            animatedProps={animatedProps}
+            fill={`rgba(${starColor[0]}, ${starColor[1]}, ${starColor[2]}, ${star.opacity})`}
         />
     );
 });
@@ -48,33 +42,26 @@ export function CelestialSky({
     partnerLon,
     starColor = [255, 255, 255],
     speed = 1,
-    maxStars = 80
+    maxStars = 30
 }: CelestialSkyProps) {
-    const shimmer = useSharedValue(0.5);
+    // PER USER REQUEST: Completely static. No shimmer, no GPU animation cycles.
+    // Calculations only happen once per hour in the useMemo below.
 
-    useEffect(() => {
-        if (speed > 0) {
-            shimmer.value = withRepeat(
-                withSequence(
-                    withTiming(1, { duration: 2000 }),
-                    withTiming(0.2, { duration: 3000 })
-                ),
-                -1,
-                true
-            );
-        } else {
-            shimmer.value = withTiming(0.8);
-        }
-    }, [speed]);
+    const hourTimestamp = Math.floor(Date.now() / 3600000);
 
     const stars = useMemo(() => {
         if (!Number.isFinite(partnerLat) || !Number.isFinite(partnerLon)) {
             return [];
         }
+
+        // PER USER REQUEST: Round to nearest hour for the sky calculation.
+        // Stars are practically static over short windows.
         const skyLat = partnerLat!;
         const skyLon = partnerLon!;
-        const now = new Date();
-        const JD = now.getTime() / 86400000 + 2440587.5;
+
+        // Use the hour-slot timestamp so recalculation only happens once per hour
+        const baseTime = new Date(hourTimestamp * 3600000);
+        const JD = baseTime.getTime() / 86400000 + 2440587.5;
         const D = JD - 2451545.0;
 
         let GMST = (18.697374558 + 24.06570982441908 * D) % 24;
@@ -126,19 +113,23 @@ export function CelestialSky({
         });
 
         return visibleStars;
-    }, [partnerLat, partnerLon]);
+    }, [partnerLat, partnerLon, hourTimestamp, maxStars]);
+
+    const renderedStars = useMemo(() => {
+        return stars.map(star => (
+            <Star key={star.id} star={star} starColor={starColor} />
+        ));
+    }, [stars, starColor]);
 
     if (!Number.isFinite(partnerLat) || !Number.isFinite(partnerLon)) {
         return null;
     }
 
     return (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+        <Animated.View style={StyleSheet.absoluteFillObject} pointerEvents="none" renderToHardwareTextureAndroid={true}>
             <Svg width="100%" height="100%">
-                {stars.map(star => (
-                    <Star key={star.id} star={star} starColor={starColor} shimmer={shimmer} />
-                ))}
+                {renderedStars}
             </Svg>
-        </View>
+        </Animated.View>
     );
 }

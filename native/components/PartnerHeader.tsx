@@ -17,9 +17,10 @@ interface PartnerHeaderProps {
     profile: any;
     partnerProfile: any;
     coupleId: string;
+    isActive?: boolean;
 }
 
-export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHeaderProps) {
+export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = true }: PartnerHeaderProps) {
     const { sendHeartbeatOptimistic, idToken } = useOrbitStore();
     const resolvedPartnerName = getPartnerName(profile, partnerProfile);
     const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -28,6 +29,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
 
     // RTDB instantaneous presence
     useEffect(() => {
+        if (!isActive) return;
         const offsetRef = ref(rtdb, '.info/serverTimeOffset');
         const unsubOffset = onValue(offsetRef, (snap) => {
             setServerOffset(snap.val() || 0);
@@ -62,15 +64,16 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
             unsub();
             clearInterval(validator);
         };
-    }, [coupleId, partnerProfile?.id, serverOffset]);
+    }, [coupleId, partnerProfile?.id, serverOffset, isActive]);
 
     const userAvatarUrl = useMemo(() =>
         getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
         [profile?.avatar_url, idToken]);
 
-    const partnerAvatarUrl = useMemo(() =>
-        getPublicStorageUrl(partnerProfile?.avatar_url, 'avatars', idToken),
-        [partnerProfile?.avatar_url, idToken]);
+    const partnerAvatarUrl = useMemo(() => {
+        if (!partnerProfile?.avatar_url) return null;
+        return getPublicStorageUrl(partnerProfile.avatar_url, 'avatars', idToken);
+    }, [partnerProfile?.avatar_url, partnerProfile?.id, idToken]);
 
     const handlePressIn = () => {
         Animated.spring(pulseAnim, {
@@ -135,7 +138,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
                         >
                             <ProfileAvatar
                                 url={partnerAvatarUrl}
-                                fallbackText={partnerProfile?.display_name || 'P'}
+                                fallbackText={resolvedPartnerName}
                                 size={80}
                                 borderWidth={2}
                                 borderColor={isPartnerActive ? Colors.dark.rose[500] : 'rgba(255,255,255,0.08)'}
@@ -151,7 +154,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId }: PartnerHead
                 <View style={styles.nameHeaderGroup}>
                     <Text style={styles.connectedText}>Connected With • </Text>
                     <View style={{ flex: 1, minHeight: 28, justifyContent: 'center' }}>
-                        <MarqueeText style={styles.partnerName}>
+                        <MarqueeText style={styles.partnerName} isActive={isActive}>
                             {resolvedPartnerName}
                         </MarqueeText>
                     </View>
@@ -243,16 +246,17 @@ const styles = StyleSheet.create({
         alignItems: 'baseline',
     },
     connectedText: {
-        color: 'rgba(255,255,255,0.3)',
+        color: 'rgba(255,255,255,0.85)',
         fontSize: 11,
         fontFamily: Typography.serifItalic,
         letterSpacing: 1.2,
     },
     partnerName: {
         color: 'white',
-        fontFamily: Typography.serifBold,
-        fontSize: 26,
-        letterSpacing: -0.2,
+        fontFamily: Typography.script,
+        fontSize: 34,
+        letterSpacing: -0.5,
+        marginTop: -10,
     },
     locationCityRow: {
         flexDirection: 'row',
@@ -260,7 +264,7 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     locationCityText: {
-        color: 'rgba(255,255,255,0.45)',
+        color: 'rgba(255,255,255,1)',
         fontSize: 11,
         fontFamily: Typography.serif,
         letterSpacing: 0.5,
@@ -272,7 +276,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.15)',
     },
     tempText: {
-        color: 'rgba(255,255,255,0.5)',
+        color: 'rgba(255,255,255,1)',
         fontSize: 11,
         fontFamily: Typography.sansBold,
     },

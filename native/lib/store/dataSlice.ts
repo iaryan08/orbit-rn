@@ -7,32 +7,7 @@ import { getTodayIST } from '../utils';
 import { memories as memoriesTable, letters as lettersTable, moods as moodsTable, bucketList as bucketTable, polaroids as polaroidsTable } from '../db/schema';
 import { triggerMirroring } from '../MirrorService';
 import * as Haptics from 'expo-haptics';
-
-// 12+ Year Experience Pattern: Strictly decoupled UI State from Persistence Synchronization
-const strip = (o: any): string => {
-    if (!o) return "";
-    try {
-        const clean = (item: any) => {
-            if (!item) return null;
-            // Exclude sync metadata but keep ALL content fields
-            const { updated_at, last_changed, created_at, last_synced_at, ...rest } = item;
-
-            // Normalize image_urls for comparison
-            if (typeof rest.image_urls === 'string') {
-                try { rest.image_urls = JSON.parse(rest.image_urls); } catch { }
-            }
-
-            // Deterministic sorting of keys to ensure referential stability
-            return Object.keys(rest).sort().reduce((acc: any, key) => {
-                acc[key] = rest[key];
-                return acc;
-            }, {});
-        };
-
-        if (Array.isArray(o)) return JSON.stringify(o.map(clean));
-        return JSON.stringify(clean(o));
-    } catch { return ""; }
-};
+import { AuthSlice, strip } from './authSlice';
 
 // Advanced Merge: Updates state only for changed items, maintaining reference stability
 const mergeCollections = <T extends { id: string }>(current: T[], incoming: T[]): T[] => {
@@ -107,11 +82,8 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
     notifications: [],
     milestones: {},
     cycleLogs: {},
-    loading: false,
+    idToken: null,
     isSyncing: false,
-    profile: null,
-    partnerProfile: null,
-    couple: null,
     activeUnsubs: [],
     activeCoupleUnsubs: [],
     activeCoupleId: null,
@@ -140,37 +112,39 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
     fetchData: (userId: string) => {
         const state = get();
-        // Guard against redundant initialization
+
+        // 🛡️ Senior Guard: Prevent redundant initialization if already fetching/listening for this user
         if (state.fetchingUserId === userId) return () => { };
         if (state.activeUnsubs.length > 0 && state.profile?.id === userId) return () => { };
 
         set({ fetchingUserId: userId });
 
-        // Cleanup stale data/listeners ONLY on user switch
-        if (state.profile?.id && state.profile.id !== userId) {
-            state.activeUnsubs.forEach((u: any) => u());
-            state.activeCoupleUnsubs.forEach((u: any) => u());
-            set({
-                activeUnsubs: [],
-                activeCoupleUnsubs: [],
-                activeCoupleId: null,
-                activePartnerId: null,
-                memories: [],
-                letters: [],
-                moods: [],
-            });
-        }
+        // Performance: Cleanup existing listeners if switching users or forced refresh
+        state.activeUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
+        state.activeCoupleUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
+        set({ activeUnsubs: [], activeCoupleUnsubs: [] });
 
         // Show ultra-fast startup loader ONLY if cold boot with zero data
-        if (!state.profile && state.memories.length === 0) {
+        const needsLoader = !state.profile && state.memories.length === 0;
+        console.log("[DataSlice] fetchData starting. NeedsLoader:", needsLoader);
+        if (needsLoader) {
             set({ loading: true });
         }
+
+        // 🛡️ Safety Unlock: Ensure app is NEVER stuck for more than 7s
+        const safetyUnlock = setTimeout(() => {
+            if (get().loading) {
+                console.warn("[DataSlice] Safety unlock triggered. Breaking boot hang.");
+                set({ loading: false, fetchingUserId: null });
+            }
+        }, 7000);
 
         let isCleanedUp = false;
 
         // VITAL LISTENERS (Profile & Couple Metadata only)
         // These are tiny Firestore documents (<1KB). We listen to them for real-time paired state.
         const setupVitalListeners = async () => {
+            console.log("[DataSlice] Setup Vital Listeners starting...");
             if (isCleanedUp) return;
 
             // 1. User Profile Listener
@@ -254,6 +228,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                     set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubPartner] }));
                 }
             });
+            // CRITICAL: Ensure the couple unsub is also tracked
             set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubCouple] }));
 
             // DELTA SYNC TRIGGER
@@ -369,6 +344,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
         };
 
         const bootstrapFromLocal = async () => {
+            console.log("[DataSlice] Bootstrap from SQLite starting...");
             try {
                 // 1. Load profiles from instant SQLite cache
                 const profs = await repository.getProfiles().catch(() => []);
@@ -403,6 +379,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 if (isCleanedUp) return;
 
                 const s = get();
+                console.log("[DataSlice] Bootstrap from Local SUCCESS. Loading: false");
                 set({
                     // Keep last known in-memory profile data during transient/local cache gaps
                     // to avoid "Partner" fallback flicker on first paint/re-hydration.
@@ -414,25 +391,28 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                     moods: mergeCollections(s.moods, mo as MoodData[]),
                     bucketList: mergeCollections(s.bucketList, b as BucketItem[]),
                     polaroids: mergeCollections(s.polaroids, p as PolaroidData[]),
-                    loading: false,
-                    fetchingUserId: null
+                    loading: false
                 });
 
-                // 3. Setup Vitals (Listen to small metadata changes)
-                setupVitalListeners();
             } catch (err) {
                 console.error("[DataSlice] Bootstrap failed:", err);
-                set({ loading: false, fetchingUserId: null });
+                set({ loading: false });
             }
         };
 
+        // 🚀 Boot Architecture: Run both paths in parallel
+        // Vitals provide the most critical 'unblocking' data (profile/couple) from Cloud.
+        // Local bootstrap provides the high-volume data (memories/letters) from SQLite.
         bootstrapFromLocal();
+        setupVitalListeners();
+
         return () => {
+            clearTimeout(safetyUnlock);
             isCleanedUp = true;
             const s = get();
-            s.activeUnsubs.forEach((u: any) => u());
-            s.activeCoupleUnsubs.forEach((u: any) => u());
-            set({ activeUnsubs: [], activeCoupleUnsubs: [] });
+            s.activeUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
+            s.activeCoupleUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
+            set({ activeUnsubs: [], activeCoupleUnsubs: [], fetchingUserId: null });
         };
     },
 
@@ -646,6 +626,6 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
         const { activeUnsubs, activeCoupleUnsubs } = get();
         activeUnsubs.forEach((u: any) => u());
         activeCoupleUnsubs.forEach((u: any) => u());
-        set({ memories: [], polaroids: [], letters: [], moods: [], bucketList: [], notifications: [], milestones: {}, cycleLogs: {}, loading: false, profile: null, partnerProfile: null, couple: null, activeUnsubs: [], activeCoupleUnsubs: [] });
+        set({ memories: [], polaroids: [], letters: [], moods: [], bucketList: [], notifications: [], milestones: {}, cycleLogs: {}, loading: false, profile: null, partnerProfile: null, couple: null, activeUnsubs: [], activeCoupleUnsubs: [], fetchingUserId: null });
     }
 });

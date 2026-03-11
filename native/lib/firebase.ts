@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { initializeAuth } from "firebase/auth";
-// @ts-ignore
-import { getReactNativePersistence } from "@firebase/auth/dist/rn/index.js";
+// @ts-ignore - Metro will correctly resolve this to the react-native export condition in @firebase/auth
+import { getReactNativePersistence } from "@firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";

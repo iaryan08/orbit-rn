@@ -15,6 +15,7 @@ import { getPartnerName } from '../../lib/utils';
 import * as Haptics from 'expo-haptics';
 import { format } from 'date-fns';
 import { sendNotification } from '../../lib/notifications';
+import { PerfChip, usePerfMonitor } from '../PerfChip';
 
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
@@ -27,6 +28,8 @@ export function LettersScreen() {
     const flashListRef = React.useRef<any>(null);
     const insets = useSafeAreaInsets();
     const partnerName = React.useMemo(() => getPartnerName(profile, partnerProfile), [profile, partnerProfile]);
+    const perfStats = usePerfMonitor('LETTERS');
+    const isDebugMode = useOrbitStore(state => state.isDebugMode);
 
     const [selectedLetter, setSelectedLetter] = useState<any>(null);
     const [isComposeVisible, setIsComposeVisible] = useState(false);
@@ -583,6 +586,11 @@ export function LettersScreen() {
                     </View>
                 </View>
             </Modal>
+            {isDebugMode && (
+                <View style={{ position: 'absolute', top: insets.top + (Platform.OS === 'ios' ? 4 : 8), right: 16, zIndex: 10001 }}>
+                    <PerfChip name="LETTERS" stats={perfStats} />
+                </View>
+            )}
         </View>
     );
 }
@@ -725,5 +733,3 @@ const styles = StyleSheet.create({
     featuredBtnText: { fontSize: 9, fontFamily: Typography.sansBold, color: 'white', letterSpacing: 1 },
     fab: { position: 'absolute', right: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.dark.rose[500], justifyContent: 'center', alignItems: 'center' },
 });
-
-

@@ -113,6 +113,21 @@ export function DynamicBackground({ isPaused = false }: DynamicBackgroundProps) 
         };
     });
 
+    // Unified Skia Parallax & Transition
+    const parallaxY = useDerivedValue(() => {
+        return interpolate(scrollOffset?.value || 0, [0, 800], [0, -30], Extrapolate.CLAMP);
+    });
+
+    const currentImgScale = useDerivedValue(() => {
+        if (grayscale || isLiteMode) return 1.05;
+        return interpolate(transition.value, [0, 1], [1.1, 1.05]);
+    });
+
+    const previousImgScale = useDerivedValue(() => {
+        if (grayscale || isLiteMode) return 1.05;
+        return interpolate(transition.value, [0, 1], [1.05, 1.1]);
+    });
+
     const monochromePaint = useMemo(() => {
         const p = Skia.Paint();
         p.setColorFilter(Skia.ColorFilter.MakeMatrix(MONOCHROME_MATRIX));
@@ -129,39 +144,18 @@ export function DynamicBackground({ isPaused = false }: DynamicBackgroundProps) 
         return VIBE_MAP[card.vibe];
     }, [isLunara, intimacyForecast, profile, partnerProfile, grayscale]);
 
-    const currentAestheticOpacity = useDerivedValue(() => {
+    const overlayOpacity = useDerivedValue(() => {
         return withTiming(mode !== 'stars' ? 1 : 0, { duration: 100 });
     });
 
-    const aestheticOverlayStyle = useAnimatedStyle(() => ({
-        opacity: currentAestheticOpacity.value,
-        backgroundColor: grayscale ? 'rgba(0,0,0,0.5)' :
-            (aesthetic as string) === 'Solid' ? 'rgba(0,0,0,0.85)' :
-                aesthetic === 'Obsidian' ? 'rgba(10, 5, 25, 0.58)' :
-                    aesthetic === 'Cinema' ? 'rgba(25, 12, 0, 0.42)' :
-                        aesthetic === 'Ethereal' ? 'rgba(255, 255, 255, 0.08)' :
-                            'rgba(0,0,0,0.42)'
-    }));
-
-    const renderWallpaperLayer = (skImage: any, style: any) => {
-        if (!skImage || mode === 'stars') return null;
-        return (
-            <Animated.View style={[StyleSheet.absoluteFillObject, style]}>
-                <Canvas style={StyleSheet.absoluteFillObject}>
-                    <Group layer={grayscale ? monochromePaint : undefined}>
-                        <Image
-                            image={skImage}
-                            x={0}
-                            y={0}
-                            width={width}
-                            height={height}
-                            fit="cover"
-                        />
-                    </Group>
-                </Canvas>
-            </Animated.View>
-        );
-    };
+    const overlayColor = useMemo(() => {
+        if (grayscale) return 'rgba(0,0,0,0.6)';
+        if ((aesthetic as string) === 'Solid') return '#000000';
+        if (aesthetic === 'Obsidian') return 'rgba(10, 5, 25, 0.72)';
+        if (aesthetic === 'Cinema') return 'rgba(25, 12, 0, 0.42)';
+        if (aesthetic === 'Ethereal') return 'rgba(255, 255, 255, 0.08)';
+        return 'rgba(0,0,0,0.08)';
+    }, [grayscale, aesthetic]);
 
     return (
         <View style={[StyleSheet.absoluteFillObject, styles.bg]}>
@@ -169,57 +163,68 @@ export function DynamicBackground({ isPaused = false }: DynamicBackgroundProps) 
                 partnerLat={partnerProfile?.latitude || partnerProfile?.location?.latitude}
                 partnerLon={partnerProfile?.longitude || partnerProfile?.location?.longitude}
                 starColor={starColor}
-                speed={isPaused || grayscale ? 0 : (isLiteMode ? 0.25 : 0.8)}
-                maxStars={grayscale ? 30 : (isLiteMode ? 40 : 80)}
+                speed={isPaused || grayscale || isLiteMode || (scrollOffset?.value || 0) > 400 ? 0 : 0.8}
+                maxStars={grayscale ? 20 : (isLiteMode ? 10 : 50)}
             />
 
-            {skImagePrevious && renderWallpaperLayer(skImagePrevious, previousStyle)}
-            {skImageCurrent && renderWallpaperLayer(skImageCurrent, currentStyle)}
+            <Canvas style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                {/* Previous Image Layer */}
+                {skImagePrevious && mode !== 'stars' && (
+                    <Group
+                        opacity={interpolate(transition.value, [0, 1], [1, 0])}
+                        transform={[{ translateY: parallaxY.value }, { scale: previousImgScale.value }]}
+                        origin={vec(width / 2, height / 2)}
+                        layer={grayscale ? monochromePaint : undefined}
+                    >
+                        <Image
+                            image={skImagePrevious}
+                            x={0} y={0} width={width} height={height}
+                            fit="cover"
+                        />
+                    </Group>
+                )}
 
-            {mode !== 'stars' && !grayscale && (
-                <Animated.View
-                    style={[StyleSheet.absoluteFillObject, aestheticOverlayStyle]}
-                    pointerEvents="none"
-                />
-            )}
+                {/* Current Image Layer */}
+                {skImageCurrent && mode !== 'stars' && (
+                    <Group
+                        opacity={transition.value}
+                        transform={[{ translateY: parallaxY.value }, { scale: currentImgScale.value }]}
+                        origin={vec(width / 2, height / 2)}
+                        layer={grayscale ? monochromePaint : undefined}
+                    >
+                        <Image
+                            image={skImageCurrent}
+                            x={0} y={0} width={width} height={height}
+                            fit="cover"
+                        />
+                    </Group>
+                )}
 
-            {/* Premium Monochrome Vignette */}
-            {grayscale && (
-                <Canvas style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                {/* Unified Tint & Vignette Layer */}
+                <Group opacity={overlayOpacity.value}>
+                    <Fill color={overlayColor} />
+
+                    {/* Persistent Readability Vignette (Top & Edge Darkening for Status Bar) */}
                     <Fill>
                         <RadialGradient
                             c={vec(width / 2, height / 2)}
-                            r={Math.max(width, height) * 1.1}
-                            colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.95)']}
-                            positions={[0.2, 0.5, 1]}
+                            r={Math.max(width, height) * 1.2}
+                            colors={['transparent', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.75)']}
+                            positions={[0.3, 0.6, 1]}
                         />
                     </Fill>
-                </Canvas>
-            )}
+                </Group>
 
-            {isLunara && vibeTintLayer && (
-                <View
-                    style={[StyleSheet.absoluteFillObject, { backgroundColor: vibeTintLayer, opacity: 0.2 }]}
-                    pointerEvents="none"
-                />
-            )}
+                {/* Partner Vibe Overlays (Computed in-canvas) */}
+                {isLunara && vibeTintLayer && (
+                    <Fill color={vibeTintLayer} opacity={0.15} />
+                )}
 
-            {grayscale && (
-                <View
-                    style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.45)' }]}
-                    pointerEvents="none"
-                />
-            )}
-
-            {mode !== 'stars' && !grayscale && (
-                <View
-                    style={[
-                        StyleSheet.absoluteFillObject,
-                        { backgroundColor: 'rgba(0,0,0,0.25)' }
-                    ]}
-                    pointerEvents="none"
-                />
-            )}
+                {/* Final Pass Safety Darkening for White Wallpapers */}
+                {mode !== 'stars' && (
+                    <Fill color="rgba(0,0,0,0.05)" />
+                )}
+            </Canvas>
         </View>
     );
 }

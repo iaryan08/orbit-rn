@@ -11,7 +11,7 @@ export const Colors = {
         secondary: '#1A1A1A',
         secondaryForeground: '#FAFAFA',
         muted: '#1A1A1A',
-        mutedForeground: '#737373',
+        mutedForeground: '#A3A3A3',
         accent: '#262626',
         accentForeground: '#FAFAFA',
         destructive: '#7F1D1D',
@@ -82,11 +82,11 @@ export const Radius = {
 };
 
 export const Typography = {
-    sans: 'Syne_400Regular',
-    sansBold: 'Syne_700Bold',
-    serif: 'BodoniModa_400Regular',
-    serifBold: 'BodoniModa_700Bold',
-    serifItalic: 'BodoniModa_400Regular_Italic',
+    sans: 'Outfit_400Regular',
+    sansBold: 'Outfit_700Bold',
+    serif: 'CormorantGaramond_400Regular',
+    serifBold: 'CormorantGaramond_700Bold',
+    serifItalic: 'CormorantGaramond_400Regular_Italic',
     script: 'MeaCulpa_400Regular',
     emoji: 'AppleColorEmoji',
 };

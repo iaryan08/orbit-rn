@@ -276,6 +276,22 @@ class Repository {
             set: data
         });
     }
+    async wipeAll() {
+        try {
+            await db_local.delete(profiles);
+            await db_local.delete(couples);
+            await db_local.delete(memories);
+            await db_local.delete(letters);
+            await db_local.delete(moods);
+            await db_local.delete(bucketList);
+            await db_local.delete(polaroids);
+            await db_local.delete(musicState);
+            await db_local.delete(syncMetadata);
+            console.log("[Repo] All local data wiped.");
+        } catch (e) {
+            console.warn("[Repo] Wipe all failed:", e);
+        }
+    }
 }
 
 export const repository = new Repository();

@@ -54,6 +54,8 @@ export interface AppSlice {
     setBiometricEnabled: (enabled: boolean) => void;
     appPinCode: string | null;
     setAppPinCode: (pin: string | null) => void;
+    isDebugMode: boolean;
+    toggleDebugMode: () => void;
 }
 
 
@@ -88,6 +90,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     isAppLockEnabled: false,
     isBiometricEnabled: false,
     appPinCode: null,
+    isDebugMode: false,
 
     activeTabIndex: 1,
     navigationSource: 'swipe',
@@ -107,11 +110,17 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     }),
     initAppMode: async () => {
         try {
+            const { totalMemory } = await import('expo-device');
+            const ramGB = (totalMemory || 8000000000) / (1024 * 1024 * 1024);
+            const isLowEnd = ramGB < 5;
+
             const savedMode = await AsyncStorage.getItem('orbit_app_mode');
             const savedQuality = await AsyncStorage.getItem('cinema_quality') as any;
+            const savedLiteMode = await AsyncStorage.getItem('orbit_lite_mode');
             const savedDebugApiUrl = await AsyncStorage.getItem('orbit_debug_api_url');
             const savedAppLock = await AsyncStorage.getItem('orbit_app_lock');
             const savedWallpaperRaw = await AsyncStorage.getItem('orbit_wallpaper_config');
+
             if (savedWallpaperRaw) {
                 try {
                     const parsed = JSON.parse(savedWallpaperRaw) as Partial<AppSlice['wallpaperConfig']>;
@@ -126,12 +135,13 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
                 } catch { }
             }
 
-            // Keep it simple: Always land on Moon Mode / Dashboard (Index 1) on startup
-            set({ appMode: 'moon', activeTabIndex: 1 });
+            set({
+                appMode: 'moon',
+                activeTabIndex: 1,
+                isLiteMode: savedLiteMode ? savedLiteMode === 'true' : isLowEnd,
+                cinemaQuality: savedQuality || (isLowEnd ? '720p' : '1080p')
+            });
 
-            if (savedQuality) {
-                set({ cinemaQuality: savedQuality });
-            }
             if (savedDebugApiUrl) {
                 set({ debugApiUrl: savedDebugApiUrl });
             }
@@ -203,5 +213,10 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
             AsyncStorage.removeItem('orbit_app_pin').catch(console.error);
         }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    toggleDebugMode: () => {
+        const next = !get().isDebugMode;
+        set({ isDebugMode: next });
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     },
 });

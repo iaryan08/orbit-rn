@@ -17,13 +17,14 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { onDisconnect, onValue, ref, set as rtdbSet } from 'firebase/database';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { Download, Edit2, Eraser, Move, Redo2, Shield, ShieldOff, Trash2, Undo2, X } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import { db, rtdb } from '../lib/firebase';
 import { useOrbitStore } from '../lib/store';
+import { PerfChip, usePerfMonitor } from './PerfChip';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CANVAS_HEIGHT = Math.round(SCREEN_WIDTH * 1.2);
@@ -101,9 +102,10 @@ const pointsToPath = (points: Point[]): SkPath | null => {
   return path;
 };
 
-export function SharedCanvas() {
-  const { couple, profile, setPagerScrollEnabled, activeTabIndex } = useOrbitStore();
+export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
+  const { couple, profile, setPagerScrollEnabled, activeTabIndex, isLiteMode, isDebugMode } = useOrbitStore();
   const canvasRef = useCanvasRef();
+  const perfStats = usePerfMonitor('CanvasDoodle');
 
   const [committedStrokes, setCommittedStrokes] = useState<Stroke[]>([]);
   const [redoStrokes, setRedoStrokes] = useState<Stroke[]>([]);
@@ -142,6 +144,7 @@ export function SharedCanvas() {
   const currentStrokeIdRef = useRef<string | null>(null);
   const syncedPointCountRef = useRef(0);
   const lastDeltaSyncAtRef = useRef(0);
+  const isDrawingRef = useRef(false);
   const handoffClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const remoteStrokeRef = useRef<Record<string, { id: string; points: Point[]; meta: StrokeMeta }>>({});
@@ -214,7 +217,7 @@ export function SharedCanvas() {
   }, [couple?.id, profile?.id]);
 
   useEffect(() => {
-    if (!couple?.id || !profile?.id) return;
+    if (!couple?.id || !profile?.id || !isActive) return;
     const coupleBroadcastRef = ref(rtdb, `broadcasts/${couple.id}`);
 
     const unsub = onValue(coupleBroadcastRef, (snapshot) => {
@@ -222,7 +225,7 @@ export function SharedCanvas() {
       if (!all) return;
 
       Object.entries(all).forEach(([senderId, packet]: [string, any]) => {
-        if (senderId === profile.id) return;
+        if (!profile?.id || senderId === profile.id) return;
         if (packet?.event !== 'doodle_delta') return;
 
         const timestamp = Number(packet?.timestamp || 0);
@@ -280,10 +283,40 @@ export function SharedCanvas() {
     });
 
     return unsub;
-  }, [couple?.id, profile?.id]);
+  }, [couple?.id, profile?.id, isActive]);
+
+  // INITIAL HYDRATION: Listen to legacy strokes from Firestore
+  useEffect(() => {
+    if (!couple?.id || !isActive) return;
+
+    const legacyRef = doc(db, 'couples', couple.id, 'doodles', 'latest');
+    const unsub = onSnapshot(legacyRef, (snap) => {
+      if (snap.exists() && !isDrawingRef.current) {
+        const data = snap.data();
+        if (data?.path_data) {
+          try {
+            const raw = JSON.parse(data.path_data);
+            const loaded = raw.map((s: any) => ({
+              ...s,
+              path: pointsToPath(s.points) || Skia.Path.Make(),
+            }));
+
+            setCommittedStrokes(loaded);
+          } catch (e) {
+            console.warn("[SharedCanvas] JSON Parse failed for path_data", e);
+          }
+        }
+      }
+    }, (err) => {
+      console.error('[SharedCanvas] Hydration failed:', err);
+    });
+
+    return unsub;
+  }, [couple?.id]);
 
   const startDrawing = useCallback(
     (x: number, y: number) => {
+      isDrawingRef.current = true;
       const strokeId = `${profile?.id || 'local'}-${Date.now()}`;
       const isEraser = activeTool === 'eraser';
       const meta: StrokeMeta = {
@@ -314,9 +347,13 @@ export function SharedCanvas() {
 
       const now = Date.now();
       if (!currentStrokeIdRef.current) return;
+
+      // Throttle points aggressively for Redmi 10/12 if isLiteMode is active
       const unsyncedCount = localPointsRef.current.length - syncedPointCountRef.current;
-      const syncInterval = unsyncedCount > MAX_POINTS_PER_DELTA ? FAST_DELTA_SYNC_MS : DELTA_SYNC_MS;
-      if (now - lastDeltaSyncAtRef.current < syncInterval) return;
+      const minPointsTrigger = isLiteMode ? 12 : 6;
+      const syncInterval = unsyncedCount > MAX_POINTS_PER_DELTA ? FAST_DELTA_SYNC_MS : (isLiteMode ? DELTA_SYNC_MS * 1.5 : DELTA_SYNC_MS);
+
+      if (unsyncedCount < minPointsTrigger && now - lastDeltaSyncAtRef.current < syncInterval) return;
       lastDeltaSyncAtRef.current = now;
 
       const unsynced = localPointsRef.current.slice(syncedPointCountRef.current);
@@ -389,6 +426,7 @@ export function SharedCanvas() {
     syncedPointCountRef.current = 0;
     localPointsRef.current = [];
     activePath.value = Skia.Path.Make();
+    isDrawingRef.current = false;
   }, [activePath, broadcastDelta, clearLocalBroadcast, handoffColor, handoffIsEraser, handoffPath, handoffWidth, syncLegacyWeb]);
 
   const handleUndo = useCallback(() => {
@@ -659,6 +697,7 @@ export function SharedCanvas() {
 
   return (
     <View style={styles.container}>
+      {isDebugMode && <PerfChip name="CANVAS" stats={perfStats} />}
       <GestureDetector gesture={canvasGestures}>
         <View
           style={styles.canvasWrap}
@@ -699,7 +738,10 @@ export function SharedCanvas() {
               style={styles.panInnerScroll}
               contentContainerStyle={styles.panInnerContent}
             >
-              <Animated.View style={[styles.logicalCanvas, zoomCanvasStyle]}>
+              <Animated.View
+                style={[styles.logicalCanvas, zoomCanvasStyle]}
+                renderToHardwareTextureAndroid={true}
+              >
                 <Canvas ref={canvasRef} style={StyleSheet.absoluteFill}>
                   <Group>
                     <Picture picture={flattenedPicture} />
@@ -770,16 +812,16 @@ export function SharedCanvas() {
 
       {!showToolsUi && (
         <View style={styles.rightRail} pointerEvents="box-none">
-        <TouchableOpacity
-          style={[styles.fab, styles.penFab, isDrawMode && styles.fabActive]}
-          onPress={() => {
-            setShowToolsUi(true);
-            setShowClearConfirm(false);
-            setInteractionMode('draw');
-          }}
-        >
-          <Edit2 size={18} color="#fff" />
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.fab, styles.penFab, isDrawMode && styles.fabActive]}
+            onPress={() => {
+              setShowToolsUi(true);
+              setShowClearConfirm(false);
+              setInteractionMode('draw');
+            }}
+          >
+            <Edit2 size={18} color="#fff" />
+          </TouchableOpacity>
         </View>
       )}
 

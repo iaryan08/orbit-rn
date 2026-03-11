@@ -24,8 +24,8 @@ const styles = StyleSheet.create({
         borderRadius: Radius.xl,
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: Colors.dark.border,
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: 'rgba(0, 0, 0, 0.65)', // Pure black low opacity for performance
     },
     overlay: {
         // Remove flex: 1 to allow hugging content

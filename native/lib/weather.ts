@@ -3,9 +3,19 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const OPEN_WEATHER_API_KEY = process.env.EXPO_PUBLIC_WEATHER_API_KEY; // Optional, can use a proxy
 
-export async function updateWeatherAndLocation() {
+let lastUpdate = 0;
+const COOLDOWN_MS = 15 * 60 * 1000; // 15 mins
+
+export async function updateWeatherAndLocation(force = false) {
     const user = auth.currentUser;
     if (!user) return;
+
+    const now = Date.now();
+    if (!force && now - lastUpdate < COOLDOWN_MS) {
+        console.log("[Weather] Skipping update: Cooldown active.");
+        return;
+    }
+    lastUpdate = now;
 
     let latitude, longitude, city, subtext, isIp = false;
 

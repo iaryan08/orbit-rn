@@ -26,6 +26,7 @@ import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, getStorage, typ
 import { app, auth, db, storage, projectId } from '../../lib/firebase';
 import { usePersistentMedia, getPersistentPath } from '../../lib/media';
 import { sendNotification } from '../../lib/notifications';
+import { PerfChip, usePerfMonitor } from '../PerfChip';
 
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
@@ -460,6 +461,8 @@ export function MemoriesScreen() {
     const [primaryVisibleMemoryId, setPrimaryVisibleMemoryId] = useState<string | null>(null);
     const activeTabIndex = useOrbitStore(state => state.activeTabIndex);
     const isMemoriesTabActive = activeTabIndex === 3;
+    const perfStats = usePerfMonitor('MEMORIES');
+    const isDebugMode = useOrbitStore(state => state.isDebugMode);
 
     const flashListRef = React.useRef<any>(null);
     const scrollOffset = useSharedValue(0);
@@ -1074,6 +1077,11 @@ export function MemoriesScreen() {
                     </View>
                 </View>
             </Modal>
+            {isDebugMode && (
+                <View style={{ position: 'absolute', top: insets.top + 4, right: 16, zIndex: 10001 }}>
+                    <PerfChip name="MEMORIES" stats={perfStats} />
+                </View>
+            )}
         </View>
     );
 }

@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSequence, runOnJS, withDelay, withRepeat, Easing, interpolate } from 'react-native-reanimated';
 import { ANIM_FADE_IN, ANIM_FADE_OUT, ANIM_MICRO } from '../../constants/Animation';
-import { BlurView } from 'expo-blur';
+
 import { getPartnerName } from '../../lib/utils';
 import { useOrbitStore } from '../../lib/store';
 import { getPublicStorageUrl } from '../../lib/storage';
@@ -22,19 +22,25 @@ import { Canvas, Blur, ColorMatrix, Group, Paint, Circle, Fill } from '@shopify/
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
 import { GlassCard } from '../GlassCard';
+import { PerfChip, usePerfMonitor } from '../PerfChip';
 
 // Optimized Marquee Component for long names
-function MarqueeText({ text, style }: { text: string, style: any }) {
+function MarqueeText({ text, style, isActive = true }: { text: string, style: any, isActive?: boolean }) {
     const textWidth = useSharedValue(0);
     const containerWidth = useSharedValue(0);
     const translateX = useSharedValue(0);
 
     useEffect(() => {
+        if (!isActive) {
+            translateX.value = 0;
+            return;
+        }
+
         if (textWidth.value > containerWidth.value && containerWidth.value > 0) {
             translateX.value = 0;
             translateX.value = withRepeat(
                 withTiming(-(textWidth.value + 20), {
-                    duration: text.length * 150,
+                    duration: Math.max(2000, text.length * 150),
                     easing: Easing.linear
                 }),
                 -1,
@@ -43,7 +49,10 @@ function MarqueeText({ text, style }: { text: string, style: any }) {
         } else {
             translateX.value = 0;
         }
-    }, [text, textWidth.value, containerWidth.value]);
+
+        // Safety: Stop animation if tab is hidden
+        return () => { translateX.value = 0; };
+    }, [text, textWidth.value, containerWidth.value, isActive]);
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: translateX.value }],
@@ -81,6 +90,8 @@ export function SyncCinemaScreen() {
     const { profile, couple, activeTabIndex, partnerProfile, idToken } = useOrbitStore();
     const isFocused = activeTabIndex === 0;
     const insets = useSafeAreaInsets();
+    const perfStats = usePerfMonitor('SyncCinema');
+    const isDebugMode = useOrbitStore(state => state.isDebugMode);
 
     const [partnerInCinema, setPartnerInCinema] = useState(false);
     const [partnerOnline, setPartnerOnline] = useState(false);
@@ -105,9 +116,13 @@ export function SyncCinemaScreen() {
     const [isLoadingMusic, setIsLoadingMusic] = useState(false);
     const [currentSong, setCurrentSong] = useState<any>(null);
     const [showFullPlayer, setShowFullPlayer] = useState(false);
-    const [playbackPosition, setPlaybackPosition] = useState(0);
-    const [playbackDuration, setPlaybackDuration] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
+
+    // VITAL PERFORMANCE: Shared Values for high-frequency ticker updates (prevents re-renders)
+    const progressShared = useSharedValue(0);
+    const durationShared = useSharedValue(1);
+    const [playbackPosition, setPlaybackPosition] = useState(0); // Kept for infrequent UI sync if needed, but rarely used now
+    const [playbackDuration, setPlaybackDuration] = useState(0);
 
     // Dynamic UI Shared Values
     const miniPlayerTranslateX = useSharedValue(0);
@@ -120,11 +135,11 @@ export function SyncCinemaScreen() {
     const instructionsOpacity = useSharedValue(0);
 
     const progressFillStyle = useAnimatedStyle(() => ({
-        width: `${(isSeeking.value ? seekProgressValue.value : (playbackPosition / (playbackDuration || 1))) * 100}%`
+        width: `${(isSeeking.value ? seekProgressValue.value : (progressShared.value / (durationShared.value || 1))) * 100}%`
     }));
 
     const thumbStyle = useAnimatedStyle(() => ({
-        left: `${(isSeeking.value ? seekProgressValue.value : (playbackPosition / (playbackDuration || 1))) * 100}%`,
+        left: `${(isSeeking.value ? seekProgressValue.value : (progressShared.value / (durationShared.value || 1))) * 100}%`,
         opacity: withTiming(isSeeking.value ? 1 : 0.6, { duration: 150 }),
         transform: [{ scale: isSeeking.value ? 1.5 : 1 }]
     }));
@@ -212,15 +227,16 @@ export function SyncCinemaScreen() {
         trayShiftY.value = withTiming(currentSong ? -75 : 0, { duration: 400 });
     }, [currentSong]);
 
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (player.playing && !isSeeking.value) {
-                runOnJS(setPlaybackPosition)(player.currentTime);
-                runOnJS(setPlaybackDuration)(player.duration);
-            }
-        }, 500);
-        return () => clearInterval(interval);
-    }, [player]);
+    // 🛡️ REMOVED redundant interval to prevent CPU spikes / heating
+    // useEffect(() => {
+    //     const interval = setInterval(() => {
+    //         if (player.playing && !isSeeking.value) {
+    //             runOnJS(setPlaybackPosition)(player.currentTime);
+    //             runOnJS(setPlaybackDuration)(player.duration);
+    //         }
+    //     }, 500);
+    //     return () => clearInterval(interval);
+    // }, [player]);
 
     const broadcastMusicAction = (action: 'play' | 'pause') => {
         if (!couple?.id || !profile?.id) return;
@@ -806,12 +822,19 @@ export function SyncCinemaScreen() {
                 setIsPlaying(true);
             }
 
-            setPlaybackPosition(event.currentTime);
-
+            // High-frequency Shared Value update (UI thread only)
+            progressShared.value = event.currentTime;
             if (player.duration > 0) {
-                setPlaybackDuration(player.duration);
+                durationShared.value = player.duration;
             }
-            // Auto-play next in queue using Ref to avoid dependency loop
+
+            // Infrequent React state sync for text/background cleanup (every 2 seconds)
+            if (Math.floor(event.currentTime) % 2 === 0 && Math.abs(event.currentTime - lastPlaybackPosition.current) > 1) {
+                setPlaybackPosition(event.currentTime);
+                lastPlaybackPosition.current = event.currentTime;
+            }
+
+            // Auto-play next in queue
             if (player.duration > 0 && event.currentTime >= player.duration - 0.8) {
                 if (sharedQueueRef.current.length > 0) {
                     const nextSong = sharedQueueRef.current[0];
@@ -820,29 +843,30 @@ export function SyncCinemaScreen() {
                 }
             }
         });
+
         const statusSub = player.addListener('playingChange', (event) => {
             setIsPlaying(event.isPlaying);
-        });
-        const metaSub = player.addListener('statusChange', () => {
-            if (player.duration > 0) {
-                setPlaybackDuration(player.duration);
+            if (!event.isPlaying) {
+                setPlaybackPosition(player.currentTime);
             }
         });
 
-        // Fallback interval for timer if timeUpdate is inconsistent
-        const interval = setInterval(() => {
-            if (player.playing) {
-                setPlaybackPosition(player.currentTime);
+        const metaSub = player.addListener('statusChange', () => {
+            if (player.duration > 0) {
+                durationShared.value = player.duration;
+                setPlaybackDuration(player.duration);
             }
-        }, 1000);
+        });
 
         return () => {
             timeSub.remove();
             statusSub.remove();
             metaSub.remove();
-            clearInterval(interval);
         };
     }, [player]);
+
+    const lastPlaybackPosition = useRef(0);
+
 
     useEffect(() => {
         if (!isFocused || !couple?.id || !partnerProfile?.id) return;
@@ -1004,6 +1028,7 @@ export function SyncCinemaScreen() {
                                                 <MarqueeText
                                                     text={currentSong.name.replace(/&quot;/g, '"').replace(/&amp;/g, '&')}
                                                     style={styles.miniTitle}
+                                                    isActive={isFocused}
                                                 />
                                                 <Text style={styles.miniArtist} numberOfLines={1}>{currentSong.artists?.primary?.[0]?.name}</Text>
                                             </View>
@@ -1062,7 +1087,7 @@ export function SyncCinemaScreen() {
 
                     {/* Music Search Modal */}
                     <Modal visible={showMusicSearch} animationType="slide" transparent>
-                        <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill}>
+                        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8, 8, 10, 0.98)' }]}>
                             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
                                 <View style={[styles.modalHeader, { paddingTop: insets.top + 20 }]}>
                                     <TouchableOpacity onPress={() => setShowMusicSearch(false)} style={styles.closeModal}>
@@ -1204,9 +1229,14 @@ export function SyncCinemaScreen() {
                                     )}
                                 </View>
                             </KeyboardAvoidingView>
-                        </BlurView>
+                        </View>
                     </Modal>
                 </>
+            )}
+            {isDebugMode && (
+                <View style={{ position: 'absolute', top: insets.top + (Platform.OS === 'ios' ? 4 : 8), right: 16, zIndex: 10001 }}>
+                    <PerfChip name="SyncCinema" stats={perfStats} />
+                </View>
             )}
         </View>
     );

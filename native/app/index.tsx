@@ -5,6 +5,7 @@ import { onIdTokenChanged } from 'firebase/auth';
 import { useOrbitStore } from '../lib/store';
 import PagerView from 'react-native-pager-view';
 import { ref, update, onDisconnect, serverTimestamp } from 'firebase/database';
+import { PerfChip, usePerfMonitor } from '../components/PerfChip';
 import { DashboardScreen } from '../components/screens/DashboardScreen';
 import { LettersScreen } from '../components/screens/LettersScreen';
 import { MemoriesScreen } from '../components/screens/MemoriesScreen';
@@ -52,6 +53,8 @@ export default function Index() {
     const EXIT_THRESHOLD_MS = 1800;
     const insets = useSafeAreaInsets();
     const router = useRouter();
+    const perfStats = usePerfMonitor('Index');
+    const isDebugMode = useOrbitStore(s => s.isDebugMode);
 
     // Redirect handled at _layout level to avoid linking conflicts
     useEffect(() => {
@@ -212,6 +215,11 @@ export default function Index() {
 
     return (
         <View style={styles.container}>
+            {isDebugMode && (
+                <View style={{ position: 'absolute', top: insets.top + 4, right: 110, zIndex: 10001 }}>
+                    <PerfChip name="INDEX" stats={perfStats} />
+                </View>
+            )}
             <PagerView
                 ref={pagerRef}
                 style={styles.pagerView}
@@ -277,7 +285,7 @@ export default function Index() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: 'transparent',
+        backgroundColor: '#000',
     },
     pagerView: {
         flex: 1,

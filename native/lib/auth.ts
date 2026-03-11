@@ -1,6 +1,6 @@
 import { auth, db, storage } from './firebase';
 import { doc, setDoc, addDoc, collection, serverTimestamp, getDocs, query, where, deleteDoc } from 'firebase/firestore';
-import { ref, deleteObject, uploadBytes } from 'firebase/storage';
+import { ref, deleteObject, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image as ImageCompressor } from 'react-native-compressor';
 import { updateDoc as firestoreUpdateDoc } from 'firebase/firestore';
@@ -398,7 +398,7 @@ export async function deleteMemory(memory: any) {
     }
 }
 
-export async function submitPolaroid(imageUrl: string, caption?: string) {
+export async function submitPolaroid(imageUrl: string, caption?: string, explicitDate?: string) {
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -407,7 +407,7 @@ export async function submitPolaroid(imageUrl: string, caption?: string) {
     const coupleId = state.profile?.couple_id;
     if (!coupleId) return { error: 'No couple found' };
 
-    const today = getTodayIST();
+    const today = explicitDate || getTodayIST();
     try {
         const polaroidData = {
             user_id: user.uid,
@@ -416,15 +416,14 @@ export async function submitPolaroid(imageUrl: string, caption?: string) {
             caption: caption || 'A moment shared',
             created_at: serverTimestamp(),
             updated_at: serverTimestamp(),
-            polaroid_date: today
+            polaroid_date: today,
+            client_timestamp: Date.now() // Safety fallback
         };
 
         // We use a fixed ID per user per day to ensure only ONE polaroid exists daily
         const polaroidId = `${user.uid}_${today}`;
         const polaroidRef = doc(db, 'couples', coupleId, 'polaroids', polaroidId);
 
-        // Delete old one if exists (to manage R2 costs/cleanup)
-        // In a real app we might want to keep them, but here we strictly follow "Daily Polaroid"
         await setDoc(polaroidRef, polaroidData);
 
         if (state.partnerProfile?.id) {
@@ -458,68 +457,70 @@ export async function uploadWallpaper(uri: string) {
     const R2_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
 
     try {
-        // 1. Process Image (Resize and Convert to WebP)
+        // 1. Process Image
         const manipulated = await ImageManipulator.manipulateAsync(
             uri,
-            [{ resize: { width: 2000 } }],
-            { compress: 0.8, format: ImageManipulator.SaveFormat.WEBP }
+            [{ resize: { width: 2200 } }],
+            { compress: 0.82, format: ImageManipulator.SaveFormat.WEBP }
         );
-
-        // 2. Further compression if needed
-        const finalUri = await ImageCompressor.compress(manipulated.uri, {
-            compressionMethod: 'auto',
-            maxWidth: 2000,
-        });
 
         const timestamp = Date.now();
         const fileName = `${user.uid}_${timestamp}.webp`;
         const storagePath = `wallpapers/${fileName}`;
 
-        // 3. Upload to R2 (Primary)
-        if (R2_URL && R2_SECRET) {
-            const r2TargetUrl = `${R2_URL.replace(/\/$/, '')}/wallpapers/${fileName}`;
-            const blob = await new Promise<Blob>((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.onload = () => resolve(xhr.response);
-                xhr.onerror = () => reject(new Error('R2 Blob Conversion Failed'));
-                xhr.responseType = 'blob';
-                xhr.open('GET', finalUri, true);
-                xhr.send();
-            });
-
-            await fetch(r2TargetUrl, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${R2_SECRET}`,
-                    'Content-Type': 'image/webp'
-                },
-                body: blob
-            });
-        }
-
-        // 4. Upload to Firebase (Backup/Meta)
-        const storageRef = ref(storage, storagePath);
-        const blob = await new Promise<Blob>((resolve, reject) => {
+        // Utility: Convert URI to Blob
+        const blob: Blob = await new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
+            xhr.onerror = () => reject(new Error(`Blob conversion failed`));
             xhr.onload = () => resolve(xhr.response);
-            xhr.onerror = () => reject(new Error('Firebase Blob Conversion Failed'));
             xhr.responseType = 'blob';
-            xhr.open('GET', finalUri, true);
+            xhr.open('GET', manipulated.uri, true);
             xhr.send();
         });
-        await uploadBytes(storageRef, blob);
 
-        // 5. Update Profile
+        // 2. Upload to R2 (Primary)
+        if (R2_URL && R2_SECRET) {
+            try {
+                const r2TargetUrl = `${R2_URL.replace(/\/$/, '')}/wallpapers/${fileName}`;
+                await fetch(r2TargetUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${R2_SECRET}`,
+                        'Content-Type': 'image/webp'
+                    },
+                    body: blob
+                });
+            } catch (r2Err) {
+                console.warn("[Wallpaper] R2 failed, falling back:", r2Err);
+            }
+        }
+
+        // 3. Upload to Firebase (Backup/Meta)
+        const storageRef = ref(storage, storagePath);
+        try {
+            await uploadBytes(storageRef, blob, { contentType: 'image/webp' });
+        } catch (fbErr: any) {
+            if (fbErr.code === 'storage/unknown') {
+                // Force resumable fallback for fragmented networks
+                await new Promise((resolve, reject) => {
+                    const task = uploadBytesResumable(storageRef, blob, { contentType: 'image/webp' });
+                    task.on('state_changed', null, (err) => reject(err), () => resolve(null));
+                });
+            } else throw fbErr;
+        }
+
+        // 4. Update Profile
         const userRef = doc(db, 'users', user.uid);
         await firestoreUpdateDoc(userRef, {
             custom_wallpaper_url: storagePath,
-            wallpaper_mode: 'custom'
+            wallpaper_mode: 'custom',
+            updated_at: serverTimestamp()
         });
 
         return { success: true, url: storagePath };
     } catch (error: any) {
         console.error("uploadWallpaper error:", error);
-        return { error: error.message };
+        return { error: error.code || error.message || "Unknown Upload Failure" };
     }
 }
 
@@ -644,13 +645,15 @@ export async function uploadAvatar(uri: string) {
         const fileName = `${user.uid}_${timestamp}.webp`;
         const storagePath = `avatars/${fileName}`;
 
-        // Utility: Convert URI to Blob with better error handling
-        const getBlob = async (targetUri: string): Promise<Blob> => {
-            const response = await fetch(targetUri);
-            return await response.blob();
-        };
-
-        const blob = await getBlob(manipulated.uri);
+        // Robust Blob Conversion (XHR is more stable than fetch() for file:// on Android)
+        const blob: Blob = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.onerror = () => reject(new Error("XHR blob conversion failed"));
+            xhr.onload = () => resolve(xhr.response);
+            xhr.responseType = 'blob';
+            xhr.open('GET', manipulated.uri, true);
+            xhr.send();
+        });
 
         // 2. Upload to R2 (Primary)
         if (R2_URL && R2_SECRET) {
@@ -669,9 +672,18 @@ export async function uploadAvatar(uri: string) {
             }
         }
 
-        // 3. Upload to Firebase (Backup/Meta)
+        // 3. Upload to Firebase (Backup with Resumable Fallback)
         const storageRef = ref(storage, storagePath);
-        await uploadBytes(storageRef, blob, { contentType: 'image/webp' });
+        try {
+            await uploadBytes(storageRef, blob, { contentType: 'image/webp' });
+        } catch (firstError: any) {
+            if (firstError.code === 'storage/unknown') {
+                await new Promise((resolve, reject) => {
+                    const uploadTask = uploadBytesResumable(storageRef, blob, { contentType: 'image/webp' });
+                    uploadTask.on('state_changed', null, (err) => reject(err), () => resolve(null));
+                });
+            } else throw firstError;
+        }
 
         // 4. Update Profile
         const userRef = doc(db, 'users', user.uid);

@@ -28,7 +28,7 @@ export const GlobalStyles = StyleSheet.create({
     standardSubtitle: {
         fontSize: 11,
         fontFamily: Typography.serifItalic,
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.7)',
         letterSpacing: 1.5,
         textAlign: 'left',
     },
@@ -51,7 +51,7 @@ export const GlobalStyles = StyleSheet.create({
     centeredSubtitle: {
         fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
+        color: 'rgba(255,255,255,0.6)',
         letterSpacing: 2,
         textAlign: 'center',
     },

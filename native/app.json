@@ -69,7 +69,8 @@
           "locationAlwaysPermission": "Allow Orbit to access your location to share weather with your partner.",
           "isAndroidBackgroundLocationEnabled": false
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true
