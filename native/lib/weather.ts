@@ -2,20 +2,18 @@ import { db, auth } from './firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const OPEN_WEATHER_API_KEY = process.env.EXPO_PUBLIC_WEATHER_API_KEY; // Optional, can use a proxy
-
-let lastUpdate = 0;
-const COOLDOWN_MS = 15 * 60 * 1000; // 15 mins
+let lastWeatherUpdateAt = 0;
+const WEATHER_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
 
 export async function updateWeatherAndLocation(force = false) {
     const user = auth.currentUser;
     if (!user) return;
 
     const now = Date.now();
-    if (!force && now - lastUpdate < COOLDOWN_MS) {
+    if (!force && lastWeatherUpdateAt > 0 && now - lastWeatherUpdateAt < WEATHER_REFRESH_COOLDOWN_MS) {
         console.log("[Weather] Skipping update: Cooldown active.");
         return;
     }
-    lastUpdate = now;
 
     let latitude, longitude, city, subtext, isIp = false;
 
@@ -94,6 +92,7 @@ export async function updateWeatherAndLocation(force = false) {
                 updated_at: serverTimestamp()
             }
         }, { merge: true });
+        lastWeatherUpdateAt = now;
     } catch (e) {
         console.error("Firestore user update failed:", e);
     }

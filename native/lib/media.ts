@@ -25,6 +25,7 @@ const ensureDir = async () => {
 
 // In-Memory map of confirmed local files to avoid the "async check" flicker
 const knownLocalFiles = new Set<string>();
+const inFlightDownloads = new Map<string, Promise<string>>();
 let isInitialized = false;
 
 /**
@@ -43,9 +44,6 @@ export const initializeMediaEngine = async () => {
         console.warn("[MediaEngine] Init failed:", e);
     }
 };
-
-// Start initialization immediately
-initializeMediaEngine();
 
 /**
  * Unified ID Generator: Extracts a content-stable ID from a URL (e.g., filename).
@@ -77,26 +75,38 @@ export const getPersistentPath = (id: string) => {
 export const persistMediaAsync = async (id: string, remoteUrl: string) => {
     if (!id || !remoteUrl || !BASE_DIR) return remoteUrl;
 
-    const localPath = getPersistentPath(id);
-    try {
-        // 1. Double check disk (atomic guard)
-        const info = await FileSystem.getInfoAsync(localPath);
-        if (info.exists && info.size > 0) {
-            knownLocalFiles.add(id);
-            return localPath;
-        }
-
-        // 2. Download to local
-        console.log(`[MediaEngine] Starting download: ${id}`);
-        const result = await FileSystem.downloadAsync(remoteUrl, localPath);
-        if (result.status === 200) {
-            knownLocalFiles.add(id);
-            return localPath;
-        }
-    } catch (e) {
-        console.warn("[MediaEngine] Persist failed:", e);
+    const existingDownload = inFlightDownloads.get(id);
+    if (existingDownload) {
+        return existingDownload;
     }
-    return remoteUrl;
+
+    const localPath = getPersistentPath(id);
+    const downloadPromise = (async () => {
+        try {
+            // 1. Double check disk (atomic guard)
+            const info = await FileSystem.getInfoAsync(localPath);
+            if (info.exists && info.size > 0) {
+                knownLocalFiles.add(id);
+                return localPath;
+            }
+
+            // 2. Download to local
+            console.log(`[MediaEngine] Starting download: ${id}`);
+            const result = await FileSystem.downloadAsync(remoteUrl, localPath);
+            if (result.status === 200) {
+                knownLocalFiles.add(id);
+                return localPath;
+            }
+        } catch (e) {
+            console.warn("[MediaEngine] Persist failed:", e);
+        } finally {
+            inFlightDownloads.delete(id);
+        }
+        return remoteUrl;
+    })();
+
+    inFlightDownloads.set(id, downloadPromise);
+    return downloadPromise;
 };
 
 export const usePersistentMedia = (idOrUrl: string | undefined, remoteUrl: string | undefined, isVisible: boolean = false) => {

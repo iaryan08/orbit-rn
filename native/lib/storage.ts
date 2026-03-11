@@ -14,6 +14,8 @@ const getApiBase = () => {
 };
 
 const CDN_BASE = process.env.EXPO_PUBLIC_CDN_URL;
+const STORAGE_URL_CACHE = new Map<string, string>();
+const STORAGE_URL_CACHE_MAX = 500;
 
 /**
  * Generates a storage URL for assets using the Next.js backend proxy or CDN.
@@ -24,6 +26,10 @@ export function getPublicStorageUrl(path: string | null | undefined, bucket: str
     if (path.startsWith('http')) return path;
     if (path.startsWith('data:')) return path;
     if (path.startsWith('file://')) return path;
+
+    const cacheKey = `${bucket}|${authToken || ''}|${path}`;
+    const cached = STORAGE_URL_CACHE.get(cacheKey);
+    if (cached) return cached;
 
     // Clean inputs
     const cleanPath = path.replace(/^\/+/, '');
@@ -38,12 +44,17 @@ export function getPublicStorageUrl(path: string | null | undefined, bucket: str
     const isLocal = apiBase.includes('192.168.') || apiBase.includes('10.') || apiBase.includes('localhost');
     const authParam = authToken ? `?auth=${encodeURIComponent(authToken)}` : '';
 
-    if (isLocal || !CDN_BASE) {
-        return `${apiBase}/api/media/view/${cleanFinalPath}${authParam}`;
+    const resolvedUrl = (isLocal || !CDN_BASE)
+        ? `${apiBase}/api/media/view/${cleanFinalPath}${authParam}`
+        : `${CDN_BASE}/${cleanFinalPath}${authParam}`;
+
+    STORAGE_URL_CACHE.set(cacheKey, resolvedUrl);
+    if (STORAGE_URL_CACHE.size > STORAGE_URL_CACHE_MAX) {
+        const firstKey = STORAGE_URL_CACHE.keys().next().value;
+        if (firstKey) STORAGE_URL_CACHE.delete(firstKey);
     }
 
-    // Best in Class: Use CDN if available
-    return `${CDN_BASE}/${cleanFinalPath}${authParam}`;
+    return resolvedUrl;
 }
 
 export function isVideoUrl(path: string | null | undefined): boolean {
