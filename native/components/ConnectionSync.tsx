@@ -25,7 +25,6 @@ import { collection, query, where, orderBy, limit, onSnapshot, Timestamp, doc, g
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography } from '../constants/Theme';
-import { BlurView } from 'expo-blur';
 import { getPartnerName } from '../lib/utils';
 
 const { width, height } = Dimensions.get('window');
@@ -227,7 +226,6 @@ export function ConnectionSync() {
             style={[styles.overlay, overlayStyle]}
             pointerEvents="none"
         >
-            <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill} />
 
             <View style={styles.centerContainer}>
                 <Animated.View

@@ -13,7 +13,7 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
 import { Camera, Flame } from 'lucide-react-native';
-import { Accelerometer } from 'expo-sensors';
+import { RefreshCw } from 'lucide-react-native';
 import { getPublicStorageUrl } from '../lib/storage';
 import * as Haptics from 'expo-haptics';
 
@@ -118,27 +118,11 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
     // Use the optimized media engine with content-stable ID (URL)
     const sourceUri = usePersistentMedia(data?.image_url, rawUrl || undefined, isActive);
 
-    // Shake Detector logic (only for active card and newly added data)
+    // Shake detector removed for performance optimization. Polaroids are instantly developed.
     useEffect(() => {
         if (!data || !isActive || developProgress >= 100) return;
-
-        let subscription: any;
-        Accelerometer.setUpdateInterval(200);
-
-        subscription = Accelerometer.addListener(accelerometerData => {
-            const { x, y, z } = accelerometerData;
-            const acceleration = Math.sqrt(x * x + y * y + z * z);
-
-            if (acceleration > SHAKE_THRESHOLD) {
-                runOnJS(setIsShaking)(true);
-                runOnJS(setDevelopProgress)(prev => Math.min(prev + 5, 100));
-            } else {
-                runOnJS(setIsShaking)(false);
-            }
-        });
-
-        return () => subscription?.remove();
-    }, [data, isActive, developProgress < 100]);
+        setDevelopProgress(100);
+    }, [data, isActive, developProgress]);
 
     const animatedStyle = useAnimatedStyle(() => {
         const offset = index === 0 ? -15 : 15;

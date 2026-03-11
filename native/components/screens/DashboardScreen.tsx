@@ -230,14 +230,18 @@ export function DashboardScreen() {
     }, [user]);
 
     useEffect(() => {
+        let timer: any;
         // Initial user sync
         if (auth.currentUser) {
             setUser(auth.currentUser);
             // Defer heavy weather update to prevent boot lag
-            setTimeout(() => {
+            timer = setTimeout(() => {
                 updateWeatherAndLocation();
             }, 1000);
         }
+        return () => {
+            if (timer) clearTimeout(timer);
+        };
     }, []);
 
     // Morphing: Standardized thresholds for professional overlap - Silky Smooth [20-150] range

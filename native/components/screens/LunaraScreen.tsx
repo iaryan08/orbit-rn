@@ -55,6 +55,7 @@ export function LunaraScreen() {
         isRefreshingForecast,
         refreshForecast,
         lastForecastRefresh,
+        activeTabIndex
     } = useOrbitStore();
     const insets = useSafeAreaInsets();
 
@@ -236,7 +237,7 @@ export function LunaraScreen() {
                     </View>
 
                     {phase && (
-                        <PhaseSphere phase={phase.name} intensity={0.7} />
+                        <PhaseSphere phase={phase.name} intensity={0.7} isActive={activeTabIndex === 4} />
                     )}
 
                     {isFemale && (

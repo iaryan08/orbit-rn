@@ -23,14 +23,11 @@ import { getPublicStorageUrl } from '../lib/storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const LazyTab = React.memo(({ index, children, activeTabIndex }: { index: number, children: React.ReactNode, activeTabIndex: number }) => {
+    // Only mount exactly the active tab and its immediate left/right neighbors
+    // This provides the Instagram-like instant swipe without hoarding RAM for all 8 tabs.
     const isNear = Math.abs(activeTabIndex - index) <= 1;
-    const [hasBeenActive, setHasBeenActive] = useState(false);
 
-    useEffect(() => {
-        if (isNear) setHasBeenActive(true);
-    }, [isNear]);
-
-    if (!hasBeenActive && !isNear) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
+    if (!isNear) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
     return <View style={{ flex: 1 }}>{children}</View>;
 });
 

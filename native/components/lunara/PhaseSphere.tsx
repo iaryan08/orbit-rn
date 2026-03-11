@@ -10,15 +10,16 @@ const SPHERE_SIZE = width * 0.7;
 interface PhaseSphereProps {
     phase: string; // 'Menstrual' | 'Follicular' | 'Ovulatory' | 'Luteal'
     intensity?: number; // 0 to 1
+    isActive?: boolean;
 }
 
-export const PhaseSphere = React.memo(({ phase, intensity = 0.5 }: PhaseSphereProps) => {
+export const PhaseSphere = React.memo(({ phase, intensity = 0.5, isActive = true }: PhaseSphereProps) => {
     const { isLiteMode } = useOrbitStore();
     const pulse = useSharedValue(0);
     const rotation = useSharedValue(0);
 
     useEffect(() => {
-        if (isLiteMode) {
+        if (isLiteMode || !isActive) {
             pulse.value = 0.5; // Static mid-state
             rotation.value = 0;
             return;
@@ -34,7 +35,13 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5 }: PhaseSpherePr
             -1,
             false
         );
-    }, [isLiteMode]);
+
+        return () => {
+            // Cleanup on unmount/inactive
+            pulse.value = 0.5;
+            rotation.value = 0;
+        };
+    }, [isLiteMode, isActive]);
 
     const colors = useMemo(() => {
         switch (phase) {
@@ -54,6 +61,27 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5 }: PhaseSpherePr
     // Derived values for Skia
     const innerPulse = useDerivedValue(() => 0.95 + pulse.value * 0.05);
     const glowOpacity = useDerivedValue(() => 0.3 + pulse.value * 0.4);
+
+    // Lite Mode or Inactive: COMPLETELY bypass Skia to preserve RAM and GPU
+    if (isLiteMode || !isActive) {
+        return (
+            <View style={styles.container}>
+                <View style={{
+                    width: SPHERE_SIZE,
+                    height: SPHERE_SIZE,
+                    borderRadius: SPHERE_SIZE / 2,
+                    backgroundColor: colors.primary,
+                    borderWidth: 2,
+                    borderColor: colors.glow,
+                    shadowColor: colors.glow,
+                    shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: 0.8,
+                    shadowRadius: 20,
+                    elevation: 10,
+                }} />
+            </View>
+        );
+    }
 
     return (
         <View style={styles.container}>

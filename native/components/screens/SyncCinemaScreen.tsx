@@ -868,44 +868,6 @@ export function SyncCinemaScreen() {
     const lastPlaybackPosition = useRef(0);
 
 
-    useEffect(() => {
-        if (!isFocused || !couple?.id || !partnerProfile?.id) return;
-
-        const presenceRef = ref(rtdb, `presence/${couple.id}/${partnerProfile.id}`);
-        const unsubOffset = onValue(ref(rtdb, '.info/serverTimeOffset'), (snap) => {
-            setServerOffset(snap.val() || 0);
-        });
-
-        let lastPresenceData: any = null;
-
-        const validatePresence = () => {
-            if (!lastPresenceData) return;
-
-            const now = Date.now() + serverOffset;
-            const lastChanged = lastPresenceData.last_changed || 0;
-
-            // Best-in-Class: 10 minute buffer + Server Offset Correction
-            // Robust check against local clock drift
-            const diff = Math.abs(now - lastChanged);
-            const isFresh = diff < 600_000;
-
-            setPartnerOnline(isFresh && !!lastPresenceData.is_online);
-            setPartnerInCinema(isFresh && !!lastPresenceData.in_cinema);
-        };
-
-        const unsubPresence = onValue(presenceRef, (snap) => {
-            lastPresenceData = snap.val();
-            validatePresence();
-        });
-
-        const presenceValidator = setInterval(validatePresence, 30000);
-
-        return () => {
-            unsubOffset();
-            unsubPresence();
-            clearInterval(presenceValidator);
-        };
-    }, [isFocused, couple?.id, partnerProfile?.id, serverOffset]);
 
     return (
         <View style={styles.container}>
