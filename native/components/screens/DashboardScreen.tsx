@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, RefreshControl, KeyboardAvoidingView, Platform, Alert, Modal, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, RefreshControl, KeyboardAvoidingView, Platform, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { auth, db, rtdb } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -39,9 +39,11 @@ import { storage } from '../../lib/firebase';
 import { updateWeatherAndLocation } from '../../lib/weather';
 import { PerfChip, usePerfMonitor } from '../../components/PerfChip';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
+const SHARED_CANVAS_PRELOAD_DISTANCE = 900;
+const SHARED_CANVAS_PLACEHOLDER_HEIGHT = Math.round(width * 1.2);
 
-export function DashboardScreen() {
+export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
     // 🚀 Performance Optimization: Using granular selectors to avoid whole-screen re-renders
     const profile = useOrbitStore(s => s.profile);
     const partnerProfile = useOrbitStore(s => s.partnerProfile);
@@ -202,6 +204,8 @@ export function DashboardScreen() {
     };
 
     const [refreshing, setRefreshing] = useState(false);
+    const [sharedCanvasMountY, setSharedCanvasMountY] = useState<number | null>(null);
+    const [shouldMountSharedCanvas, setShouldMountSharedCanvas] = useState(false);
 
     // Local scroll tracking
     const scrollOffset = useSharedValue(0);
@@ -209,9 +213,18 @@ export function DashboardScreen() {
     const scrollToTop = () => {
         scrollRef.current?.scrollTo({ y: 0, animated: true });
     };
+
+    const maybeMountSharedCanvas = useCallback((scrollY: number, viewportHeight: number) => {
+        if (shouldMountSharedCanvas || sharedCanvasMountY === null) return;
+        if (scrollY + viewportHeight + SHARED_CANVAS_PRELOAD_DISTANCE >= sharedCanvasMountY) {
+            setShouldMountSharedCanvas(true);
+        }
+    }, [sharedCanvasMountY, shouldMountSharedCanvas]);
+
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
             scrollOffset.value = event.contentOffset.y;
+            runOnJS(maybeMountSharedCanvas)(event.contentOffset.y, event.layoutMeasurement.height);
         },
     });
 
@@ -231,8 +244,8 @@ export function DashboardScreen() {
 
     useEffect(() => {
         let timer: any;
-        // Initial user sync
-        if (auth.currentUser) {
+        // Initial user sync and weather update ONLY if active
+        if (auth.currentUser && isActive) {
             setUser(auth.currentUser);
             // Defer heavy weather update to prevent boot lag
             timer = setTimeout(() => {
@@ -242,7 +255,7 @@ export function DashboardScreen() {
         return () => {
             if (timer) clearTimeout(timer);
         };
-    }, []);
+    }, [isActive]);
 
     // Morphing: Standardized thresholds for professional overlap - Silky Smooth [20-150] range
     const titleAnimatedStyle = useAnimatedStyle(() => ({
@@ -290,6 +303,14 @@ export function DashboardScreen() {
         { id: '2', text: isFemale ? "HE COOKED DINNER" : "YOU COOKED DINNER", type: 'act' },
         { id: '3', text: "GENTLE MASSAGE", type: 'touch' },
     ], [isFemale]);
+
+    const handleSharedCanvasLayout = useCallback((event: any) => {
+        const nextY = event.nativeEvent.layout.y;
+        setSharedCanvasMountY(nextY);
+        if (!shouldMountSharedCanvas && nextY <= (height + SHARED_CANVAS_PRELOAD_DISTANCE)) {
+            setShouldMountSharedCanvas(true);
+        }
+    }, [shouldMountSharedCanvas]);
 
     // Don't block hook definition sequence — if no user after auth check, parent layout handles redirect
     if (!user) return <View style={styles.container} />;
@@ -556,7 +577,19 @@ export function DashboardScreen() {
                 </View>
 
                 {/* Full Width Shared Canvas */}
-                <SharedCanvas isActive={activeTabIndex === 1} />
+                <View onLayout={handleSharedCanvasLayout}>
+                    {shouldMountSharedCanvas ? (
+                        <SharedCanvas isActive={activeTabIndex === 1} />
+                    ) : (
+                        <View style={styles.sharedCanvasPlaceholder}>
+                            <View style={styles.sharedCanvasPlaceholderBadge}>
+                                <Text style={styles.sharedCanvasPlaceholderLabel}>SHARED GUESTBOOK</Text>
+                            </View>
+                            <ActivityIndicator color={Colors.dark.rose[400]} />
+                            <Text style={styles.sharedCanvasPlaceholderText}>Canvas loads when you get close</Text>
+                        </View>
+                    )}
+                </View>
 
                 <Animated.View style={styles.feedSection}>
                     <View style={styles.borderBottomWrapper}>
@@ -895,6 +928,39 @@ const styles = StyleSheet.create({
     },
     feedScroll: {
         flex: 1,
+    },
+    sharedCanvasPlaceholder: {
+        width: '100%',
+        height: SHARED_CANVAS_PLACEHOLDER_HEIGHT,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        backgroundColor: '#070707',
+        marginVertical: 16,
+        borderTopWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
+    },
+    sharedCanvasPlaceholderBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(108, 21, 36, 0.52)',
+        borderWidth: 1,
+        borderColor: 'rgba(251,113,133,0.5)',
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+    },
+    sharedCanvasPlaceholderLabel: {
+        color: '#f4b3c0',
+        fontSize: 9,
+        letterSpacing: 1.3,
+        fontWeight: '700',
+    },
+    sharedCanvasPlaceholderText: {
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 12,
+        fontFamily: Typography.sans,
     },
     titleModalCard: {
         backgroundColor: '#111111',

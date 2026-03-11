@@ -20,7 +20,7 @@ import { PerfChip, usePerfMonitor } from '../PerfChip';
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
 
-export function LettersScreen() {
+export function LettersScreen({ isActive = true }: { isActive?: boolean }) {
     const profile = useOrbitStore(state => state.profile);
     const partnerProfile = useOrbitStore(state => state.partnerProfile);
     const letters = useOrbitStore(state => state.letters);
@@ -197,7 +197,7 @@ export function LettersScreen() {
                 </GlassCard>
             </TouchableOpacity>
         );
-    }, [profile, partnerName, couple?.id]);
+    }, [partnerName, profile?.id]);
 
     const keyExtractor = useCallback((item: any) => item.id, []);
     const getItemType = useCallback(() => 'letter', []);
@@ -219,7 +219,7 @@ export function LettersScreen() {
             </Animated.View>
             <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>MESSAGES · CONNECTION</Animated.Text>
         </View>
-    ), [visibleLetters, newestLetter, profile?.id, partnerName, sublineAnimatedStyle, titleAnimatedStyle]);
+    ), [sublineAnimatedStyle, titleAnimatedStyle]);
 
     const scrollToTop = () => {
         flashListRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -348,14 +348,15 @@ export function LettersScreen() {
                 data={visibleLetters as any}
                 renderItem={renderItem}
                 keyExtractor={keyExtractor}
+                getItemType={getItemType}
                 estimatedItemSize={180}
-                drawDistance={700}
+                drawDistance={350}
                 removeClippedSubviews
                 nestedScrollEnabled={true}
                 contentContainerStyle={[styles.listContent, { paddingTop: insets.top + 80, paddingBottom: 200 }]}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
-                scrollEventThrottle={16}
+                scrollEventThrottle={32}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}

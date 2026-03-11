@@ -314,7 +314,7 @@ const MemoryCard = React.memo(({
                     showsHorizontalScrollIndicator={false}
                     showsVerticalScrollIndicator={false}
                     bounces={false}
-                    scrollEventThrottle={16}
+                    scrollEventThrottle={32}
                     onScroll={onCarouselScroll}
                     onMomentumScrollEnd={onMomentumScrollEnd}
                     onScrollBeginDrag={() => {
@@ -437,7 +437,7 @@ const MemoryCard = React.memo(({
     );
 });
 
-export function MemoriesScreen() {
+export function MemoriesScreen({ isActive = true }: { isActive?: boolean }) {
     const profile = useOrbitStore(state => state.profile);
     const partnerProfile = useOrbitStore(state => state.partnerProfile);
     const couple = useOrbitStore(state => state.couple);
@@ -460,7 +460,7 @@ export function MemoriesScreen() {
     const [uploadProgress, setUploadProgress] = useState(0);
     const [primaryVisibleMemoryId, setPrimaryVisibleMemoryId] = useState<string | null>(null);
     const activeTabIndex = useOrbitStore(state => state.activeTabIndex);
-    const isMemoriesTabActive = activeTabIndex === 3;
+    const isMemoriesTabActive = isActive && activeTabIndex === 3;
     const perfStats = usePerfMonitor('MEMORIES');
     const isDebugMode = useOrbitStore(state => state.isDebugMode);
 
@@ -832,8 +832,8 @@ export function MemoriesScreen() {
     ), [profile, partnerProfile, idToken, couple, primaryVisibleMemoryId, isMemoriesTabActive]);
 
     const viewabilityConfig = useMemo(() => ({
-        itemVisiblePercentThreshold: 60,
-        minimumViewTime: 120,
+        itemVisiblePercentThreshold: 70,
+        minimumViewTime: 180,
     }), []);
 
     const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: any[] }) => {
@@ -891,7 +891,7 @@ export function MemoriesScreen() {
                 {appMode === 'lunara' ? 'EXPLORE YOUR BIOLOGICAL CYCLE' : 'A SHARED COLLECTION OF MOMENTS'}
             </Animated.Text>
         </View>
-    ), [memories.length, appMode, openComposer, sublineAnimatedStyle, titleAnimatedStyle]);
+    ), [appMode, openComposer, sublineAnimatedStyle, titleAnimatedStyle]);
 
     const listEmpty = useMemo(() => (
         <View style={styles.emptyContainer}>
@@ -919,14 +919,14 @@ export function MemoriesScreen() {
                 renderItem={renderItem}
                 keyExtractor={keyExtractor}
                 getItemType={getItemType}
-                estimatedItemSize={450}
-                drawDistance={400}
+                estimatedItemSize={520}
+                drawDistance={250}
                 removeClippedSubviews
                 nestedScrollEnabled={true}
                 contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: 200 }}
                 showsVerticalScrollIndicator={false}
                 onScroll={scrollHandler}
-                scrollEventThrottle={16}
+                scrollEventThrottle={32}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
@@ -1047,8 +1047,12 @@ export function MemoriesScreen() {
                                         maximumDate={new Date()}
                                         minimumDate={new Date(new Date().getFullYear() - 5, new Date().getMonth(), new Date().getDate())}
                                         onChange={(event: any, selectedDate?: Date) => {
-                                            setIsDatePickerVisible(Platform.OS === 'ios');
-                                            if (selectedDate) setMemoryDate(selectedDate);
+                                            if (Platform.OS === 'android') {
+                                                setIsDatePickerVisible(false);
+                                            }
+                                            if (event.type === 'set' && selectedDate) {
+                                                setMemoryDate(selectedDate);
+                                            }
                                         }}
                                     />
                                 )}

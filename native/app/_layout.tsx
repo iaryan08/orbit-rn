@@ -136,13 +136,14 @@ function RootLayoutNav() {
     const isAuthenticated = !!authUser;
     const isAppLoading = loading && isAuthenticated;
     const hideDock = pathname === '/login' || !isAuthenticated || isAppLoading || activeTabIndex === 0;
+    const shouldRenderDynamicBackground = isAuthenticated && !hideDock && [1, 5, 6, 7].includes(activeTabIndex);
 
 
     return (
 
         <GestureHandlerRootView style={{ flex: 1 }}>
             <ThemeProvider value={CustomDarkTheme}>
-                {isAuthenticated && !hideDock && (
+                {shouldRenderDynamicBackground && (
                     <DynamicBackground
                         isPaused={isOverlayOpen}
                     />

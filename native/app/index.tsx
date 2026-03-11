@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet, BackHandler, ToastAndroid, AppState } from 'react-native';
 import { auth, rtdb } from '../lib/firebase';
-import { onIdTokenChanged } from 'firebase/auth';
+import { onIdTokenChanged, User } from 'firebase/auth';
 import { useOrbitStore } from '../lib/store';
 import PagerView from 'react-native-pager-view';
 import { ref, update, onDisconnect, serverTimestamp } from 'firebase/database';
@@ -19,56 +19,56 @@ import { useRouter } from 'expo-router';
 
 import { LoadingScreen } from '../components/LoadingScreen';
 import { initializeDatabase } from '../lib/db/db';
-import { getPublicStorageUrl } from '../lib/storage';
-import * as FileSystem from 'expo-file-system/legacy';
-
-const LazyTab = React.memo(({ index, children, activeTabIndex }: { index: number, children: React.ReactNode, activeTabIndex: number }) => {
-    // Only mount exactly the active tab and its immediate left/right neighbors
-    // This provides the Instagram-like instant swipe without hoarding RAM for all 8 tabs.
-    const isNear = Math.abs(activeTabIndex - index) <= 1;
-
-    if (!isNear) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
-    return <View style={{ flex: 1 }}>{children}</View>;
-});
-
 import { initializeMediaEngine } from '../lib/media';
+
+const LazyTab = React.memo(({ index, children, activeTabIndex, mountedIndexes }: { index: number, children: React.ReactElement, activeTabIndex: number, mountedIndexes: number[] }) => {
+    // Keep exactly the active tab mounted at rest, and only the live pager pair during swipes.
+    const isMounted = mountedIndexes.includes(index);
+    const isActive = index === activeTabIndex;
+
+    if (!isMounted) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
+
+    // 🚀 Aggressive Cooling: Propagate isActive to children so they can pause background loops
+    return (
+        <View style={{ flex: 1 }}>
+            {React.cloneElement(children, { isActive } as any)}
+        </View>
+    );
+});
 
 export default function Index() {
     const {
         activeTabIndex, setTabIndex, navigationSource, scrollOffset,
         isPagerScrollEnabled, setPagerScrollEnabled, fetchData,
-        appMode, setAppMode, loading, couple, memories, letters, profile, initAppMode,
-        runJanitor
+        loading, memories, letters, profile, initAppMode,
+        runJanitor, isDebugMode
     } = useOrbitStore();
-    const [user, setUser] = useState<any>(null);
+
+    const [user, setUser] = useState<User | null>(null);
     const [isAuthChecking, setIsAuthChecking] = useState(true);
     const [isPagerReady, setIsPagerReady] = useState(false);
+    const [mountedIndexes, setMountedIndexes] = useState<number[]>([activeTabIndex]);
     const fetchCalledForId = useRef<string | null>(null);
     const fetchCleanupRef = useRef<(() => void) | null>(null);
     const pagerRef = useRef<PagerView>(null);
     const lastBackPressRef = useRef(0);
     const EXIT_THRESHOLD_MS = 1800;
     const insets = useSafeAreaInsets();
-    const router = useRouter();
     const perfStats = usePerfMonitor('Index');
-    const isDebugMode = useOrbitStore(s => s.isDebugMode);
-
-    // Redirect handled at _layout level to avoid linking conflicts
-    useEffect(() => {
-        // Nothing here, redirect is in RootLayoutNav
-    }, [user, isAuthChecking]);
 
     useEffect(() => {
-        console.log("[Index] Mounting...");
+        setMountedIndexes((prev) => (prev.length === 1 && prev[0] === activeTabIndex) ? prev : [activeTabIndex]);
+    }, [activeTabIndex]);
+
+    useEffect(() => {
         const setup = async () => {
-            await initializeDatabase(); // Best in Class: Setup SQLite
-            await initializeMediaEngine(); // Scan local media for zero-flicker boot
-            initAppMode(); // Load persisted mode and set initial tab
+            await initializeDatabase();
+            await initializeMediaEngine();
+            initAppMode();
         };
         setup();
 
         const unsub = onIdTokenChanged(auth, async (u) => {
-            console.log("[Index] onIdTokenChanged:", u?.uid || "null");
             setUser(u);
             setIsAuthChecking(false);
             if (u) {
@@ -76,10 +76,9 @@ export default function Index() {
                     const token = await u.getIdToken();
                     useOrbitStore.setState({ idToken: token });
                 } catch (e) {
-                    console.warn("[Index] Failed to fetch refreshed token", e);
+                    console.warn("[Index] Token refresh failed", e);
                 }
 
-                // Fetch user data if not already loading/loaded for THIS UID
                 if (fetchCalledForId.current !== u.uid) {
                     if (fetchCleanupRef.current) fetchCleanupRef.current();
                     fetchCalledForId.current = u.uid;
@@ -98,117 +97,70 @@ export default function Index() {
             unsub();
             if (fetchCleanupRef.current) fetchCleanupRef.current();
         };
-    }, []);
+    }, [fetchData, initAppMode]);
 
     useEffect(() => {
         const sub = AppState.addEventListener('change', (nextState) => {
             if (nextState === 'background' || nextState === 'inactive') {
-                console.log("[Index] App backgrounded. Running Janitor...");
                 runJanitor();
             }
         });
         return () => sub.remove();
     }, [runJanitor]);
 
-    // Global Presence Heartbeat
     useEffect(() => {
-        if (!user || !couple?.id) return;
+        const currentCouple = useOrbitStore.getState().couple;
+        if (!user || !currentCouple?.id) return;
+        const presenceRef = ref(rtdb, `presence/${currentCouple.id}/${user.uid}`);
 
-        const presenceRef = ref(rtdb, `presence/${couple.id}/${user.uid}`);
         const updatePresence = () => {
-            update(presenceRef, {
-                is_online: true,
-                last_changed: serverTimestamp()
-            });
+            update(presenceRef, { is_online: true, last_changed: serverTimestamp() });
         };
 
         updatePresence();
         const heartbeat = setInterval(updatePresence, 60000);
+        onDisconnect(presenceRef).update({ is_online: false, in_cinema: null, last_changed: serverTimestamp() });
 
-        onDisconnect(presenceRef).update({
-            is_online: false,
-            in_cinema: null,
-            last_changed: serverTimestamp()
-        });
+        return () => clearInterval(heartbeat);
+    }, [user?.uid]);
 
-        return () => {
-            clearInterval(heartbeat);
-        };
-    }, [user?.uid, couple?.id]);
-
-    // Android back behavior:
-    // 1) From any tab except Dashboard, go to Dashboard first.
-    // 2) On Dashboard, require double-back to exit with a short toast hint.
-    useEffect(() => {
-        const onBackPress = () => {
-            if (activeTabIndex !== 1) {
-                setTabIndex(1, 'tap');
-                return true;
-            }
-
-            const now = Date.now();
-            if (now - lastBackPressRef.current <= EXIT_THRESHOLD_MS) {
-                BackHandler.exitApp();
-                return true;
-            }
-
-            lastBackPressRef.current = now;
-            ToastAndroid.show('Press again to exit', ToastAndroid.SHORT);
+    const onBackPress = useCallback(() => {
+        if (activeTabIndex !== 1) {
+            setTabIndex(1, 'tap');
             return true;
-        };
-
-        const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-        return () => sub.remove();
+        }
+        const now = Date.now();
+        if (now - lastBackPressRef.current <= EXIT_THRESHOLD_MS) {
+            BackHandler.exitApp();
+            return true;
+        }
+        lastBackPressRef.current = now;
+        ToastAndroid.show('Press again to exit', ToastAndroid.SHORT);
+        return true;
     }, [activeTabIndex, setTabIndex]);
 
-    const isProgrammaticRef = useRef(false);
+    useEffect(() => {
+        const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+        return () => sub.remove();
+    }, [onBackPress]);
 
-    // Sync PagerView with store index reliably (Source-Prioritized)
+    const isProgrammaticRef = useRef(false);
     useEffect(() => {
         if (pagerRef.current && navigationSource === 'tap') {
             isProgrammaticRef.current = true;
-
-            // Critical: Tick-delay to ensure native side is receptive after state update
             pagerRef.current?.setPage(activeTabIndex);
-
-            // Keep this lock short to avoid making swipe feel disabled after tap navigation.
-            const resetTimer = setTimeout(() => {
+            const timer = setTimeout(() => {
                 isProgrammaticRef.current = false;
                 setPagerScrollEnabled(true);
                 useOrbitStore.setState({ navigationSource: 'swipe' });
             }, 320);
-
-            return () => clearTimeout(resetTimer);
+            return () => clearTimeout(timer);
         }
-    }, [activeTabIndex, navigationSource]);
+    }, [activeTabIndex, navigationSource, setPagerScrollEnabled]);
 
-    // Update app mode based on current tab
-    useEffect(() => {
-        if (activeTabIndex === 5 || activeTabIndex === 6) {
-            setAppMode('lunara');
-        } else if ([1, 2, 3, 4, 7].includes(activeTabIndex)) {
-            setAppMode('moon');
-        }
-    }, [activeTabIndex]);
-
-    // Predicted Assets (Pre-warming)
-    useEffect(() => {
-        // Disabled to minimize network use
-    }, [activeTabIndex]);
-
-    if (isAuthChecking) {
-        return <LoadingScreen />;
-    }
-
-    if (!user) {
-        // The _layout handles redirect, but we return a blank view to prevent flash
-        return <View style={{ flex: 1, backgroundColor: '#000' }} />;
-    }
-
-    // Best in Class: Prevent flickering by only showing loader on cold boot if NO data exists
-    if (loading && memories.length === 0 && letters.length === 0 && !profile) {
-        return <LoadingScreen />;
-    }
+    if (isAuthChecking) return <LoadingScreen />;
+    if (!user) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+    if (loading && memories.length === 0 && letters.length === 0 && !profile) return <LoadingScreen />;
 
     return (
         <View style={styles.container}>
@@ -223,68 +175,40 @@ export default function Index() {
                 initialPage={activeTabIndex}
                 scrollEnabled={isPagerScrollEnabled}
                 onPageScroll={(e) => {
-                    const exactPos = e.nativeEvent.position + e.nativeEvent.offset;
-                    scrollOffset.value = exactPos;
+                    scrollOffset.value = e.nativeEvent.position + e.nativeEvent.offset;
+                    const visibleIndexes = new Set<number>([activeTabIndex, e.nativeEvent.position]);
+                    if (e.nativeEvent.offset > 0) {
+                        visibleIndexes.add(e.nativeEvent.position + 1);
+                    }
+                    const nextMounted = Array.from(visibleIndexes).sort((a, b) => a - b);
+                    setMountedIndexes((prev) => (
+                        prev.length === nextMounted.length && prev.every((value, idx) => value === nextMounted[idx])
+                    ) ? prev : nextMounted);
                 }}
                 onPageSelected={(e) => {
                     if (!isProgrammaticRef.current) {
                         setTabIndex(e.nativeEvent.position, 'swipe');
                     }
                     setPagerScrollEnabled(true);
+                    setMountedIndexes([e.nativeEvent.position]);
                 }}
                 onLayout={() => setIsPagerReady(true)}
             >
-                <View key="0">
-                    <LazyTab index={0} activeTabIndex={activeTabIndex}>
-                        {isPagerReady ? <SyncCinemaScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
-                    </LazyTab>
-                </View>
-                <View key="1">
-                    <LazyTab index={1} activeTabIndex={activeTabIndex}>
-                        <DashboardScreen />
-                    </LazyTab>
-                </View>
-                <View key="2">
-                    <LazyTab index={2} activeTabIndex={activeTabIndex}>
-                        {isPagerReady ? <LettersScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
-                    </LazyTab>
-                </View>
-                <View key="3">
-                    <LazyTab index={3} activeTabIndex={activeTabIndex}>
-                        {isPagerReady ? <MemoriesScreen /> : <View style={{ flex: 1, backgroundColor: 'black' }} />}
-                    </LazyTab>
-                </View>
-                <View key="4">
-                    <LazyTab index={4} activeTabIndex={activeTabIndex}>
-                        <IntimacyScreen />
-                    </LazyTab>
-                </View>
-                <View key="5">
-                    <LazyTab index={5} activeTabIndex={activeTabIndex}>
-                        <LunaraScreen />
-                    </LazyTab>
-                </View>
-                <View key="6">
-                    <LazyTab index={6} activeTabIndex={activeTabIndex}>
-                        <PartnerScreen />
-                    </LazyTab>
-                </View>
-                <View key="7">
-                    <LazyTab index={7} activeTabIndex={activeTabIndex}>
-                        <SettingsScreen />
-                    </LazyTab>
-                </View>
+                <View key="0"><LazyTab index={0} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <SyncCinemaScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="1"><LazyTab index={1} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}><DashboardScreen /></LazyTab></View>
+                <View key="2"><LazyTab index={2} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LettersScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="3"><LazyTab index={3} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <MemoriesScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="4"><LazyTab index={4} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <IntimacyScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="5"><LazyTab index={5} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LunaraScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="6"><LazyTab index={6} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <PartnerScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="7"><LazyTab index={7} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <SettingsScreen /> : <View style={styles.black} />}</LazyTab></View>
             </PagerView>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#000',
-    },
-    pagerView: {
-        flex: 1,
-    },
+    container: { flex: 1, backgroundColor: 'black' },
+    pagerView: { flex: 1 },
+    black: { flex: 1, backgroundColor: 'black' }
 });
