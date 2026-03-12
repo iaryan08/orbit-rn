@@ -37,70 +37,63 @@ export const CycleTab = React.memo(({
                     </Animated.View>
 
                     <Animated.View entering={FADE_IN_DOWN_2}>
-                        <GlassCard style={tab.phaseGuide} intensity={8}>
-                            <Text style={tab.phaseGuideLabel}>HISTORICAL RHYTHM</Text>
-                            <View style={[tab.statsRowTiny, { paddingHorizontal: 5 }]}>
-                                <View style={tab.statTiny}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                                        <Text style={tab.statValTiny}>{cycleProfile?.avg_cycle_length || 28}</Text>
-                                        <Text style={tab.statLabelTiny}> d</Text>
-                                    </View>
-                                    <Text style={tab.statLabelTiny}>AVG CYCLE</Text>
+                        <GlassCard style={tab.statsRow} intensity={10}>
+                            <View style={tab.stat}>
+                                <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                    <Text style={tab.statVal}>{cycleProfile?.avg_cycle_length || 28}</Text>
+                                    <Text style={tab.statSubVal}>d</Text>
                                 </View>
-                                <View style={tab.statDividerTiny} />
-                                <View style={tab.statTiny}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                                        <Text style={tab.statValTiny}>{cycleProfile?.avg_period_length || 5}</Text>
-                                        <Text style={tab.statLabelTiny}> d</Text>
-                                    </View>
-                                    <Text style={tab.statLabelTiny}>AVG FLOW</Text>
+                                <Text style={tab.statLabel}>AVG CYCLE</Text>
+                            </View>
+                            <View style={tab.statDivider} />
+                            <View style={tab.stat}>
+                                <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                    <Text style={tab.statVal}>{cycleProfile?.avg_period_length || 5}</Text>
+                                    <Text style={tab.statSubVal}>d</Text>
                                 </View>
-                                <View style={tab.statDividerTiny} />
-                                <View style={tab.statTiny}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                                        <Text style={tab.statValTiny}>{cycleProfile?.period_history?.length || 0}</Text>
-                                    </View>
-                                    <Text style={tab.statLabelTiny}>LOGS</Text>
-                                </View>
+                                <Text style={tab.statLabel}>AVG FLOW</Text>
+                            </View>
+                            <View style={tab.statDivider} />
+                            <View style={tab.stat}>
+                                <Text style={tab.statVal}>{cycleProfile?.period_history?.length || 0}</Text>
+                                <Text style={tab.statLabel}>LOGS</Text>
                             </View>
                         </GlassCard>
                     </Animated.View>
 
                     {prediction && prediction.predictedDate !== '—' && (
                         <Animated.View entering={FADE_IN_DOWN_2}>
-                            <GlassCard style={[tab.predCard, { paddingVertical: 18 }]} intensity={8}>
-                                <View style={[tab.statsRow, { width: '100%', padding: 0, backgroundColor: 'transparent', marginHorizontal: 0, marginBottom: 0 }]}>
-                                    <View style={tab.stat}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                                            <Text style={tab.statVal}>{Math.max(0, prediction.daysUntil)}</Text>
-                                            <Text style={tab.statSubVal}>d</Text>
-                                        </View>
-                                        <Text style={tab.statLabel}>NEXT PERIOD</Text>
+                            <GlassCard style={tab.statsRow} intensity={10}>
+                                <View style={tab.stat}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                        <Text style={tab.statVal}>{Math.max(0, prediction.daysUntil)}</Text>
+                                        <Text style={tab.statSubVal}>d</Text>
                                     </View>
+                                    <Text style={tab.statLabel}>NEXT PERIOD</Text>
+                                </View>
 
-                                    <View style={tab.statDivider} />
+                                <View style={tab.statDivider} />
 
-                                    <View style={tab.stat}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                                            <Text style={[tab.statVal, { color: prediction.chanceColor }]}>
-                                                {prediction.chancePercentage}
-                                            </Text>
-                                            <Text style={[tab.statSubVal, { color: prediction.chanceColor }]}>%</Text>
-                                        </View>
-                                        <Text style={tab.statLabel}>PREGNANCY</Text>
+                                <View style={tab.stat}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                        <Text style={[tab.statVal, { color: prediction.chanceColor || '#FFFFFF' }]}>
+                                            {prediction.chancePercentage}
+                                        </Text>
+                                        <Text style={[tab.statSubVal, { color: prediction.chanceColor || '#FFFFFF' }]}>%</Text>
                                     </View>
+                                    <Text style={tab.statLabel}>PREGNANCY</Text>
+                                </View>
 
-                                    <View style={tab.statDivider} />
+                                <View style={tab.statDivider} />
 
-                                    <View style={tab.stat}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                                            <Text style={tab.statVal}>
-                                                {Math.abs(prediction.ovulationDay - (cycleDay || 0)) <= 3 ? 'Near' : prediction.ovulationDay}
-                                            </Text>
-                                            {Math.abs(prediction.ovulationDay - (cycleDay || 0)) > 3 && <Text style={tab.statSubVal}>d</Text>}
-                                        </View>
-                                        <Text style={tab.statLabel}>OVULATION</Text>
+                                <View style={tab.stat}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                        <Text style={tab.statVal}>
+                                            {Math.abs(prediction.ovulationDay - (cycleDay || 0)) <= 3 ? 'Near' : prediction.ovulationDay}
+                                        </Text>
+                                        {Math.abs(prediction.ovulationDay - (cycleDay || 0)) > 3 && <Text style={tab.statSubVal}>d</Text>}
                                     </View>
+                                    <Text style={tab.statLabel}>OVULATION</Text>
                                 </View>
                             </GlassCard>
                         </Animated.View>

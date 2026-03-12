@@ -10,9 +10,32 @@ interface GlassCardProps extends ViewProps {
 }
 
 export const GlassCard = React.memo(({ children, style, contentStyle, ...props }: GlassCardProps) => {
+    // Split layout styles from container styles to ensure children honor row/column correctly
+    const {
+        flexDirection,
+        justifyContent,
+        alignItems,
+        flexWrap,
+        padding,
+        paddingHorizontal,
+        paddingVertical,
+        paddingTop,
+        paddingBottom,
+        ...containerStyle
+    } = StyleSheet.flatten(style || {}) as any;
+
+    const layoutStyle: ViewStyle = {
+        flexDirection,
+        justifyContent,
+        alignItems,
+        flexWrap,
+        padding: padding ?? 0,
+        paddingHorizontal, paddingVertical, paddingTop, paddingBottom
+    };
+
     return (
-        <View style={[styles.container, style]} {...props}>
-            <View style={[styles.overlay, contentStyle]}>
+        <View style={[styles.container, containerStyle]} {...props}>
+            <View style={[styles.overlay, layoutStyle, contentStyle]}>
                 {children}
             </View>
         </View>
@@ -23,11 +46,11 @@ const styles = StyleSheet.create({
     container: {
         borderRadius: Radius.xl,
         overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        backgroundColor: 'rgba(0, 0, 0, 0.65)', // Pure black low opacity for performance
+        borderWidth: 1.2, // Slightly thicker for contrast
+        borderColor: 'rgba(255, 255, 255, 0.15)', // Brighter border
+        backgroundColor: '#000000', // OLED black for maximum contrast (Instagram Style)
     },
     overlay: {
-        // Remove flex: 1 to allow hugging content
+        // Layout styles applied dynamically from props
     }
 });

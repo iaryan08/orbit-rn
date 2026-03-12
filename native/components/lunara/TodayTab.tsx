@@ -57,9 +57,10 @@ export const TodayTab = React.memo(({
 
             <DailyInsightCard insight={dailyInsight} isLoading={isLoadingInsight} phaseColor={phase.color} />
 
+            {/* Today's Prediction Stats */}
             {prediction && (
                 <Animated.View entering={FADE_IN_DOWN_2}>
-                    <GlassCard style={[tab.statsRow, { paddingVertical: 15 }]} intensity={8}>
+                    <GlassCard style={tab.statsRow} intensity={10}>
                         <View style={tab.stat}>
                             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
                                 <Text style={tab.statVal}>{Math.max(0, prediction.daysUntil)}</Text>
@@ -72,10 +73,10 @@ export const TodayTab = React.memo(({
 
                         <View style={tab.stat}>
                             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                                <Text style={[tab.statVal, { color: prediction.chanceColor }]}>
+                                <Text style={[tab.statVal, { color: prediction.chanceColor || '#FFFFFF' }]}>
                                     {prediction.chancePercentage}
                                 </Text>
-                                <Text style={[tab.statSubVal, { color: prediction.chanceColor }]}>%</Text>
+                                <Text style={[tab.statSubVal, { color: prediction.chanceColor || '#FFFFFF' }]}>%</Text>
                             </View>
                             <Text style={tab.statLabel}>FERTILITY{'\n'}CHANCE</Text>
                         </View>

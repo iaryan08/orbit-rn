@@ -44,19 +44,29 @@ export function HerCycleTab({
             {/* Stats */}
             {partnerPrediction && (
                 <Animated.View entering={FADE_IN_DOWN_1}>
-                    <GlassCard style={tab.statsRow} intensity={8}>
+                    <GlassCard style={tab.statsRow} intensity={10}>
                         <View style={tab.stat}>
-                            <Text style={tab.statVal}>{Math.max(0, partnerPrediction.daysUntil)}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                <Text style={tab.statVal}>{Math.max(0, partnerPrediction.daysUntil)}</Text>
+                                <Text style={tab.statSubVal}>d</Text>
+                            </View>
                             <Text style={tab.statLabel}>DAYS UNTIL{'\n'}PERIOD</Text>
                         </View>
+
                         <View style={tab.statDivider} />
+
                         <View style={tab.stat}>
-                            <Text style={[tab.statVal, { color: partnerPhase.color }]}>{partnerPrediction.avgCycleLength}d</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                <Text style={[tab.statVal, { color: partnerPhase.color }]}>{partnerPrediction.avgCycleLength}</Text>
+                                <Text style={tab.statSubVal}>d</Text>
+                            </View>
                             <Text style={tab.statLabel}>CYCLE{'\n'}LENGTH</Text>
                         </View>
+
                         <View style={tab.statDivider} />
+
                         <View style={tab.stat}>
-                            <Text style={tab.statVal}>{partnerPrediction.confidence}</Text>
+                            <Text style={[tab.statVal, { fontSize: 13, textTransform: 'uppercase' }]}>{partnerPrediction.confidence}</Text>
                             <Text style={tab.statLabel}>PREDICTION{'\n'}QUALITY</Text>
                         </View>
                     </GlassCard>

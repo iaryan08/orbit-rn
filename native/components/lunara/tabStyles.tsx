@@ -11,31 +11,31 @@ export const FADE_IN_DOWN_3 = FadeInDown.duration(380).delay(320);
 // ─── Shared Tab Component Styles ──────────────────────────────────────────────
 export const tab = StyleSheet.create({
     // Today & Phase Hero
-    phaseHero: { alignItems: 'center', marginBottom: 24, marginTop: -10 },
-    phaseTitle: { fontSize: 32, fontFamily: Typography.serifBold, marginBottom: 6 },
-    phaseDay: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5 },
+    phaseHero: { alignItems: 'center', marginBottom: 26, marginTop: -12 },
+    phaseTitle: { fontSize: 38, fontFamily: Typography.serifBold, marginBottom: 10, color: '#FFFFFF', letterSpacing: -0.5 }, // Ultra Brighter
+    phaseDay: { fontSize: 14, fontFamily: Typography.sansBold, color: '#FFFFFF', opacity: 0.7, letterSpacing: 0.8 }, // Full White + Opacity
 
     // Stats Grid
     statsRow: {
         flexDirection: 'row', marginHorizontal: Spacing.md, marginBottom: Spacing.lg,
-        padding: 20, borderRadius: Radius.xl, alignItems: 'center', justifyContent: 'space-around',
+        borderRadius: Radius.xl, alignItems: 'center', justifyContent: 'space-around',
     },
-    stat: { alignItems: 'center', flex: 1 },
-    statVal: { fontSize: 18, fontFamily: Typography.sansBold, color: 'white' },
-    statSubVal: { fontSize: 9, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.4)', marginLeft: 2 },
-    statLabel: { fontSize: 7, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.2, textAlign: 'center', marginTop: 4 },
-    statDivider: { width: 1, height: 24, backgroundColor: 'rgba(255,255,255,0.06)' },
+    stat: { alignItems: 'center', flex: 1, paddingVertical: 20 },
+    statVal: { fontSize: 20, fontFamily: Typography.sansBold, color: '#FFFFFF' }, // Sharper
+    statSubVal: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.7)', marginLeft: 2 },
+    statLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textAlign: 'center', marginTop: 6 },
+    statDivider: { width: 1.5, height: 30, backgroundColor: 'rgba(255,255,255,0.1)' },
 
     // Advice & Hormones
     adviceCard: {
         marginHorizontal: Spacing.md, marginBottom: Spacing.lg, padding: 22,
         borderRadius: Radius.xxl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
     },
-    adviceLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 12 },
-    adviceText: { fontSize: 18, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.85)', lineHeight: 28, borderLeftWidth: 2, paddingLeft: 14, marginBottom: 20 },
-    hormoneBox: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: Radius.lg, padding: 14 },
-    hormoneLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 8 },
-    hormoneText: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.5)', lineHeight: 20 },
+    adviceLabel: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.6)', letterSpacing: 1.8, marginBottom: 14 }, // Brighter & Larger
+    adviceText: { fontSize: 21, fontFamily: Typography.serifItalic, color: '#FFFFFF', lineHeight: 30, borderLeftWidth: 4, paddingLeft: 18, marginBottom: 22 }, // Thicker & Sharper
+    hormoneBox: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.lg, padding: 16 }, // Punchier
+    hormoneLabel: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.6)', letterSpacing: 1.8, marginBottom: 10 },
+    hormoneText: { fontSize: 14, fontFamily: Typography.sansBold, color: '#FFFFFF', lineHeight: 22, opacity: 0.9 }, // Higher contrast
 
     // PMS & Status
     pmsBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: Spacing.md, marginBottom: 16, paddingVertical: 10, paddingHorizontal: 16, borderRadius: Radius.lg, backgroundColor: 'rgba(251,191,36,0.1)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.2)' },
