@@ -4,6 +4,7 @@ import Animated from 'react-native-reanimated';
 import { GlassCard } from '../GlassCard';
 import { PhaseSphere } from './PhaseSphere';
 import { BiologicalTimeline } from './BiologicalTimeline';
+import { CycleSummaryBanner } from './CycleSummaryBanner';
 import { FADE_IN, FADE_IN_DOWN_1, FADE_IN_DOWN_2, FADE_IN_DOWN_3, tab } from './tabStyles';
 
 interface HerCycleTabProps {
@@ -14,12 +15,14 @@ interface HerCycleTabProps {
     timelineDays: any[];
     selectedDay: number | null;
     onSelectDay: (day: number) => void;
+    onLogPeriod?: () => void;
+    isLogging?: boolean;
     formatContextualText: (text: string, isFemale: boolean) => string;
 }
 
 export function HerCycleTab({
     partnerPhase, partnerCycleDay, partnerPrediction, partnerName,
-    timelineDays, selectedDay, onSelectDay, formatContextualText
+    timelineDays, selectedDay, onSelectDay, onLogPeriod, isLogging, formatContextualText
 }: HerCycleTabProps) {
     const name = partnerName || 'Your partner';
 
@@ -34,6 +37,15 @@ export function HerCycleTab({
 
     return (
         <Animated.View entering={FADE_IN}>
+            <CycleSummaryBanner
+                cycleDay={partnerCycleDay}
+                phase={partnerPhase}
+                prediction={partnerPrediction}
+                onLogPeriod={onLogPeriod}
+                isLogging={isLogging}
+                isPartnerView={true}
+            />
+
             {/* Hero */}
             <View style={tab.phaseHero}>
                 <PhaseSphere phase={partnerPhase.name} intensity={0.8} isActive={false} />

@@ -6,14 +6,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { INTIMACY_INSIGHTS } from '../../lib/sexPositionData';
 import { Colors, Typography, Spacing } from '../../constants/Theme';
 import { GlassCard } from '../GlassCard';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface IntimacyInsightCardProps {
     phaseName: string;
     cycleDay?: number | null;
     type?: 'position' | 'self-love' | 'coaching';
+    isMale?: boolean; // Shows male partner coaching instead of female self-coaching
 }
 
-export function IntimacyInsightCard({ phaseName, cycleDay, type }: IntimacyInsightCardProps) {
+export function IntimacyInsightCard({ phaseName, cycleDay, type, isMale = false }: IntimacyInsightCardProps) {
     const dailyInsight = useMemo(() => {
         const insights = INTIMACY_INSIGHTS[phaseName as keyof typeof INTIMACY_INSIGHTS] || [];
         const filtered = type ? insights.filter(i => i.type === type) : insights;
@@ -42,10 +44,14 @@ export function IntimacyInsightCard({ phaseName, cycleDay, type }: IntimacyInsig
 
             try {
                 const keyword = dailyInsight.keywords[0];
-                const resp = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(keyword + ' intimacy love aesthetic')}&client_id=${process.env.EXPO_PUBLIC_UNSPLASH_ACCESS_KEY}`);
+                // Use warm/colorful terms to avoid Unsplash returning B&W editorial photos
+                const colorQuery = isMale
+                    ? `${keyword} warm golden light couple color`
+                    : `${keyword} warm vibrant natural light color`;
+                const resp = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(colorQuery)}&orientation=landscape&client_id=${process.env.EXPO_PUBLIC_UNSPLASH_ACCESS_KEY}`);
                 const data = await resp.json();
-                if (data.urls?.small && isMounted) {
-                    const url = data.urls.small; // Use 'small' for faster loading/lower RAM
+                if (data.urls?.regular && isMounted) {
+                    const url = data.urls.regular; // Use 'regular' for better quality on large cards
                     setImageUri(url);
                     await AsyncStorage.setItem(cacheKey, url);
                 }
@@ -59,6 +65,17 @@ export function IntimacyInsightCard({ phaseName, cycleDay, type }: IntimacyInsig
 
     if (!dailyInsight) return null;
 
+    // For male users on 'coaching' type: override description with partner-care advice
+    const MALE_COACHING: Record<string, string> = {
+        Menstrual: "She's in a rest phase. Don't push plans or over-talk. Warmth, quiet, and physical comfort are your strongest moves.",
+        Follicular: "Her confidence is rising. Plan something to match her energy — new experiences and intellectual conversations land best now.",
+        Ovulatory: "She's magnetic and social. Keep up, stay present. Bold gestures and quality time together thrive in this window.",
+        Luteal: "Her sensitivity is elevated. Be steady, not defensive. Hold space — don't problem-solve unless asked.",
+    };
+    const displayDescription = (isMale && dailyInsight.type === 'coaching')
+        ? (MALE_COACHING[phaseName] || dailyInsight.description)
+        : dailyInsight.description;
+
     const Icon = dailyInsight.type === 'position' ? Flame :
         dailyInsight.type === 'self-love' ? Heart : Sparkles;
 
@@ -66,28 +83,35 @@ export function IntimacyInsightCard({ phaseName, cycleDay, type }: IntimacyInsig
         dailyInsight.type === 'self-love' ? '#818cf8' : '#fbbf24';
 
     return (
-        <GlassCard style={styles.card} intensity={8}>
-            <View style={styles.thumbnailWrapper}>
+        <GlassCard style={styles.card} intensity={0}>
+            <View style={styles.imageWrapper}>
                 {imageUri ? (
                     <Image
                         source={{ uri: imageUri }}
-                        style={styles.thumbnail}
+                        style={styles.fullImage}
                         contentFit="cover"
-                        transition={300} // Smooth fade-in
-                        cachePolicy="disk" // Lazy loading & offline cache
+                        transition={400}
+                        cachePolicy="disk"
                     />
                 ) : (
-                    <View style={[styles.thumbnail, { backgroundColor: 'rgba(255,255,255,0.05)' }]} />
+                    <View style={[styles.fullImage, { backgroundColor: 'rgba(255,255,255,0.03)' }]} />
                 )}
+
+                {/* Gentle Fade Gradient for Text Readability & Integration */}
+                <LinearGradient
+                    colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.85)']}
+                    style={StyleSheet.absoluteFillObject}
+                />
+
+                <View style={styles.floatingHeader}>
+                    <Icon size={14} color={iconColor} />
+                    <Text style={[styles.typeText, { color: iconColor }]}>{dailyInsight.type.toUpperCase()}</Text>
+                </View>
             </View>
 
             <View style={styles.content}>
-                <View style={styles.header}>
-                    <Icon size={12} color={iconColor} />
-                    <Text style={styles.typeText}>{dailyInsight.type.toUpperCase()}</Text>
-                </View>
-                <Text style={styles.title} numberOfLines={1}>{dailyInsight.name}</Text>
-                <Text style={styles.description} numberOfLines={2}>{dailyInsight.description}</Text>
+                <Text style={styles.title}>{dailyInsight.name}</Text>
+                <Text style={styles.description}>{displayDescription}</Text>
             </View>
         </GlassCard>
     );
@@ -95,51 +119,54 @@ export function IntimacyInsightCard({ phaseName, cycleDay, type }: IntimacyInsig
 
 const styles = StyleSheet.create({
     card: {
-        marginBottom: Spacing.md,
-        padding: 12,
-        borderRadius: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
-    },
-    thumbnailWrapper: {
-        width: 80,
-        height: 80,
-        borderRadius: 14,
+        marginBottom: Spacing.lg,
+        borderRadius: 28,
         overflow: 'hidden',
-        backgroundColor: '#1a1a1a',
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(5,5,10,0.85)',
     },
-    thumbnail: {
+    imageWrapper: {
+        width: '100%',
+        height: 240,
+        position: 'relative',
+    },
+    fullImage: {
         width: '100%',
         height: '100%',
     },
-    content: {
-        flex: 1,
-    },
-    header: {
+    floatingHeader: {
+        position: 'absolute',
+        top: 20,
+        left: 20,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        marginBottom: 4,
+        gap: 8,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 100,
     },
     typeText: {
-        fontSize: 9,
+        fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
-        letterSpacing: 0.8,
+        letterSpacing: 1.2,
+    },
+    content: {
+        paddingHorizontal: 24,
+        paddingBottom: 24,
+        paddingTop: 10, // Reduced gap from image
     },
     title: {
-        fontSize: 16,
-        fontFamily: Typography.sansBold,
+        fontSize: 24,
+        fontFamily: Typography.serifBold,
         color: 'white',
-        marginBottom: 2,
+        marginBottom: 8,
     },
     description: {
-        fontSize: 13,
+        fontSize: 15,
         fontFamily: Typography.sans,
-        color: 'rgba(255,255,255,0.5)',
-        lineHeight: 18,
+        color: 'rgba(255,255,255,0.8)',
+        lineHeight: 24,
     },
 });

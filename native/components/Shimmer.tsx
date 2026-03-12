@@ -5,7 +5,8 @@ import Animated, {
     useAnimatedStyle,
     withRepeat,
     withTiming,
-    interpolate
+    interpolate,
+    cancelAnimation,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useOrbitStore } from '../lib/store';
@@ -23,6 +24,7 @@ export const Shimmer = ({ width, height, borderRadius = 8, style, isActive = tru
 
     useEffect(() => {
         if (isLiteMode || !isActive) {
+            cancelAnimation(shimmerProgress);
             shimmerProgress.value = -1;
             return;
         }
@@ -32,6 +34,8 @@ export const Shimmer = ({ width, height, borderRadius = 8, style, isActive = tru
             -1,
             false
         );
+
+        return () => { cancelAnimation(shimmerProgress); };
     }, [isLiteMode, isActive]);
 
     const animatedStyle = useAnimatedStyle(() => {

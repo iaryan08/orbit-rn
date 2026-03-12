@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
-import Animated, { FadeIn, FadeInDown, useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Typography, Spacing, Radius } from '../../constants/Theme';
 import { Sparkles, ChevronDown, Brain } from 'lucide-react-native';
 import { DailyInsight } from '../../lib/store/lunaraSlice';
 import * as Haptics from 'expo-haptics';
 
-const FADE_IN_DOWN_A = FadeInDown.duration(500).delay(100);
-const FADE_IN_DOWN_B = FadeInDown.duration(400).delay(260);
+const FADE_IN_DOWN_A = undefined; // Android-only: entering animations crash at module-level
+const FADE_IN_DOWN_B = undefined;
+
 
 
 interface DailyInsightCardProps {
@@ -19,6 +20,7 @@ interface DailyInsightCardProps {
 export const DailyInsightCard = React.memo(({ insight, isLoading, phaseColor }: DailyInsightCardProps) => {
     const [hormoneExpanded, setHormoneExpanded] = useState(false);
 
+    // Loading skeleton — always rendered via conditional in JSX, not early return
     if (isLoading && !insight) {
         return (
             <View style={styles.card}>
@@ -32,7 +34,7 @@ export const DailyInsightCard = React.memo(({ insight, isLoading, phaseColor }: 
     if (!insight) return null;
 
     return (
-        <Animated.View entering={FADE_IN_DOWN_A} style={styles.card}>
+        <View style={styles.card}>
             {/* Header */}
             <View style={styles.cardHeader}>
                 <View style={styles.headerLeft}>
@@ -68,11 +70,11 @@ export const DailyInsightCard = React.memo(({ insight, isLoading, phaseColor }: 
                     style={{ transform: [{ rotate: hormoneExpanded ? '180deg' : '0deg' }] }} />
             </Pressable>
             {hormoneExpanded && (
-                <Animated.View entering={FADE_IN_DOWN_A} style={styles.hormoneContent}>
+                <View style={styles.hormoneContent}>
                     <Text style={styles.hormoneText}>{insight.hormoneContext}</Text>
-                </Animated.View>
+                </View>
             )}
-        </Animated.View>
+        </View>
     );
 });
 

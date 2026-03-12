@@ -21,14 +21,10 @@ import { LoadingScreen } from '../components/LoadingScreen';
 import { initializeDatabase } from '../lib/db/db';
 import { initializeMediaEngine } from '../lib/media';
 
-const LazyTab = React.memo(({ index, children, activeTabIndex, mountedIndexes }: { index: number, children: React.ReactElement, activeTabIndex: number, mountedIndexes: number[] }) => {
-    // Keep exactly the active tab mounted at rest, and only the live pager pair during swipes.
-    const isMounted = mountedIndexes.includes(index);
+const LazyTab = React.memo(({ index, children, activeTabIndex, mountedSet }: { index: number, children: React.ReactElement, activeTabIndex: number, mountedSet: Set<number> }) => {
+    // Instagram pattern: once mounted, ALWAYS stay mounted. Never unmount visited tabs.
+    if (!mountedSet.has(index)) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
     const isActive = index === activeTabIndex;
-
-    if (!isMounted) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
-
-    // 🚀 Aggressive Cooling: Propagate isActive to children so they can pause background loops
     return (
         <View style={{ flex: 1 }}>
             {React.cloneElement(children, { isActive } as any)}
@@ -47,8 +43,8 @@ export default function Index() {
     const [user, setUser] = useState<User | null>(null);
     const [isAuthChecking, setIsAuthChecking] = useState(true);
     const [isPagerReady, setIsPagerReady] = useState(false);
-    const [mountedIndexes, setMountedIndexes] = useState<number[]>([activeTabIndex]);
-    const [retainedTabIndex, setRetainedTabIndex] = useState<number | null>(null);
+    // Instagram pattern: accumulate visited tabs — never shrink the set
+    const [mountedSet, setMountedSet] = useState<Set<number>>(() => new Set([activeTabIndex]));
     const fetchCalledForId = useRef<string | null>(null);
     const fetchCleanupRef = useRef<(() => void) | null>(null);
     const pagerRef = useRef<PagerView>(null);
@@ -60,19 +56,17 @@ export default function Index() {
     const currentCoupleId = useOrbitStore(state => state.couple?.id);
     const currentPresenceUserId = profile?.id || user?.uid || null;
 
+    // When tab changes: add the new tab to the mounted set (never remove)
     useEffect(() => {
-        const prevActive = previousActiveTabRef.current;
-        const nextRetained = prevActive !== activeTabIndex ? prevActive : retainedTabIndex;
-        setRetainedTabIndex(nextRetained ?? null);
-        const nextMounted = Array.from(new Set(
-            [activeTabIndex, nextRetained]
-                .filter((value): value is number => typeof value === 'number')
-        )).sort((a, b) => a - b);
-        setMountedIndexes((prev) => (
-            prev.length === nextMounted.length && prev.every((value, idx) => value === nextMounted[idx])
-        ) ? prev : nextMounted);
+        setMountedSet(prev => {
+            if (prev.has(activeTabIndex)) return prev;
+            const next = new Set(prev);
+            next.add(activeTabIndex);
+            return next;
+        });
         previousActiveTabRef.current = activeTabIndex;
-    }, [activeTabIndex, retainedTabIndex]);
+    }, [activeTabIndex]);
+
 
     useEffect(() => {
         const setup = async () => {
@@ -211,47 +205,38 @@ export default function Index() {
                 initialPage={activeTabIndex}
                 scrollEnabled={isPagerScrollEnabled}
                 onPageScroll={(e) => {
+                    // ONLY update scroll offset — zero JS setState during swipe (Instagram pattern)
                     scrollOffset.value = e.nativeEvent.position + e.nativeEvent.offset;
-                    const visibleIndexes = new Set<number>([activeTabIndex, e.nativeEvent.position]);
-                    if (retainedTabIndex !== null) visibleIndexes.add(retainedTabIndex);
-                    if (e.nativeEvent.offset > 0) visibleIndexes.add(e.nativeEvent.position + 1);
-
-                    const nextMounted = Array.from(visibleIndexes).sort((a, b) => a - b);
-                    setMountedIndexes((prev) => (
-                        prev.length === nextMounted.length && prev.every((value, idx) => value === nextMounted[idx])
-                    ) ? prev : nextMounted);
                 }}
                 onPageSelected={(e) => {
                     const pos = e.nativeEvent.position;
-                    // Prevent feedback loop if source is 'tap'
                     if (!isProgrammaticRef.current) {
                         setTabIndex(pos, 'swipe');
                     }
                     setPagerScrollEnabled(true);
-                    setRetainedTabIndex(previousActiveTabRef.current === pos ? retainedTabIndex : previousActiveTabRef.current);
                 }}
                 onLayout={() => setIsPagerReady(true)}
             >
-                <View key="cinema"><LazyTab index={0} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <SyncCinemaScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="dashboard"><LazyTab index={1} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}><DashboardScreen /></LazyTab></View>
-                <View key="letters"><LazyTab index={2} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LettersScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="memories"><LazyTab index={3} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <MemoriesScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="milestones"><LazyTab index={4} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <IntimacyScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="lunara-today"><LazyTab index={5} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LunaraScreen forcedTab="today" isActive={activeTabIndex === 5} /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="lunara-cycle"><LazyTab index={6} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LunaraScreen forcedTab={isFemale ? 'cycle' : 'body'} isActive={activeTabIndex === 6} /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="lunara-body"><LazyTab index={7} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LunaraScreen forcedTab={isFemale ? 'body' : 'partner'} isActive={activeTabIndex === 7} /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="cinema"><LazyTab index={0} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>{isPagerReady ? <SyncCinemaScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="dashboard"><LazyTab index={1} activeTabIndex={activeTabIndex} mountedSet={mountedSet}><DashboardScreen /></LazyTab></View>
+                <View key="letters"><LazyTab index={2} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>{isPagerReady ? <LettersScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="memories"><LazyTab index={3} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>{isPagerReady ? <MemoriesScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="milestones"><LazyTab index={4} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>{isPagerReady ? <IntimacyScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="lunara-today"><LazyTab index={5} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>{isPagerReady ? <LunaraScreen forcedTab="today" isActive={activeTabIndex === 5} /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="lunara-cycle"><LazyTab index={6} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>{isPagerReady ? <LunaraScreen forcedTab={isFemale ? 'cycle' : 'body'} isActive={activeTabIndex === 6} /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="lunara-body"><LazyTab index={7} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>{isPagerReady ? <LunaraScreen forcedTab={isFemale ? 'body' : 'partner'} isActive={activeTabIndex === 7} /> : <View style={styles.black} />}</LazyTab></View>
                 <View key="lunara-partner">
                     {isFemale ? (
-                        <LazyTab index={8} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>
+                        <LazyTab index={8} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>
                             {isPagerReady ? <LunaraScreen forcedTab="partner" isActive={activeTabIndex === 8} /> : <View style={styles.black} />}
                         </LazyTab>
                     ) : (
-                        <LazyTab index={8} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>
+                        <LazyTab index={8} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>
                             {isPagerReady ? <LunaraScreen forcedTab="learn" isActive={activeTabIndex === 8} /> : <View style={styles.black} />}
                         </LazyTab>
                     )}
                 </View>
-                <View key="settings"><LazyTab index={9} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <SettingsScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="settings"><LazyTab index={9} activeTabIndex={activeTabIndex} mountedSet={mountedSet}>{isPagerReady ? <SettingsScreen /> : <View style={styles.black} />}</LazyTab></View>
             </PagerView>
         </View>
     );

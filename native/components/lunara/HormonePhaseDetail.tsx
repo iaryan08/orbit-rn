@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { Typography, Spacing, Radius } from '../../constants/Theme';
 import { ChevronDown, Info } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
@@ -40,7 +40,7 @@ const HORMONE_DATA: Record<string, { estrogen: string; progesterone: string; tes
     },
 };
 
-const FADE_IN_DOWN = FadeInDown.duration(300);
+const FADE_IN_DOWN = undefined; // Android-only: entering animations crash at module-level
 
 export const HormonePhaseDetail = ({ phaseName, phaseColor }: HormonePhaseDetailProps) => {
     const [expanded, setExpanded] = useState(false);
@@ -111,7 +111,7 @@ export const HormonePhaseDetail = ({ phaseName, phaseColor }: HormonePhaseDetail
                     transition={500}
                 />
             )}
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(10,10,20,0.6)' }]} />
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.85)' }]} />
 
             <View style={{ padding: 22 }}>
                 <Pressable onPress={toggle} style={styles.header}>

@@ -43,6 +43,17 @@ export interface LunaraOnboardingData {
     completed: boolean;
 }
 
+export interface PartnerIntel {
+    date: string;
+    phase: string;
+    viewerGender: 'male' | 'female';
+    headline: string;       // One-line summary of what to know today
+    primaryAdvice: string;  // Main personalized guidance text
+    microActions: { emoji: string; title: string; desc: string }[];
+    intimacyNote: string;   // Specific to the day's energy level
+    source: 'ai' | 'local';
+}
+
 export interface LunaraSlice {
     // Onboarding
     lunaraOnboarding: LunaraOnboardingData | null;
@@ -69,6 +80,11 @@ export interface LunaraSlice {
     isLoadingIntimacy: boolean;
     loadIntimacyIntelligence: (phase: string, cycleDay: number, periodHistory: string[]) => Promise<void>;
 
+    // Partner Intelligence (AI-generated, gender-aware, daily cached)
+    partnerIntel: PartnerIntel | null;
+    isLoadingPartnerIntel: boolean;
+    loadPartnerIntelligence: (phase: string, cycleDay: number, viewerGender: 'male' | 'female', partnerName: string) => Promise<void>;
+
     // Gemini Forecast (keep for backward compat)
     intimacyForecast: any[];
     lastForecastRefresh: number | null;
@@ -86,6 +102,143 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
     // Phase color (written by LunaraScreen, read by NavbarDock)
     lunaraPhaseColor: null,
     setLunaraPhaseColor: (color: string | null) => set({ lunaraPhaseColor: color }),
+
+    // Partner Intel
+    partnerIntel: null,
+    isLoadingPartnerIntel: false,
+
+    loadPartnerIntelligence: async (phase: string, cycleDay: number, viewerGender: 'male' | 'female', partnerName: string) => {
+        const today = getTodayIST();
+        const existing = (get() as any).partnerIntel as PartnerIntel | null;
+        // Return immediately if cached for today + same gender + same phase
+        if (existing && existing.date === today && existing.phase === phase && existing.viewerGender === viewerGender) return;
+
+        // Local fallback data — renders instantly
+        const LOCAL_PARTNER: Record<string, Record<'male' | 'female', Omit<PartnerIntel, 'date' | 'phase' | 'viewerGender' | 'source'>>> = {
+            Menstrual: {
+                male: {
+                    headline: `${partnerName}'s body is resting — be the calm.`,
+                    primaryAdvice: `She's bleeding and her energy is lowest right now. The most intimate thing you can offer isn't physical — it's a warm, unhurried presence. Don't suggest plans or activities. Just be there.`,
+                    microActions: [
+                        { emoji: '🍵', title: 'Bring warmth', desc: 'Heating pad or warm tea goes further than any words' },
+                        { emoji: '💬', title: 'Ask once, then follow', desc: '"What do you need right now?" — then do exactly that' },
+                        { emoji: '🏡', title: 'Skip the big plans', desc: 'Cancel if possible, reschedule without guilt' },
+                    ],
+                    intimacyNote: 'Orgasm releases oxytocin and can ease cramps — but only if she initiates. Never pressure.',
+                },
+                female: {
+                    headline: 'Your body is doing the hardest work of the month.',
+                    primaryAdvice: 'This is a rest phase. Protect your energy fiercely. Communicate your needs directly to your partner — he cannot read your body the way you can.',
+                    microActions: [
+                        { emoji: '🛡️', title: 'Ask for what you need', desc: 'Warmth, silence, or closeness — name it clearly' },
+                        { emoji: '🪷', title: 'No guilt about saying no', desc: 'Your body is working. Rest is productive' },
+                        { emoji: '🌊', title: 'Honor the rhythm', desc: 'Track how you feel each day this phase' },
+                    ],
+                    intimacyNote: 'If you feel desire, trust it. Orgasm can temporarily relieve cramps via oxytocin release.',
+                },
+            },
+            Follicular: {
+                male: {
+                    headline: `${partnerName}'s confidence is rising — match her energy.`,
+                    primaryAdvice: `Estrogen is climbing and she's at her most open to new things. This is the best week to suggest adventures, have important conversations, or plan something she's mentioned wanting. Her communication is clear and her mood stable.`,
+                    microActions: [
+                        { emoji: '✨', title: 'Plan something new', desc: 'New restaurant, activity, or experience she mentioned' },
+                        { emoji: '🧠', title: 'Have the important talk', desc: 'Her cognition and emotional stability are at peak' },
+                        { emoji: '💃', title: 'Be spontaneous', desc: 'Surprise her — it lands exceptionally well this week' },
+                    ],
+                    intimacyNote: 'Her body is primed for exploration. She appreciates novelty and boldness now more than any other phase.',
+                },
+                female: {
+                    headline: 'Your energy and confidence are blooming.',
+                    primaryAdvice: "Estrogen's rise is giving you clarity, social energy, and optimism. Use this window for the things that require your sharpest self — conversations, plans, and new experiences.",
+                    microActions: [
+                        { emoji: '🌱', title: 'Start the new thing', desc: 'Gym habit, creative project, or difficult conversation' },
+                        { emoji: '💫', title: 'Mirror affirmation', desc: 'Find 3 things you love about your reflection today' },
+                        { emoji: '📍', title: 'Plan with your partner', desc: 'Your communication is at its most effective right now' },
+                    ],
+                    intimacyNote: 'Rising estrogen increases sensitivity and lubrication. Your body is ready to explore.',
+                },
+            },
+            Ovulatory: {
+                male: {
+                    headline: `${partnerName} is at her peak — 48-hour window.`,
+                    primaryAdvice: 'LH surge has triggered ovulation. Her testosterone briefly spikes, driving libido to its monthly peak. She is at her most magnetic, social, and deeply desirous of genuine connection — not just physical. Eye contact and presence are as important as any gesture.',
+                    microActions: [
+                        { emoji: '🌟', title: 'Plan a date out', desc: 'She is at her social peak — go somewhere together' },
+                        { emoji: '👁️', title: 'Be fully present', desc: 'Put the phone down. She notices absolutely everything' },
+                        { emoji: '💫', title: 'Say what you feel', desc: 'Genuine compliments and vulnerability land deeply now' },
+                    ],
+                    intimacyNote: 'Peak fertility window. Use protection if avoiding pregnancy. This is the 48-hour peak of her monthly desire cycle.',
+                },
+                female: {
+                    headline: 'You are at your biological apex today.',
+                    primaryAdvice: "You're radiating. Your confidence, social magnetism, and desire for deep connection are at their monthly peak. Lean into it — this window is 48 hours. Use it for connection, bold moves, and things that require your full energy.",
+                    microActions: [
+                        { emoji: '🔥', title: 'Lead the way', desc: 'Suggest the plans — he will follow your magnetic lead' },
+                        { emoji: '🌹', title: 'Dress for yourself', desc: 'Your self-image is at its highest — honor that' },
+                        { emoji: '💎', title: 'Express your desires', desc: 'Your communication is boldest. Say what you want' },
+                    ],
+                    intimacyNote: 'Peak fertility. If trying to conceive, this is the optimal window. You will likely feel desire more strongly than any other day.',
+                },
+            },
+            Luteal: {
+                male: {
+                    headline: `${partnerName} needs steadiness — not solutions.`,
+                    primaryAdvice: 'Progesterone dominates and her nervous system is more sensitive. She may oscillate between introspection and irritability. The single most important thing: do not problem-solve when she vents. Listen, validate, then ask what she needs.',
+                    microActions: [
+                        { emoji: '⚓', title: 'Be the anchor', desc: 'Your calmness is her regulation. Stay steady' },
+                        { emoji: '👂', title: 'Listen — don\'t fix', desc: '"That sounds really hard" beats any solution' },
+                        { emoji: '🎬', title: 'Low-key quality time', desc: 'Movies, cooking together, quiet walks beat loud nights' },
+                    ],
+                    intimacyNote: 'Drive may be low, but emotional closeness matters more than ever. Non-sexual physical touch — holding, warmth — is often more valued.',
+                },
+                female: {
+                    headline: 'Honor your sensitivity — it is not weakness.',
+                    primaryAdvice: "Progesterone's sedating effect is real. Your energy is declining and your emotional sensitivity elevated. This isn't a flaw — it's biological. Communicate your needs clearly to your partner and protect your sleep ruthlessly.",
+                    microActions: [
+                        { emoji: '🌙', title: 'Prioritize sleep', desc: 'Your body needs 30-60 min more sleep than usual' },
+                        { emoji: '⚓', title: 'Name what you feel', desc: 'Tell him "I need quiet" or "I need to be held"' },
+                        { emoji: '🛁', title: 'Self-care ritual', desc: 'Magnesium, warmth, and low stimulation work best now' },
+                    ],
+                    intimacyNote: 'If drive dips, sensual touch without pressure is often more connecting than full intimacy. Honor your rhythm.',
+                },
+            },
+        };
+
+        const localData = LOCAL_PARTNER[phase]?.[viewerGender] || LOCAL_PARTNER['Follicular'][viewerGender];
+        const localIntel: PartnerIntel = {
+            date: today, phase, viewerGender, source: 'local', ...localData,
+        };
+        set({ partnerIntel: localIntel });
+
+        // Background AI enhancement — same pattern as intimacyIntel
+        try {
+            const debugApiUrl = (get() as any).debugApiUrl;
+            const API_URL = debugApiUrl || process.env.EXPO_PUBLIC_API_URL || 'https://orbit-rn-beta.vercel.app';
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 12000);
+            const res = await fetch(`${API_URL}/api/lunara/partner-intel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phase, cycleDay, viewerGender, partnerName, model: AI_CONFIG.LUMARA_MODEL }),
+                signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.headline && data.primaryAdvice) {
+                const aiIntel: PartnerIntel = {
+                    date: today, phase, viewerGender, source: 'ai',
+                    headline: data.headline,
+                    primaryAdvice: data.primaryAdvice,
+                    microActions: data.microActions || localData.microActions,
+                    intimacyNote: data.intimacyNote || localData.intimacyNote,
+                };
+                await AsyncStorage.setItem(`orbit_partner_intel_${viewerGender}_${phase}`, JSON.stringify(aiIntel)).catch(() => { });
+                set({ partnerIntel: aiIntel });
+            }
+        } catch (_) { /* local intel already shown */ }
+    },
 
     // Active content tab — NavbarDock drives this, LunaraScreen consumes
     lunaraTab: 'today' as const,

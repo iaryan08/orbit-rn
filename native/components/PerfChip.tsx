@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useOrbitStore } from '../lib/store';
 import { Typography } from '../constants/Theme';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
@@ -60,10 +60,13 @@ export function PerfChip({ name }: PerfChipProps) {
         }
     };
 
+    const entering = Platform.OS !== 'android' ? FadeIn : undefined;
+    const exiting = Platform.OS !== 'android' ? FadeOut : undefined;
+
     return (
         <Animated.View
-            entering={FadeIn}
-            exiting={FadeOut}
+            entering={entering}
+            exiting={exiting}
             style={[styles.container, { borderColor: getStatusColor() }]}
         >
             <View style={[styles.dot, { backgroundColor: getStatusColor() }]} />

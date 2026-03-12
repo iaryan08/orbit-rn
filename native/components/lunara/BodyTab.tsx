@@ -156,12 +156,12 @@ export function BodyTab({
                 {libidoPhoto && (
                     <Image
                         source={{ uri: libidoPhoto }}
-                        style={[StyleSheet.absoluteFillObject, { opacity: 0.3 }]}
+                        style={[StyleSheet.absoluteFillObject, { opacity: 0.45 }]}
                         contentFit="cover"
                         transition={500}
                     />
                 )}
-                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(5,5,10,0.4)' }]} />
+                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(5,5,10,0.25)' }]} />
 
                 <View style={{ padding: 22 }}>
                     <View style={tab.libidoHeader}>

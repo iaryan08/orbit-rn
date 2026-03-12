@@ -32,18 +32,18 @@ function setupPresenceListener(coupleId: string, entry: ChannelEntry) {
             .filter(([id, presence]: [string, any]) => {
                 if (id === entry.userId) return false
 
-                // 1. Explicit offline flag (Highest Priority)
-                if (presence.is_online === false) return false
+                const explicitlyOnline = presence?.is_online === true || presence?.in_cinema === true
+                const rawHeartbeat = presence?.last_changed ?? presence?.online_at ?? 0
+                const heartbeat = typeof rawHeartbeat === 'number'
+                    ? rawHeartbeat
+                    : (explicitlyOnline ? now : 0)
+                const isFresh = heartbeat > 0 && (now - heartbeat) < 300000
 
-                // 2. Explicit online flag
-                if (presence.is_online === true) return true
+                if (presence?.is_online === false && !presence?.in_cinema) return false
+                if (explicitlyOnline) return isFresh
+                if (presence?.status === 'online') return isFresh
 
-                // 3. Legacy Status string
-                if (presence.status === 'online') return true
-
-                // 4. Heartbeat fallbacks (within last 2 mins)
-                const heartbeat = presence.online_at || presence.last_changed || 0
-                return (now - heartbeat) < 120000
+                return isFresh
             })
             .map(([id]) => id)
 

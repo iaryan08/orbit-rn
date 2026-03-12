@@ -25,6 +25,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography } from '../constants/Theme';
 import { getPartnerName } from '../lib/utils';
 
+// ─── Static animation constants (prevent "Expected static flag" crash) ────────
+const USE_LAYOUT_ANIM = Platform.OS !== 'android';
+const ANIM_FADE_IN = USE_LAYOUT_ANIM ? FadeIn.duration(400) : undefined;
+const ANIM_FADE_OUT = USE_LAYOUT_ANIM ? FadeOut.duration(400) : undefined;
+const ANIM_ZOOM_IN = USE_LAYOUT_ANIM ? ZoomIn.duration(500).springify() : undefined;
+const ANIM_ZOOM_IN_SIMPLE = USE_LAYOUT_ANIM ? ZoomIn.springify() : undefined;
+const ANIM_ZOOM_OUT = USE_LAYOUT_ANIM ? ZoomOut.duration(400) : undefined;
+
 const { width, height } = Dimensions.get('window');
 
 const FloatingHeart = ({ delay = 0, x = 0 }: { delay?: number; x?: number }) => {
@@ -257,16 +265,16 @@ export function ConnectionSync() {
 
     return (
         <Animated.View
-            entering={FadeIn.duration(400)}
-            exiting={FadeOut.duration(400)}
+            entering={ANIM_FADE_IN}
+            exiting={ANIM_FADE_OUT}
             style={[styles.overlay, overlayStyle]}
             pointerEvents="none"
         >
 
             <View style={styles.centerContainer}>
                 <Animated.View
-                    entering={ZoomIn.duration(500).springify()}
-                    exiting={ZoomOut.duration(400)}
+                    entering={ANIM_ZOOM_IN}
+                    exiting={ANIM_ZOOM_OUT}
                     style={styles.elementsContainer}
                 >
                     {interactionType === 'heartbeat' && (
@@ -290,7 +298,7 @@ export function ConnectionSync() {
                     )}
 
                     <Animated.View
-                        entering={ZoomIn.springify()}
+                        entering={ANIM_ZOOM_IN_SIMPLE}
                         style={[
                             styles.iconCircle,
                             interactionType === 'spark' && { borderColor: Colors.dark.amber[400], backgroundColor: Colors.dark.amber[900] + '33' },

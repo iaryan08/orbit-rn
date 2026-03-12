@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Dimensions, Platform } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { Typography, Spacing, Radius, Colors } from '../../constants/Theme';
 import { Sparkles, Droplets } from 'lucide-react-native';
 import { useOrbitStore } from '../../lib/store';
@@ -77,9 +77,10 @@ export const BiologicalTimeline = React.memo(({ days, selectedDay, onSelectDay }
         const targetIdx = days.findIndex(d => d.dayOfCycle === selectedDay);
         if (targetIdx >= 0 && listRef.current) {
             // Delay slightly to ensure layout
-            setTimeout(() => {
+            const timer = setTimeout(() => {
                 listRef.current?.scrollToIndex({ index: targetIdx, animated: true, viewPosition: 0.5 });
             }, 100);
+            return () => clearTimeout(timer);
         }
     }, []);
 

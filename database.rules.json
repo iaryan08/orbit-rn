@@ -19,6 +19,12 @@
                 ".read": "auth != null",
                 ".write": "auth != null"
             }
+        },
+        "couples": {
+            "$couple_id": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
         }
     }
 }

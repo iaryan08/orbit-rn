@@ -45,10 +45,14 @@ export const GlassCard = React.memo(({ children, style, contentStyle, ...props }
 const styles = StyleSheet.create({
     container: {
         borderRadius: Radius.xl,
-        overflow: 'hidden',
-        borderWidth: 1.2, // Slightly thicker for contrast
-        borderColor: 'rgba(255, 255, 255, 0.15)', // Brighter border
-        backgroundColor: '#000000', // OLED black for maximum contrast (Instagram Style)
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: 'rgba(0, 0, 0, 0.85)', // Semi-transparent for wallpapers
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 5,
     },
     overlay: {
         // Layout styles applied dynamically from props

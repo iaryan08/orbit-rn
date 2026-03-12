@@ -4,7 +4,7 @@ import {
     Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform
 } from 'react-native';
 import Animated, {
-    FadeIn, FadeInRight, FadeInDown, FadeOut, withSpring, useSharedValue,
+    withSpring, useSharedValue,
     useAnimatedStyle, withTiming, SlideInRight, SlideOutLeft, runOnJS
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,7 +16,7 @@ import { LunaraOnboardingData } from '../../lib/store/lunaraSlice';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 
-const ONBOARD_FADE = FadeInDown.duration(400);
+const ONBOARD_FADE = undefined; // Android-only: entering animations crash at module-level
 
 
 const { width, height } = Dimensions.get('window');

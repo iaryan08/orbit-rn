@@ -6,8 +6,7 @@ import {
 import { Image } from 'expo-image';
 import Animated, {
     useSharedValue, useAnimatedScrollHandler, useAnimatedStyle,
-    interpolate, Extrapolate, FadeIn, FadeInDown,
-    withRepeat, withTiming,
+    interpolate, Extrapolate,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Flame, Droplets, Sparkles, Calendar, Heart, Activity, BookOpen, ShieldAlert } from 'lucide-react-native';
@@ -42,9 +41,7 @@ import { BodyTab } from '../lunara/BodyTab';
 import { LearnTab } from '../lunara/LearnTab';
 import { HerCycleTab } from '../lunara/HerCycleTab';
 import { tab } from '../lunara/tabStyles';
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
+import { TabSkeleton } from '../TabSkeleton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -120,16 +117,9 @@ export function LunaraScreen({ isActive = true, forcedTab }: { isActive?: boolea
     const [partnerCycleProfile, setPartnerCycleProfile] = useState<any>(null);
     const [isLogging, setIsLogging] = useState(false);
     const [selectedTimelineDay, setSelectedTimelineDay] = useState<number | null>(null);
-    const [isChangingTab, setIsChangingTab] = useState(false);
 
     // activeTab is either forced by the Pager index or driven by NavbarDock
     const activeTab = forcedTab || lunaraTab;
-
-    useEffect(() => {
-        setIsChangingTab(true);
-        const timer = setTimeout(() => setIsChangingTab(false), 450);
-        return () => clearTimeout(timer);
-    }, [activeTab]);
 
     const user = auth.currentUser;
     const coupleId = profile?.couple_id || couple?.id;
@@ -333,7 +323,7 @@ export function LunaraScreen({ isActive = true, forcedTab }: { isActive?: boolea
     const screenTitle = activeTab === 'today' ? (currentPhase?.name || 'Lunara')
         : activeTab === 'cycle' ? 'Cycle Map'
             : activeTab === 'body' ? (isFemale ? 'Body Log' : 'Desire')
-                : isFemale ? 'Partner' : 'Care Guide';
+                : isFemale ? 'Partner' : 'Partner Intel';
     const screenSub = isFemale ? 'Biological · Intelligence' : 'Know Her · Support Her';
 
     // ─── Onboarding gate (female only) ───────────────────────────────────────
@@ -365,20 +355,18 @@ export function LunaraScreen({ isActive = true, forcedTab }: { isActive?: boolea
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: 160 }}
             >
-                {/* Page title */}
-                {!isChangingTab && !isLoadingContent && (
-                    <View style={styles.heroHeader}>
-                        <Animated.Text style={[styles.screenTitle, titleStyle]}>{screenTitle}</Animated.Text>
-                        <Animated.Text style={[styles.screenSub, titleStyle]}>{screenSub}</Animated.Text>
-                    </View>
-                )}
+                {/* Page title — always visible, no delay */}
+                <View style={styles.heroHeader}>
+                    <Animated.Text style={[styles.screenTitle, titleStyle]}>{screenTitle}</Animated.Text>
+                    <Animated.Text style={[styles.screenSub, titleStyle]}>{screenSub}</Animated.Text>
+                </View>
 
                 {/* Content */}
                 <View style={styles.content}>
-                    {isChangingTab || isLoadingContent ? (
-                        <PremiumTabLoader color={phaseColor} />
+                    {isLoadingContent ? (
+                        <TabSkeleton isActive={true} count={2} />
                     ) : (
-                        <>
+                        <View>
                             {/* Today — female sees her own phase; male sees partner cycle */}
                             {activeTab === 'today' && (
                                 isFemale ? (
@@ -394,6 +382,8 @@ export function LunaraScreen({ isActive = true, forcedTab }: { isActive?: boolea
                                         timelineDays={timelineDays}
                                         selectedDay={selectedTimelineDay || realCycleDay}
                                         onSelectDay={setSelectedTimelineDay}
+                                        onLogPeriod={handleLogPeriod}
+                                        isLogging={isLogging}
                                         formatContextualText={formatContextualText}
                                         intimacyIntel={intimacyIntel}
                                         isFemale={isFemale}
@@ -408,6 +398,8 @@ export function LunaraScreen({ isActive = true, forcedTab }: { isActive?: boolea
                                         timelineDays={timelineDays}
                                         selectedDay={selectedTimelineDay || realCycleDay}
                                         onSelectDay={(d: number) => { setSelectedTimelineDay(d); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                                        onLogPeriod={handleLogPeriod}
+                                        isLogging={isLogging}
                                         formatContextualText={formatContextualText}
                                     />
                                 )
@@ -458,19 +450,18 @@ export function LunaraScreen({ isActive = true, forcedTab }: { isActive?: boolea
                                     femaleCycleDay={realCycleDay} // Pass her day for shared connection
                                 />
                             )}
-                            {/* Learn (Male only) — Sex Ed, Intimacy tips, Ovulation insights */}
                             {activeTab === 'learn' && !isFemale && (
                                 <LearnTab
                                     intimacyIntel={intimacyIntel}
-                                    todaySymptoms={todaySymptoms}
+                                    phase={currentPhase}
+                                    partnerName={partnerFirstName}
                                     formatContextualText={formatContextualText}
-                                    timelineDays={timelineDays}
-                                    selectedDay={selectedTimelineDay}
-                                    onSelectDay={setSelectedTimelineDay}
+                                    onLogPeriod={handleLogPeriod}
+                                    isLogging={isLogging}
                                     styles={tab}
                                 />
                             )}
-                        </>
+                        </View>
                     )}
                 </View>
             </Animated.ScrollView>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, AppState, AppStateStatus, PanResponder } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, AppState, AppStateStatus, PanResponder, Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Haptics from 'expo-haptics';
 import Animated, {
@@ -16,8 +16,9 @@ import { Colors, Typography } from '../constants/Theme';
 import { useOrbitStore } from '../lib/store';
 import { SecurityKeyboard } from './SecurityKeyboard';
 
-const LAYOUT_ANIM_INC = FadeIn.duration(220);
-const LAYOUT_ANIM_OUT = FadeOut.duration(200);
+const USE_LAYOUT_ANIM = Platform.OS !== 'android';
+const LAYOUT_ANIM_INC = USE_LAYOUT_ANIM ? FadeIn.duration(220) : undefined;
+const LAYOUT_ANIM_OUT = USE_LAYOUT_ANIM ? FadeOut.duration(200) : undefined;
 
 export function AppLockOverlay() {
     const isAppLockEnabled = useOrbitStore(state => state.isAppLockEnabled);

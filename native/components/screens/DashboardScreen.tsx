@@ -25,7 +25,7 @@ import {
 import { GlassCard } from '../../components/GlassCard';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
 import * as Haptics from 'expo-haptics';
-import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, runOnJS, FadeIn } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderPill } from '../../components/HeaderPill';
 import { getPublicStorageUrl } from '../../lib/storage';
@@ -43,7 +43,8 @@ const { width, height } = Dimensions.get('window');
 const SHARED_CANVAS_PLACEHOLDER_HEIGHT = Math.round(width * 1.2);
 const DASHBOARD_PRELOAD_DISTANCE = 700;
 const DEFERRED_CARD_HEIGHT = 320;
-const MODAL_ANIM_INC = FadeIn.duration(400);
+// FadeIn removed — Android Fabric doesn't support layout animations at module level
+const MODAL_ANIM_INC = undefined;
 
 export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
     // 🚀 Performance Optimization: Using granular selectors to avoid whole-screen re-renders
@@ -381,24 +382,15 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
                 }
             >
                 <View style={styles.feedSection}>
-                    {!isLoadingInspiration && (
-                        <Animated.View
-                            style={[styles.headerTitleContainer, avatarMorphStyle]}
-                        >
-                            <PartnerHeader
-                                profile={profile}
-                                partnerProfile={partnerProfile}
-                                coupleId={couple?.id}
-                                isActive={activeTabIndex === 1}
-                            />
-                        </Animated.View>
-                    )}
-
-                    {isLoadingInspiration && (
-                        <View style={{ paddingTop: 40, paddingBottom: 20 }}>
-                            <PremiumTabLoader color={Colors.dark.rose[400]} message="Curating Daily Inspiration..." />
-                        </View>
-                    )}
+                    {/* PartnerHeader always visible — stable component tree prevents Fabric crash */}
+                    <View style={styles.headerTitleContainer}>
+                        <PartnerHeader
+                            profile={profile}
+                            partnerProfile={partnerProfile}
+                            coupleId={couple?.id}
+                            isActive={activeTabIndex === 1}
+                        />
+                    </View>
 
                     {/* Quick Actions Row - Premium Gradient Borders */}
                     <View style={styles.quickActionsContainer}>

@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
 import { Canvas, Group, Circle, Mask, Rect, LinearGradient, RadialGradient, vec, Blur, Shadow, BoxShadow, Fill, mix } from '@shopify/react-native-skia';
-import Animated, { useSharedValue, withRepeat, withTiming, Easing, useDerivedValue, interpolateColor } from 'react-native-reanimated';
+import Animated, { useSharedValue, withRepeat, withTiming, Easing, useDerivedValue, cancelAnimation } from 'react-native-reanimated';
 import { useOrbitStore } from '../../lib/store';
 
 const { width } = Dimensions.get('window');
@@ -20,7 +20,10 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5, isActive = true
 
     useEffect(() => {
         if (isLiteMode || !isActive) {
-            pulse.value = 0.5; // Static mid-state
+            // CRITICAL: cancelAnimation stops the UI-thread worklet — just setting .value doesn't
+            cancelAnimation(pulse);
+            cancelAnimation(rotation);
+            pulse.value = 0.5;
             rotation.value = 0;
             return;
         }
@@ -37,7 +40,8 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5, isActive = true
         );
 
         return () => {
-            // Cleanup on unmount/inactive
+            cancelAnimation(pulse);
+            cancelAnimation(rotation);
             pulse.value = 0.5;
             rotation.value = 0;
         };
@@ -58,13 +62,14 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5, isActive = true
         }
     }, [phase]);
 
-    // Derived values for Skia
+    // Derived values for Skia — each must only read SHARED values, NOT other derived .value refs
     const innerPulse = useDerivedValue(() => 0.95 + pulse.value * 0.05);
     const glowOpacity = useDerivedValue(() => 0.3 + pulse.value * 0.4);
 
-    const glowRadius = useDerivedValue(() => (SPHERE_SIZE / 2 + 30) * innerPulse.value);
-    const mainRadius = useDerivedValue(() => (SPHERE_SIZE / 2) * innerPulse.value);
-    const glossRadius = useDerivedValue(() => SPHERE_SIZE / 3);
+    // Inline innerPulse formula directly — reading derived.value in another worklet crashes on Android
+    const glowRadius = useDerivedValue(() => (SPHERE_SIZE / 2 + 30) * (0.95 + pulse.value * 0.05));
+    const mainRadius = useDerivedValue(() => (SPHERE_SIZE / 2) * (0.95 + pulse.value * 0.05));
+    const glossRadius = SPHERE_SIZE / 3; // No animation dependency — plain constant is fine
 
     // Lite Mode or Inactive: COMPLETELY bypass Skia to preserve RAM and GPU
     if (isLiteMode || !isActive) {

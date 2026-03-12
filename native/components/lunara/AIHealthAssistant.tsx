@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { Typography, Spacing, Radius } from '../../constants/Theme';
 import { Sparkles, Brain, ShieldAlert } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
@@ -12,58 +12,58 @@ interface AIHealthAssistantProps {
     isLoading?: boolean;
 }
 
-const FADE_IN_UP = FadeInUp.duration(500);
+const FADE_IN_UP = undefined; // Android-only: entering animations crash at module-level
 
 export const AIHealthAssistant = React.memo(({ symptoms, phase, advice, isLoading }: AIHealthAssistantProps) => {
-    if (isLoading) {
-        return (
-            <GlassCard style={styles.card} intensity={12}>
-                <View style={styles.skeletonHeader} />
-                <View style={styles.skeletonBody} />
-            </GlassCard>
-        );
-    }
-
     const hasSymptoms = symptoms && symptoms.length > 0;
 
     return (
-        <Animated.View entering={FADE_IN_UP} style={styles.cardContainer}>
-            <GlassCard style={styles.card} intensity={15}>
-                <View style={styles.header}>
-                    <View style={styles.headerLeft}>
-                        <Brain size={16} color="#c084fc" />
-                        <Text style={styles.label}>AI HEALTH ASSISTANT</Text>
-                    </View>
-                    <View style={styles.aiBadge}>
-                        <Sparkles size={10} color="#c084fc" />
-                        <Text style={styles.aiBadgeText}>INTELLIGENCE</Text>
-                    </View>
-                </View>
+        <View style={styles.cardContainer}>
+            <GlassCard style={styles.card} intensity={isLoading ? 12 : 15}>
+                {isLoading ? (
+                    <>
+                        <View style={styles.skeletonHeader} />
+                        <View style={styles.skeletonBody} />
+                    </>
+                ) : (
+                    <>
+                        <View style={styles.header}>
+                            <View style={styles.headerLeft}>
+                                <Brain size={16} color="#c084fc" />
+                                <Text style={styles.label}>AI HEALTH ASSISTANT</Text>
+                            </View>
+                            <View style={styles.aiBadge}>
+                                <Sparkles size={10} color="#c084fc" />
+                                <Text style={styles.aiBadgeText}>INTELLIGENCE</Text>
+                            </View>
+                        </View>
 
-                <Text style={styles.title}>
-                    {hasSymptoms ? 'Symptom Pattern Detected' : 'Biological Status: Optimal'}
-                </Text>
+                        <Text style={styles.title}>
+                            {hasSymptoms ? 'Symptom Pattern Detected' : 'Biological Status: Optimal'}
+                        </Text>
 
-                <Text style={styles.summary}>
-                    {hasSymptoms
-                        ? `I've analyzed your ${symptoms.length} logged symptoms. They align with typical ${phase} hormonal shifts. Proximity to ovulation may increase sensitivity.`
-                        : `Your profile currently shows a balanced baseline for the ${phase} phase. Continue logging to refine your personal health model.`
-                    }
-                </Text>
+                        <Text style={styles.summary}>
+                            {hasSymptoms
+                                ? `I've analyzed your ${symptoms.length} logged symptoms. They align with typical ${phase} hormonal shifts. Proximity to ovulation may increase sensitivity.`
+                                : `Your profile currently shows a balanced baseline for the ${phase} phase. Continue logging to refine your personal health model.`
+                            }
+                        </Text>
 
-                {advice && (
-                    <View style={styles.adviceBox}>
-                        <Text style={styles.adviceLabel}>PROACTIVE ADVICE</Text>
-                        <Text style={styles.adviceText}>{advice}</Text>
-                    </View>
+                        {advice && (
+                            <View style={styles.adviceBox}>
+                                <Text style={styles.adviceLabel}>PROACTIVE ADVICE</Text>
+                                <Text style={styles.adviceText}>{advice}</Text>
+                            </View>
+                        )}
+
+                        <View style={styles.disclaimer}>
+                            <ShieldAlert size={10} color="rgba(255,255,255,0.2)" />
+                            <Text style={styles.disclaimerText}>NOT MEDICAL ADVICE. CONSULT A PHYSICIAN FOR CLINICAL CONCERNS.</Text>
+                        </View>
+                    </>
                 )}
-
-                <View style={styles.disclaimer}>
-                    <ShieldAlert size={10} color="rgba(255,255,255,0.2)" />
-                    <Text style={styles.disclaimerText}>NOT MEDICAL ADVICE. CONSULT A PHYSICIAN FOR CLINICAL CONCERNS.</Text>
-                </View>
             </GlassCard>
-        </Animated.View>
+        </View>
     );
 });
 

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TouchableOpacity, View, Text, StyleSheet, Dimensions, Platform, Alert, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSequence, runOnJS, withDelay, withRepeat, Easing, interpolate } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSequence, runOnJS, withDelay, withRepeat, Easing, interpolate, cancelAnimation } from 'react-native-reanimated';
 import { ANIM_FADE_IN, ANIM_FADE_OUT, ANIM_MICRO } from '../../constants/Animation';
 
 import { getPartnerName } from '../../lib/utils';
@@ -226,7 +226,7 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
     // Optimized Local Persistence (Debounced)
     const lastLocalSave = useRef(0);
     useEffect(() => {
-        if (!couple?.id || !currentSong) return;
+        if (!couple?.id || !currentSong || !isFocused) return;
 
         const saveToLocal = () => {
             const now = Date.now();
@@ -524,6 +524,9 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
                 -1,
                 true
             );
+        } else {
+            cancelAnimation(energyPulse);
+            energyPulse.value = 1;
         }
     }, [isFocused]);
 

@@ -14,7 +14,7 @@ import { signOut } from 'firebase/auth';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, update, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { useRouter } from 'expo-router';
-import Animated, { useSharedValue, useAnimatedScrollHandler, FadeIn, FadeOut, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOrbitStore, AppSlice } from '../../lib/store';
 import * as Haptics from 'expo-haptics';
@@ -33,10 +33,10 @@ import { ProfileAvatar } from '../../components/ProfileAvatar';
 
 const WALLPAPER_REMOTE_SYNC_DELAY_MS = 10000;
 
-const FADE_IN_ANIM = FadeIn.duration(300);
-const FADE_OUT_ANIM = FadeOut.duration(300);
+const FADE_IN_ANIM = undefined; // Android-only: layout animations crash at module-level
+const FADE_OUT_ANIM = undefined; // Android-only: layout animations crash at module-level
 
-export function SettingsScreen() {
+export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const {
@@ -287,27 +287,31 @@ export function SettingsScreen() {
 
     const handlePickWallpaper = async () => {
         try {
+            // Android requires explicit permission before accessing media library
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission Required', 'Please allow access to your photo library in Settings to upload a wallpaper.');
+                return;
+            }
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
                 allowsEditing: true,
                 aspect: [9, 16],
-                quality: 0.7, // Optimized for Redmi 10/12 performance
+                quality: 0.7,
             });
 
             if (!result.canceled && result.assets[0].uri) {
                 setSaving(true);
-                // V2 Engine: Real-time quantization to 2200px Retina standard
                 const uploadResult = await uploadWallpaper(result.assets[0].uri);
                 if (uploadResult.error) {
-                    Alert.alert("Upload Failed", uploadResult.error);
+                    Alert.alert('Upload Failed', uploadResult.error);
                 } else {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    // Force instant local sync if needed
                     setWallpaperConfig({ mode: 'custom' });
                 }
             }
         } catch (e: any) {
-            Alert.alert("Error", e.message || "Failed to pick image");
+            Alert.alert('Error', e.message || 'Failed to pick image');
         } finally {
             setSaving(false);
         }
@@ -335,6 +339,12 @@ export function SettingsScreen() {
 
     const handlePickAvatar = async () => {
         try {
+            // Android requires explicit permission before accessing media library
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission Required', 'Please allow access to your photo library in Settings to update your avatar.');
+                return;
+            }
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
                 allowsEditing: true,
@@ -346,13 +356,13 @@ export function SettingsScreen() {
                 setSaving(true);
                 const uploadResult = await uploadAvatar(result.assets[0].uri);
                 if (uploadResult.error) {
-                    Alert.alert("Upload Failed", uploadResult.error);
+                    Alert.alert('Upload Failed', uploadResult.error);
                 } else {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
             }
         } catch (e: any) {
-            Alert.alert("Error", e.message || "Failed to pick avatar");
+            Alert.alert('Error', e.message || 'Failed to pick avatar');
         } finally {
             setSaving(false);
         }

@@ -195,6 +195,8 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
         state.activeCoupleUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
         set({ activeUnsubs: [], activeCoupleUnsubs: [] });
 
+        let isCleanedUp = false;
+
         // Show ultra-fast startup loader ONLY if cold boot with zero data
         const needsLoader = !state.profile && state.memories.length === 0;
         console.log("[DataSlice] fetchData starting. NeedsLoader:", needsLoader);
@@ -204,13 +206,11 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
         // 🛡️ Safety Unlock: Ensure app is NEVER stuck for more than 7s
         const safetyUnlock = setTimeout(() => {
-            if (get().loading) {
+            if (get().loading && !isCleanedUp) {
                 console.warn("[DataSlice] Safety unlock triggered. Breaking boot hang.");
                 set({ loading: false, fetchingUserId: null });
             }
         }, 7000);
-
-        let isCleanedUp = false;
 
         const bootstrapFromLocal = async () => {
             console.log("[DataSlice] Bootstrap from SQLite starting...");
@@ -295,9 +295,29 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 }
 
             } finally {
-                set({ isSyncing: false });
+                if (!isCleanedUp) set({ isSyncing: false });
             }
         };
+
+        const cleanup = () => {
+            isCleanedUp = true;
+            clearTimeout(safetyUnlock);
+            if (activePartnerUnsub) {
+                activePartnerUnsub();
+                activePartnerUnsub = null;
+            }
+            if (activeCoupleUnsub) activeCoupleUnsub();
+            if (activeMusicUnsub) activeMusicUnsub();
+            if (activeMilestonesUnsub) activeMilestonesUnsub();
+            if (activeCycleUnsub) activeCycleUnsub();
+            if (activeMoodsUnsub) activeMoodsUnsub();
+            if (activeLettersUnsub) activeLettersUnsub();
+            const s = get();
+            s.activeUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
+            s.activeCoupleUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
+            set({ activeUnsubs: [], activeCoupleUnsubs: [], fetchingUserId: null });
+        };
+
 
         // 🚀 BOOT CRITICAL: Load from SQLite INSTANTLY before network
         // This ensures the app is never empty/white even on an airplane.
@@ -537,24 +557,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
             subscribeToCoupleMetadata(bootCoupleId);
         }
 
-        return () => {
-            clearTimeout(safetyUnlock);
-            isCleanedUp = true;
-            if (activePartnerUnsub) {
-                activePartnerUnsub();
-                activePartnerUnsub = null;
-            }
-            if (activeCoupleUnsub) activeCoupleUnsub();
-            if (activeMusicUnsub) activeMusicUnsub();
-            if (activeMilestonesUnsub) activeMilestonesUnsub();
-            if (activeCycleUnsub) activeCycleUnsub();
-            if (activeMoodsUnsub) activeMoodsUnsub();
-            if (activeLettersUnsub) activeLettersUnsub();
-            const s = get();
-            s.activeUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
-            s.activeCoupleUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
-            set({ activeUnsubs: [], activeCoupleUnsubs: [], fetchingUserId: null });
-        };
+        return cleanup;
     },
 
     syncNow: async () => {

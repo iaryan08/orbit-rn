@@ -52,13 +52,13 @@ const STATIC_ITEMS = [
     {
         id: 'partner_screen', title: 'Partner', subtitle: 'Connections, libido & calendar',
         icon: Heart, iconColor: '#f43f5e', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(9, 'tap'); },
+        action: (s: any) => { s.setAppMode('lunara'); s.setTabIndex(5, 'tap'); },
         keywords: ['partner', 'connections', 'libido', 'drive', 'calendar', 'rhythm'],
     },
     {
         id: 'settings', title: 'Settings', subtitle: 'Profile, atmosphere, security',
         icon: Settings, iconColor: '#94a3b8', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(10, 'tap'); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(9, 'tap'); },
         keywords: ['settings', 'profile', 'account', 'wallpaper', 'atmosphere'],
     },
     {

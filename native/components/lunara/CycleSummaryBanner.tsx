@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Typography, Radius, Spacing } from '../../constants/Theme';
 import { Droplets, Clock, TrendingUp } from 'lucide-react-native';
@@ -11,11 +12,17 @@ interface CycleSummaryBannerProps {
     cycleDay: number | null;
     phase: PhaseWindow | null;
     prediction: CyclePrediction | null;
-    onLogPeriod: () => void;
+    onLogPeriod?: () => void;
     isLogging?: boolean;
+    isPartnerView?: boolean;
 }
 
-export const CycleSummaryBanner = React.memo(({ cycleDay, phase, prediction, onLogPeriod, isLogging }: CycleSummaryBannerProps) => {
+export const CycleSummaryBanner = React.memo(({ cycleDay, phase, prediction, onLogPeriod, isLogging, isPartnerView }: CycleSummaryBannerProps) => {
+    const handlePress = () => {
+        if (onLogPeriod) {
+            onLogPeriod();
+        }
+    };
     const [bgImage, setBgImage] = useState<string | null>(null);
 
     useEffect(() => {
@@ -93,7 +100,13 @@ export const CycleSummaryBanner = React.memo(({ cycleDay, phase, prediction, onL
                     transition={500}
                 />
             )}
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(5,5,10,0.65)' }]} />
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(5,5,10,0.35)' }]} />
+
+            {/* Gentle Bottom Fade for Text Contrast */}
+            <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.7)']}
+                style={StyleSheet.absoluteFillObject}
+            />
 
             <View style={{ padding: 20 }}>
                 {/* Main info row */}
@@ -151,20 +164,27 @@ export const CycleSummaryBanner = React.memo(({ cycleDay, phase, prediction, onL
                         </View>
                     )}
 
-                    <Pressable
-                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onLogPeriod(); }}
-                        disabled={isLogging}
-                        style={({ pressed }) => [
-                            styles.logBtn,
-                            phase.name === 'Menstrual' && styles.endBtn,
-                            { opacity: pressed || isLogging ? 0.5 : 1 }
-                        ]}
-                    >
-                        <Droplets size={12} color={phase.name === 'Menstrual' ? '#fbbf24' : '#fb7185'} />
-                        <Text style={[styles.logBtnText, phase.name === 'Menstrual' && styles.endBtnText]}>
-                            {isLogging ? 'Logging...' : (phase.name === 'Menstrual' ? 'End Period' : 'Log Period')}
-                        </Text>
-                    </Pressable>
+                    {!isPartnerView && (
+                        <Pressable
+                            onPress={() => {
+                                if (onLogPeriod) {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    onLogPeriod();
+                                }
+                            }}
+                            disabled={isLogging}
+                            style={({ pressed }) => [
+                                styles.logBtn,
+                                phase.name === 'Menstrual' && styles.endBtn,
+                                { opacity: pressed || isLogging ? 0.5 : 1 }
+                            ]}
+                        >
+                            <Droplets size={12} color={phase.name === 'Menstrual' ? '#fbbf24' : '#fb7185'} />
+                            <Text style={[styles.logBtnText, phase.name === 'Menstrual' && styles.endBtnText]}>
+                                {isLogging ? 'Logging...' : (phase.name === 'Menstrual' ? 'End Period' : 'Log Period')}
+                            </Text>
+                        </Pressable>
+                    )}
                 </View>
             </View>
         </View>
@@ -175,11 +195,10 @@ const styles = StyleSheet.create({
     container: {
         marginHorizontal: Spacing.md,
         marginBottom: Spacing.md,
-        backgroundColor: 'rgba(255,255,255,0.03)',
-        borderRadius: Radius.xl,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.07)',
-        padding: 0, // Changed to 0 since we have inner padding 20
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        borderRadius: 24,
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.1)', padding: 0,
     },
     emptyState: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, justifyContent: 'center' },
     emptyText: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.4)' },

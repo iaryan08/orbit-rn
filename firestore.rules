@@ -58,6 +58,10 @@ service cloud.firestore {
         allow get, list, write: if isCoupleMember(coupleId);
       }
 
+      match /music_session/{sessionId} {
+        allow read, write: if isCoupleMember(coupleId);
+      }
+
       // Intimacy & Support
       match /milestones/{milestoneId} {
         allow read, write: if isCoupleMember(coupleId);
@@ -66,15 +70,24 @@ service cloud.firestore {
         allow read, write: if isCoupleMember(coupleId);
       }
 
-      // Lunara & Cycle Tracking
+      // ── Lunara & Cycle Tracking ───────────────────────────────────
+      // Both partners can READ each other's cycle data (shared awareness).
+      // Each user can only WRITE their own cycle profile & logs.
       match /cycle_profiles/{userId} {
-        allow read, write: if isCoupleMember(coupleId);
+        allow read: if isCoupleMember(coupleId);
+        allow write: if isCoupleMember(coupleId) && request.auth.uid == userId;
       }
-      match /cycle_logs/{allPaths=**} {
-        allow read, write: if isCoupleMember(coupleId);
+      match /cycle_logs/{userId}/{allPaths=**} {
+        allow read: if isCoupleMember(coupleId);
+        allow write: if isCoupleMember(coupleId) && request.auth.uid == userId;
+      }
+      // Onboarding data saved per user
+      match /lunara_onboarding/{userId} {
+        allow read: if isCoupleMember(coupleId);
+        allow write: if isCoupleMember(coupleId) && request.auth.uid == userId;
       }
 
-      // Insights
+      // Insights (AI-generated, written by cloud or either partner)
       match /couple_insights/{insightId} {
         allow read, write: if isCoupleMember(coupleId);
       }

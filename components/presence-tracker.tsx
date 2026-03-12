@@ -17,13 +17,16 @@ export function PresenceTracker({ coupleId, userId }: { coupleId: string; userId
                 const payload: any = {
                     is_online: isOnline,
                     online_at: serverTimestamp(),
+                    last_changed: serverTimestamp(),
                 }
                 await update(userPresenceRef, payload)
 
                 if (isOnline) {
                     onDisconnect(userPresenceRef).update({
                         is_online: false,
-                        online_at: serverTimestamp()
+                        in_cinema: null,
+                        online_at: serverTimestamp(),
+                        last_changed: serverTimestamp()
                     })
                     console.log(`[Presence] Mark Online: ${userId} (Global)`)
                 } else {

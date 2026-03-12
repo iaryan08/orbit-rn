@@ -112,16 +112,17 @@ export function NavbarDock() {
     const moonIndicatorStyle = useAnimatedStyle(() => ({ transform: [{ translateX: moonIndicatorX.value }] }));
 
     // ─── Lunara indicator (tracks app screens 5-8) ───────────────────────
+    // IMPORTANT: Array.from() is NOT available inside worklets (UI thread).
+    // Both genders always have exactly 4 Lunara tabs at indices 5-8.
     const lunaraIndicatorX = useDerivedValue(() => {
-        const count = lunaraTabs.length;
-        const inputRange = Array.from({ length: count }, (_, i) => 5 + i);
-        const outputRange = Array.from({ length: count }, (_, i) => i * SLOT);
-        return interpolate(scrollOffset.value, inputRange, outputRange, Extrapolate.CLAMP);
+        return interpolate(scrollOffset.value, [5, 6, 7, 8], [0, SLOT, SLOT * 2, SLOT * 3], Extrapolate.CLAMP);
     });
     const lunaraIndicatorStyle = useAnimatedStyle(() => ({ transform: [{ translateX: lunaraIndicatorX.value }] }));
 
     // ─── Dock show/hide (tracks 0 and 10+) ────────────────────────────────
-    const MAX_INDEX = isFemale ? 10 : 9;
+    // Pages: 0=cinema, 1=dashboard, 2=letters, 3=memories, 4=milestones, 5-8=lunara, 9=settings
+    // Both genders have the same page count (female has 4 lunara tabs, male has 4 lunara tabs)
+    const MAX_INDEX = 9;
     const dockOpacity = useDerivedValue(() => {
         return interpolate(scrollOffset.value, [0, 0.5, 1, MAX_INDEX, MAX_INDEX + 0.5], [0, 0, 1, 1, 0], Extrapolate.CLAMP);
     });

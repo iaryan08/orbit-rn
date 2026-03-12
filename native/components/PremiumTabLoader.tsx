@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import Animated, {
     useSharedValue,
     useAnimatedStyle,
@@ -7,15 +7,17 @@ import Animated, {
     withTiming,
     Easing,
     FadeIn,
+    cancelAnimation,
 } from 'react-native-reanimated';
 import { Typography } from '../constants/Theme';
 
 interface PremiumTabLoaderProps {
     color?: string;
     message?: string;
+    isActive?: boolean;
 }
 
-const LAYOUT_ANIM_INC = FadeIn.duration(400);
+const LAYOUT_ANIM_INC = Platform.OS !== 'android' ? FadeIn.duration(400) : undefined;
 
 /**
  * PremiumTabLoader: A highly optimized, low-resource loading indicator.
@@ -23,34 +25,43 @@ const LAYOUT_ANIM_INC = FadeIn.duration(400);
  */
 export const PremiumTabLoader = ({
     color = '#f43f5e',
-    message = 'Harmonizing Rhythm...'
+    message = 'Harmonizing Rhythm...',
+    isActive = true,
 }: PremiumTabLoaderProps) => {
     const scale = useSharedValue(1);
     const opacity = useSharedValue(0.2);
     const rotation = useSharedValue(0);
 
     useEffect(() => {
-        // Optimized pulse
+        if (!isActive) {
+            cancelAnimation(scale);
+            cancelAnimation(opacity);
+            cancelAnimation(rotation);
+            return;
+        }
+
         scale.value = withRepeat(
             withTiming(1.15, { duration: 1200, easing: Easing.inOut(Easing.sin) }),
             -1,
             true
         );
-
-        // Subtle opacity shift
         opacity.value = withRepeat(
             withTiming(0.4, { duration: 1200, easing: Easing.inOut(Easing.sin) }),
             -1,
             true
         );
-
-        // Very slow, low-resource rotation for an orbital feel
         rotation.value = withRepeat(
             withTiming(360, { duration: 8000, easing: Easing.linear }),
             -1,
             false
         );
-    }, []);
+
+        return () => {
+            cancelAnimation(scale);
+            cancelAnimation(opacity);
+            cancelAnimation(rotation);
+        };
+    }, [isActive]);
 
     const pulseStyle = useAnimatedStyle(() => ({
         transform: [

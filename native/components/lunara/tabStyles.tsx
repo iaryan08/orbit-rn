@@ -1,12 +1,11 @@
-import { StyleSheet } from 'react-native';
-import { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { Platform, StyleSheet } from 'react-native';
 import { Radius, Spacing, Typography } from '../../constants/Theme';
-
-// ─── Shared Animation Constants ───────────────────────────────────────────────
-export const FADE_IN = FadeIn.duration(280);
-export const FADE_IN_DOWN_1 = FadeInDown.duration(380).delay(150);
-export const FADE_IN_DOWN_2 = FadeInDown.duration(380).delay(250);
-export const FADE_IN_DOWN_3 = FadeInDown.duration(380).delay(320);
+// Android-only app: entering/exiting layout animations crash at module-level
+// Set all to undefined; useAnimatedStyle + scroll animations still work fine
+export const FADE_IN = undefined;
+export const FADE_IN_DOWN_1 = undefined;
+export const FADE_IN_DOWN_2 = undefined;
+export const FADE_IN_DOWN_3 = undefined;
 
 // ─── Shared Tab Component Styles ──────────────────────────────────────────────
 export const tab = StyleSheet.create({
@@ -18,7 +17,7 @@ export const tab = StyleSheet.create({
     // Stats Grid
     statsRow: {
         flexDirection: 'row', marginHorizontal: Spacing.md, marginBottom: Spacing.lg,
-        borderRadius: Radius.xl, alignItems: 'center', justifyContent: 'space-around',
+        borderRadius: 24, alignItems: 'center', justifyContent: 'space-around',
     },
     stat: { alignItems: 'center', flex: 1, paddingVertical: 20 },
     statVal: { fontSize: 20, fontFamily: Typography.sansBold, color: '#FFFFFF' }, // Sharper
@@ -29,13 +28,14 @@ export const tab = StyleSheet.create({
     // Advice & Hormones
     adviceCard: {
         marginHorizontal: Spacing.md, marginBottom: Spacing.lg, padding: 22,
-        borderRadius: Radius.xxl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+        borderRadius: 28, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(0,0,0,0.85)',
     },
     adviceLabel: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.6)', letterSpacing: 1.8, marginBottom: 14 }, // Brighter & Larger
     adviceText: { fontSize: 21, fontFamily: Typography.serifItalic, color: '#FFFFFF', lineHeight: 30, borderLeftWidth: 4, paddingLeft: 18, marginBottom: 22 }, // Thicker & Sharper
-    hormoneBox: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.lg, padding: 16 }, // Punchier
+    hormoneBox: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 16 }, // Punchier
     hormoneLabel: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.6)', letterSpacing: 1.8, marginBottom: 10 },
-    hormoneText: { fontSize: 14, fontFamily: Typography.sansBold, color: '#FFFFFF', lineHeight: 22, opacity: 0.9 }, // Higher contrast
+    hormoneText: { fontSize: 14, fontFamily: Typography.sansBold, color: '#FFFFFF', lineHeight: 22 }, // Higher contrast
 
     // PMS & Status
     pmsBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: Spacing.md, marginBottom: 16, paddingVertical: 10, paddingHorizontal: 16, borderRadius: Radius.lg, backgroundColor: 'rgba(251,191,36,0.1)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.2)' },
@@ -58,21 +58,31 @@ export const tab = StyleSheet.create({
     aiBadgeText: { fontSize: 8, fontFamily: Typography.sansBold, color: '#d8b4fe', letterSpacing: 1 },
 
     // Cycle Specific
-    phaseGuide: { marginHorizontal: Spacing.md, marginTop: Spacing.md, marginBottom: Spacing.md, padding: 20, borderRadius: Radius.xl },
+    phaseGuide: {
+        marginHorizontal: Spacing.md, marginTop: Spacing.md, marginBottom: Spacing.md, padding: 20, borderRadius: 24,
+        backgroundColor: 'rgba(0,0,0,0.85)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)'
+    },
     phaseGuideLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 16 },
     phaseRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
     phaseDot: { width: 8, height: 8, borderRadius: 4 },
     phaseRowName: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.7)', flex: 1 },
     phaseRowDays: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.35)' },
-    irregWarn: { backgroundColor: 'rgba(251,191,36,0.08)', borderRadius: Radius.lg, padding: 12, marginTop: 12, borderWidth: 1, borderColor: 'rgba(251,191,36,0.2)' },
+    irregWarn: { backgroundColor: 'rgba(251,191,36,0.08)', borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: 'rgba(251,191,36,0.2)' },
     irregText: { fontSize: 12, fontFamily: Typography.sans, color: '#fbbf24', lineHeight: 18 },
-    predCard: { marginHorizontal: Spacing.md, marginBottom: Spacing.md, padding: 22, borderRadius: Radius.xl, alignItems: 'center' },
+    predCard: {
+        marginHorizontal: Spacing.md, marginBottom: Spacing.md, padding: 22, borderRadius: 24, alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.85)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)'
+    },
     predLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 10 },
     predDate: { fontSize: 28, fontFamily: Typography.sansBold, color: 'white', marginBottom: 8 },
     predSub: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.35)', textAlign: 'center' },
 
     // Body & Libido
-    bodyCard: { marginHorizontal: Spacing.md, marginBottom: Spacing.lg, padding: 22, borderRadius: Radius.xxl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+    bodyCard: {
+        marginHorizontal: Spacing.md, marginBottom: Spacing.lg, padding: 22,
+        borderRadius: 28, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(0,0,0,0.85)',
+    },
     bodyCardLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 6 },
     bodyCardTitle: { fontSize: 20, fontFamily: Typography.serifItalic, color: 'white', marginBottom: 20 },
     chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

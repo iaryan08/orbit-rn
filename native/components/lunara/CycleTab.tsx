@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, Text, Pressable } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { Droplets } from 'lucide-react-native';
 import { GlassCard } from '../GlassCard';
 import { BiologicalTimeline } from './BiologicalTimeline';
 import { PremiumTabLoader } from '../PremiumTabLoader';
-import { FADE_IN, FADE_IN_DOWN_1, FADE_IN_DOWN_2, tab } from './tabStyles';
+import { FADE_IN, FADE_IN_DOWN_1, FADE_IN_DOWN_2, FADE_IN_DOWN_3, tab } from './tabStyles';
 
 export const CycleTab = React.memo(({
     cycleDay,
@@ -62,7 +62,7 @@ export const CycleTab = React.memo(({
                     </Animated.View>
 
                     {prediction && prediction.predictedDate !== '—' && (
-                        <Animated.View entering={FADE_IN_DOWN_2}>
+                        <Animated.View entering={FADE_IN_DOWN_3}>
                             <GlassCard style={tab.statsRow} intensity={10}>
                                 <View style={tab.stat}>
                                     <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>

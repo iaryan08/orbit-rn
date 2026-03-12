@@ -1,93 +1,29 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
-import Animated, { FadeInDown, useAnimatedStyle, withTiming, interpolate, useSharedValue } from 'react-native-reanimated';
-import { Image } from 'expo-image';
-import { Heart, Sparkles, Moon, BookOpen, Flower2, Activity, ChevronDown, ChevronUp } from 'lucide-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useMemo, useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { Heart, Sparkles, Moon, Brain } from 'lucide-react-native';
 import { Typography, Spacing, Radius } from '../../constants/Theme';
 import { GlassCard } from '../../components/GlassCard';
-import { PhaseSphere } from './PhaseSphere';
 import { BiologicalTimeline } from './BiologicalTimeline';
-import { getTodayIST, getCycleDay, predictNextPeriod, getPhaseForDay, getPhaseWindows } from '../../lib/cycle';
+import { getTodayIST, getCycleDay, predictNextPeriod, getPhaseForDay } from '../../lib/cycle';
 import { IntimacyInsightCard } from './IntimacyInsightCard';
+import { useOrbitStore } from '../../lib/store';
 
-// ─── Static animation constants (prevent "Expected static flag" crash) ────────
-const ANIM_A = FadeInDown.duration(380).delay(0);
-const ANIM_B = FadeInDown.duration(380).delay(100);
-const ANIM_C = FadeInDown.duration(380).delay(180);
-const ANIM_D = FadeInDown.duration(380).delay(260);
-const ANIM_E = FadeInDown.duration(380).delay(340);
+// Android-only app: entering animations crash — set to undefined
+const ANIM_A = undefined;
+const ANIM_B = undefined;
+const ANIM_C = undefined;
+const ANIM_D = undefined;
 
 interface MalePartnerViewProps {
     partnerProfile: any;
     partnerCycleProfile: any;
     cycleLogs: Record<string, any>;
     isActive: boolean;
-    intimacyIntel?: any | null;   // IntimacyIntelligence from store
-    isFemaleViewing?: boolean;    // true = female user on Partner tab
-    femaleCycleDay?: number | null; // Passed to ensure shared deterministic suggestions
+    intimacyIntel?: any | null;
+    isFemaleViewing?: boolean;
+    femaleCycleDay?: number | null;
 }
-
-const FEMALE_COMM_TIPS: Record<string, { title: string; desc: string; emoji: string }[]> = {
-    Menstrual: [
-        { title: 'Share your needs', desc: 'He may not know how much you hurt — tell him how he can help', emoji: '💬' },
-        { title: 'Protect your peace', desc: 'It\'s okay to ask for solitude right now', emoji: '🛡️' },
-    ],
-    Follicular: [
-        { title: 'Invite him in', desc: 'You have peak energy — plan a date that reminds him of your spark', emoji: '✨' },
-        { title: 'Be clear about goals', desc: 'Your communication is at its best. Use it to align on the future', emoji: '🌱' },
-    ],
-    Ovulatory: [
-        { title: 'Be magnetic', desc: 'Your confidence is high. Lean into the connection', emoji: '🌟' },
-        { title: 'Lead the way', desc: 'Your intuition is sharp. Suggest the next big move for you two', emoji: '👁️' },
-    ],
-    Luteal: [
-        { title: 'Managing sensitivity', desc: 'If things feel heavy, explain that it\'s the phase, not the person', emoji: '⚓' },
-        { title: 'Self-soothing', desc: 'Prioritize your rest so you have more resilience for the team', emoji: '🌙' },
-    ],
-};
-
-const CONNECT_WITH_HIM: Record<string, { title: string; desc: string; emoji: string }[]> = {
-    Menstrual: [
-        { title: 'Quality Time', desc: 'Focus on closeness and emotional bonding today', emoji: '🫂' },
-        { title: 'Soft Connection', desc: 'He appreciates your presence even when energy is low', emoji: '🪷' },
-    ],
-    Follicular: [
-        { title: 'Spontaneous Date', desc: 'Your rising energy is magnetic — suggest a new activity', emoji: '✨' },
-        { title: 'Active Fun', desc: 'Great time for a workout date or a long walk together', emoji: '👟' },
-    ],
-    Ovulatory: [
-        { title: 'Bold Attraction', desc: 'Leaning into your social peak. A night out would be perfect', emoji: '🔥' },
-        { title: 'Lead the Way', desc: 'Suggest something you\'ve both wanted to try; he\'ll love the lead', emoji: '📍' },
-    ],
-    Luteal: [
-        { title: 'Cozy Movie Night', desc: 'A comfortable home environment feels best right now', emoji: '🎬' },
-        { title: 'Deep Listening', desc: 'A perfect window for heart-to-heart conversations', emoji: '🗣️' },
-    ],
-};
-
-const PARTNER_ACTIONS: Record<string, { title: string; desc: string; emoji: string }[]> = {
-    Menstrual: [
-        { title: 'Bring warmth', desc: 'Heating pad, her favorite snacks, warm tea', emoji: '🍵' },
-        { title: 'No big plans', desc: 'Cancel obligations if you can. Just exist together', emoji: '🏠' },
-        { title: 'Ask, don\'t guess', desc: '"What feels good right now?" goes a long way', emoji: '💬' },
-    ],
-    Follicular: [
-        { title: 'Plan something new', desc: 'She\'s open to adventure — suggest a new restaurant or activity', emoji: '🌱' },
-        { title: 'Have the big talk', desc: 'Her cognition and mood are at a seasonal high', emoji: '🧠' },
-        { title: 'Be spontaneous', desc: 'Surprise her. It lands well in this phase', emoji: '✨' },
-    ],
-    Ovulatory: [
-        { title: 'Go social', desc: 'She\'s magnetic right now. Plan a date night out', emoji: '🌟' },
-        { title: 'Compliment her', desc: 'She\'s feeling her best. Remind her why she captivates you', emoji: '💫' },
-        { title: 'Be fully present', desc: 'Put the phone away. She notices everything this week', emoji: '👁' },
-    ],
-    Luteal: [
-        { title: 'Be the calm', desc: 'Her nervous system is heightened. Your steadiness matters', emoji: '⚓️' },
-        { title: 'Listen, don\'t fix', desc: 'She wants to be heard, not problem-solved', emoji: '👂' },
-        { title: 'Low-key quality time', desc: 'Movies, cooking together, quiet walks beat loud nights out', emoji: '🌙' },
-    ],
-};
 
 const PREGNANCY_COLOR: Record<string, string> = {
     'Very Low': '#22c55e', 'Low': '#86efac',
@@ -99,38 +35,11 @@ function MalePartnerViewBase({
     intimacyIntel, isFemaleViewing = false, femaleCycleDay,
 }: MalePartnerViewProps) {
     const today = getTodayIST();
-    // partnerName is used below for dynamic text
+    // Use separate selectors — object literal selector creates new ref every render → infinite loop
+    const partnerIntel = useOrbitStore(s => s.partnerIntel);
+    const loadPartnerIntelligence = useOrbitStore(s => s.loadPartnerIntelligence);
 
-    // ─── FEMALE VIEWING MALE PARTNER ─────────────────────
-    const [heroImg, setHeroImg] = useState<string | null>(null);
-    const [isEdExpanded, setIsEdExpanded] = useState(false);
-
-    useEffect(() => {
-        if (!isFemaleViewing) return;
-        let mounted = true;
-        const fetchImg = async () => {
-            const cacheKey = `unsplash_male_hero_${new Date().toISOString().split('T')[0]}`;
-            const cached = await AsyncStorage.getItem(cacheKey);
-            if (cached) { if (mounted) setHeroImg(cached); return; }
-
-            const key = process.env.EXPO_PUBLIC_UNSPLASH_ACCESS_KEY?.trim();
-            if (!key) return;
-            try {
-                const res = await fetch(`https://api.unsplash.com/photos/random?query=masculine,fitness,health,energy`, { headers: { Authorization: `Client-ID ${key}` } });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data?.urls?.regular && mounted) {
-                        setHeroImg(data.urls.regular);
-                        AsyncStorage.setItem(cacheKey, data.urls.regular).catch(() => { });
-                    }
-                }
-            } catch (e) { }
-        };
-        fetchImg();
-        return () => { mounted = false; };
-    }, [isFemaleViewing]);
-
-    // ─── Biological Prediction (Always based on partner's cycle data) ──────────
+    // ─── Biological Prediction ────────────────────────────────────────────────
     const prediction = useMemo(() =>
         predictNextPeriod(
             partnerCycleProfile?.period_history || [],
@@ -151,29 +60,31 @@ function MalePartnerViewBase({
         ? getPhaseForDay(effectiveCycleDay, prediction.avgCycleLength, prediction.avgPeriodLength) : null;
 
     const partnerName = partnerProfile?.display_name?.split(' ')[0] || 'Partner';
+    const viewerGender: 'male' | 'female' = isFemaleViewing ? 'female' : 'male';
 
-    // Female viewing Male partner
+    // Load AI partner intel once per day — use primitive deps only to avoid infinite loops
+    const effectivePhaseName = effectivePhase?.name ?? null;
+    useEffect(() => {
+        if (!effectivePhaseName || !effectiveCycleDay) return;
+        loadPartnerIntelligence(effectivePhaseName, effectiveCycleDay, viewerGender, partnerName);
+    }, [effectivePhaseName, effectiveCycleDay, viewerGender]);
+
+    // ─── FEMALE VIEWING MALE PARTNER ─────────────────────────────────────────
     if (isFemaleViewing) {
         const hisLogs = cycleLogs[partnerProfile?.uid || partnerProfile?.id]?.[today] || {};
         const hisLibido = hisLogs.sex_drive || 'low';
         const hisErection = hisLogs.erection_quality || 'Good';
-        const connectTips = effectivePhase ? (CONNECT_WITH_HIM[effectivePhase.name] || []) : [];
 
         return (
             <View style={{ flex: 1, paddingBottom: 40 }}>
-                {/* Header */}
                 <Animated.View entering={ANIM_A} style={{ marginHorizontal: Spacing.md, marginTop: Spacing.md, marginBottom: 24 }}>
-                    <Text style={{ fontSize: 32, fontFamily: Typography.serifBold, color: 'white' }}>Connection</Text>
-                    <Text style={{ fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
-                        Shared biological resonance with {partnerName}.
-                    </Text>
                 </Animated.View>
 
                 {/* His Health Section */}
                 <Animated.View entering={ANIM_B}>
                     <GlassCard style={[styles.adviceCard, { marginBottom: 24 }]} intensity={10}>
                         <View style={styles.adviceHeader}>
-                            <Activity size={14} color="#818cf8" />
+                            <Brain size={14} color="#818cf8" />
                             <Text style={styles.adviceHeaderText}>HIS BODY TODAY</Text>
                         </View>
                         <View style={{ flexDirection: 'row', gap: 20, marginTop: 10 }}>
@@ -190,50 +101,52 @@ function MalePartnerViewBase({
                     </GlassCard>
                 </Animated.View>
 
-                {/* Shared Suggestion Trio (ALL 3 types for her) */}
+                {/* AI-Generated Partner Intelligence */}
+                {partnerIntel && partnerIntel.viewerGender === 'female' && (
+                    <Animated.View entering={ANIM_C}>
+                        <GlassCard style={styles.intelCard} intensity={10}>
+                            <View style={styles.adviceHeader}>
+                                <Sparkles size={14} color="#c084fc" />
+                                <Text style={styles.adviceHeaderText}>YOUR ENERGY TODAY</Text>
+                                {partnerIntel.source === 'ai' && (
+                                    <View style={styles.aiBadge}><Text style={styles.aiBadgeText}>AI</Text></View>
+                                )}
+                            </View>
+                            <Text style={styles.intelHeadline}>{partnerIntel.headline}</Text>
+                            <Text style={styles.intelAdvice}>{partnerIntel.primaryAdvice}</Text>
+
+                            {partnerIntel.microActions.length > 0 && (
+                                <View style={styles.microActionsBox}>
+                                    {partnerIntel.microActions.map((a, idx) => (
+                                        <View key={idx} style={[styles.actionRow, idx < partnerIntel.microActions.length - 1 && styles.actionRowBorder]}>
+                                            <Text style={styles.actionEmoji}>{a.emoji}</Text>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.actionTitle}>{a.title}</Text>
+                                                <Text style={styles.actionDesc}>{a.desc}</Text>
+                                            </View>
+                                        </View>
+                                    ))}
+                                </View>
+                            )}
+
+                            <View style={styles.intimacyNote}>
+                                <Text style={styles.intimacyNoteText}>✦ {partnerIntel.intimacyNote}</Text>
+                            </View>
+                        </GlassCard>
+                    </Animated.View>
+                )}
+
+                {/* IntimacyInsightCards — position kept same, coaching female-specific */}
                 <View style={{ marginBottom: 10 }}>
                     <IntimacyInsightCard phaseName={effectivePhase?.name || "Follicular"} cycleDay={effectiveCycleDay} type="position" />
                     <IntimacyInsightCard phaseName={effectivePhase?.name || "Follicular"} cycleDay={effectiveCycleDay} type="self-love" />
                     <IntimacyInsightCard phaseName={effectivePhase?.name || "Follicular"} cycleDay={effectiveCycleDay} type="coaching" />
                 </View>
-
-                {/* Connect with Him Tips */}
-                {connectTips.length > 0 && (
-                    <Animated.View entering={ANIM_C}>
-                        <GlassCard style={styles.actionsCard} intensity={10}>
-                            <Text style={styles.actionsTitle}>CONNECT WITH HIM ({effectivePhase?.name.toUpperCase()})</Text>
-                            {connectTips.map((a, idx) => (
-                                <View key={idx} style={[styles.actionRow, idx < connectTips.length - 1 && styles.actionRowBorder]}>
-                                    <Text style={styles.actionEmoji}>{a.emoji}</Text>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.actionTitle}>{a.title}</Text>
-                                        <Text style={styles.actionDesc}>{a.desc}</Text>
-                                    </View>
-                                </View>
-                            ))}
-                        </GlassCard>
-                    </Animated.View>
-                )}
-
-                <Animated.View entering={ANIM_D}>
-                    <GlassCard style={styles.adviceCard} intensity={10}>
-                        <View style={styles.adviceHeader}>
-                            <Heart size={14} color="#f472b6" />
-                            <Text style={styles.adviceHeaderText}>LUNARA INSIGHT</Text>
-                        </View>
-                        <Text style={[styles.adviceText, { borderLeftColor: '#f472b6' }]}>
-                            Based on your current phase, he'll appreciate your {effectivePhase?.energy.toLowerCase()} energy approach today.
-                        </Text>
-                    </GlassCard>
-                </Animated.View>
             </View>
         );
     }
 
-    // ─── MALE VIEWING FEMALE PARTNER (Original logic) ────
-
-    const actions = phase ? (PARTNER_ACTIONS[phase.name] || []) : [];
-
+    // ─── MALE VIEWING FEMALE PARTNER ─────────────────────────────────────────
     const timelineDays = useMemo(() => {
         if (!partnerCycleProfile?.last_period_start || !cycleDay) return [];
         return Array.from({ length: prediction.avgCycleLength }, (_, i) => {
@@ -263,12 +176,8 @@ function MalePartnerViewBase({
         );
     }
 
-    const pColor = PREGNANCY_COLOR[intimacyIntel?.pregnancyChance || 'Low'] || '#86efac';
-
     return (
         <View style={{ flex: 1 }}>
-            {/* Phase sphere removed per user request */}
-
             {/* Phase banner */}
             {phase && cycleDay && (
                 <Animated.View entering={ANIM_A} style={[styles.phaseBanner, { borderColor: `${phase.color}40` }]}>
@@ -293,46 +202,46 @@ function MalePartnerViewBase({
                 />
             )}
 
-            {/* Care guide + partner advice */}
-            {phase && (
+            {/* AI-Generated Partner Intelligence */}
+            {partnerIntel && partnerIntel.viewerGender === 'male' && phase && (
                 <Animated.View entering={ANIM_B}>
-                    <GlassCard style={styles.adviceCard} intensity={10}>
+                    <GlassCard style={styles.intelCard} intensity={10}>
                         <View style={styles.adviceHeader}>
                             <Heart size={14} color={phase.color} />
-                            <Text style={styles.adviceHeaderText}>
-                                WHAT SHE NEEDS TODAY
-                            </Text>
+                            <Text style={styles.adviceHeaderText}>PARTNER INTELLIGENCE</Text>
+                            {partnerIntel.source === 'ai' && (
+                                <View style={styles.aiBadge}><Text style={styles.aiBadgeText}>AI</Text></View>
+                            )}
                         </View>
-                        <Text style={[styles.adviceText, { borderLeftColor: phase.color }]}>
-                            {intimacyIntel?.partnerIntimacyGuide || phase.partnerAdvice}
-                        </Text>
-                    </GlassCard>
-                </Animated.View>
-            )}
+                        <Text style={styles.intelHeadline}>{partnerIntel.headline}</Text>
+                        <Text style={[styles.intelAdvice, { borderLeftColor: phase.color }]}>{partnerIntel.primaryAdvice}</Text>
 
-            {/* Micro-actions / Communication Tips */}
-            {actions.length > 0 && (
-                <Animated.View entering={ANIM_C}>
-                    <GlassCard style={styles.actionsCard} intensity={10}>
-                        <Text style={styles.actionsTitle}>YOUR MOVES TODAY</Text>
-                        {actions.map((a, idx) => (
-                            <View key={idx} style={[styles.actionRow, idx < actions.length - 1 && styles.actionRowBorder]}>
-                                <Text style={styles.actionEmoji}>{a.emoji}</Text>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.actionTitle}>{a.title}</Text>
-                                    <Text style={styles.actionDesc}>{a.desc}</Text>
-                                </View>
+                        {partnerIntel.microActions.length > 0 && (
+                            <View style={styles.microActionsBox}>
+                                {partnerIntel.microActions.map((a, idx) => (
+                                    <View key={idx} style={[styles.actionRow, idx < partnerIntel.microActions.length - 1 && styles.actionRowBorder]}>
+                                        <Text style={styles.actionEmoji}>{a.emoji}</Text>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.actionTitle}>{a.title}</Text>
+                                            <Text style={styles.actionDesc}>{a.desc}</Text>
+                                        </View>
+                                    </View>
+                                ))}
                             </View>
-                        ))}
+                        )}
+
+                        <View style={styles.intimacyNote}>
+                            <Text style={styles.intimacyNoteText}>✦ {partnerIntel.intimacyNote}</Text>
+                        </View>
                     </GlassCard>
                 </Animated.View>
             )}
 
-            {/* Intimacy Insights (Male viewing Female - Only Position & Coaching) */}
+            {/* IntimacyInsightCards — position same, coaching male-specific */}
             {effectivePhase && (
-                <View style={{ marginTop: 10 }}>
+                <View style={{ marginTop: 8 }}>
                     <IntimacyInsightCard phaseName={effectivePhase.name} cycleDay={effectiveCycleDay} type="position" />
-                    <IntimacyInsightCard phaseName={effectivePhase.name} cycleDay={effectiveCycleDay} type="coaching" />
+                    <IntimacyInsightCard phaseName={effectivePhase.name} cycleDay={effectiveCycleDay} type="coaching" isMale={true} />
                 </View>
             )}
 
@@ -362,8 +271,8 @@ const styles = StyleSheet.create({
     phaseBanner: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         marginHorizontal: Spacing.md, marginBottom: Spacing.md,
-        backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: Radius.xl,
-        borderWidth: 1, padding: 18,
+        backgroundColor: 'rgba(0,0,0,0.85)', borderRadius: Radius.xl,
+        borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.12)', padding: 18,
     },
     phaseBannerLeft: { gap: 4 },
     phaseName: { fontSize: 22, fontFamily: Typography.serifBold },
@@ -376,43 +285,25 @@ const styles = StyleSheet.create({
     adviceHeaderText: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.35)', letterSpacing: 1.5, flex: 1 },
     adviceText: { fontSize: 17, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.85)', lineHeight: 28, borderLeftWidth: 2, paddingLeft: 14 },
 
-    // Intimacy notes
-    intelNote: { marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)' },
-    intelNoteLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.25)', letterSpacing: 1.5, marginBottom: 8 },
-    intelNoteText: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.5)', lineHeight: 20 },
+    // AI Intel Card
+    intelCard: { marginHorizontal: Spacing.md, marginBottom: Spacing.md, padding: 22, borderRadius: 24 },
+    intelHeadline: { fontSize: 20, fontFamily: Typography.serifBold, color: 'white', marginBottom: 10 },
+    intelAdvice: { fontSize: 15, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.8)', lineHeight: 24, marginBottom: 20, borderLeftWidth: 2, borderLeftColor: 'rgba(255,255,255,0.2)', paddingLeft: 14 },
 
-    // Fertility pill
-    pregnancyPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100, borderWidth: 1, marginLeft: 'auto' },
-    pregnancyDot: { width: 6, height: 6, borderRadius: 3 },
-    pregnancyPillText: { fontSize: 10, fontFamily: Typography.sansBold, letterSpacing: 0.5 },
+    microActionsBox: { marginBottom: 16 },
+    actionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingBottom: 14, marginBottom: 14 },
+    actionRowBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
+    actionEmoji: { fontSize: 20, width: 30 },
+    actionTitle: { fontSize: 14, fontFamily: Typography.sansBold, color: 'white', marginBottom: 3 },
+    actionDesc: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.45)', lineHeight: 19 },
 
-    // Forecast
-    forecastRow: { gap: 6 },
-    forecastLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.25)', letterSpacing: 1.5 },
-    forecastValue: { fontSize: 14, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.65)', lineHeight: 22 },
+    intimacyNote: { paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
+    intimacyNoteText: { fontSize: 12, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.5)', lineHeight: 20 },
 
-    // AI badge
     aiBadge: { marginLeft: 'auto', backgroundColor: 'rgba(168,85,247,0.15)', borderRadius: 100, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: 'rgba(168,85,247,0.3)' },
     aiBadgeText: { fontSize: 8, fontFamily: Typography.sansBold, color: '#d8b4fe', letterSpacing: 1 },
 
-    // Actions
-    actionsCard: { marginHorizontal: Spacing.md, marginBottom: Spacing.md, padding: 20, borderRadius: Radius.xl },
-    actionsTitle: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 20 },
-    actionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingBottom: 16, marginBottom: 16 },
-    actionRowBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
-    actionEmoji: { fontSize: 22, width: 32 },
-    actionTitle: { fontSize: 15, fontFamily: Typography.sansBold, color: 'white', marginBottom: 4 },
-    actionDesc: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.45)', lineHeight: 20 },
-
-    statusPill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 100,
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderWidth: 1,
-    },
+    statusPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1 },
     predRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: Spacing.lg, marginTop: 4, marginBottom: Spacing.md },
     predText: { fontSize: 12, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.35)' },
 });

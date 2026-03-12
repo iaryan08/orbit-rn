@@ -31,10 +31,10 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, o
         ? `${lunaraPhaseColor || '#a855f7'}70`
         : 'rgba(244, 63, 94, 0.4)';
 
-    // Settings is now index 10
+    // Settings is at index 9 (PagerView: 0=cinema, 1=dashboard, 2=letters, 3=memories, 4=milestones, 5-8=lunara, 9=settings)
     const handleProfilePress = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        setTabIndex(10, 'tap');
+        setTabIndex(9, 'tap');
     };
 
     const avatarUrl = useMemo(() =>

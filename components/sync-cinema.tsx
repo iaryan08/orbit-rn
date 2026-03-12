@@ -162,11 +162,11 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
         const presenceRef = ref(rtdb, `presence/${coupleId}/${currentUserId}`)
 
         // Mark as entering cinema (Merge with existing global presence)
-        update(presenceRef, { in_cinema: true })
-        onDisconnect(presenceRef).update({ in_cinema: null })
+        update(presenceRef, { in_cinema: true, last_changed: rtdbTimestamp() })
+        onDisconnect(presenceRef).update({ in_cinema: null, last_changed: rtdbTimestamp() })
 
         return () => {
-            update(presenceRef, { in_cinema: null }).catch(() => { })
+            update(presenceRef, { in_cinema: null, last_changed: rtdbTimestamp() }).catch(() => { })
         }
     }, [isActive, coupleId, currentUserId])
 

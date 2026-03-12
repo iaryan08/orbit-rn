@@ -7,7 +7,7 @@ import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
 import { Mail, MailOpen, Sparkles, X, Send, EyeOff, Calendar, Clock, ChevronDown, Plus } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
-import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, FadeInDown, ZoomIn } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderPill } from '../../components/HeaderPill';
 import { FlashList } from '@shopify/flash-list';
@@ -20,8 +20,8 @@ import { PerfChip, usePerfMonitor } from '../PerfChip';
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
 
-const ZOOM_IN_ANIM = ZoomIn.duration(300);
-const FADE_IN_DOWN_ANIM = FadeInDown.duration(300);
+const ZOOM_IN_ANIM = undefined; // Android-only: layout entering animations crash
+const FADE_IN_DOWN_ANIM = undefined; // Android-only: layout entering animations crash
 
 export function LettersScreen({ isActive = true }: { isActive?: boolean }) {
     const profile = useOrbitStore(state => state.profile);

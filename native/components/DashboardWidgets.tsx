@@ -7,7 +7,7 @@ import { Image } from 'expo-image';
 import { Navigation, Heart, Music, AlertCircle, Calendar, RefreshCcw, Wifi, Globe, MapPin, Zap, PenLine, Image as ImageIcon, Flame, Quote, Moon, Target, Sparkles, Edit2, Lock, Unlock, Camera, ChevronRight, Plus, CalendarHeart, Cake, Minus, Thermometer, Droplets, Wind, Sun, Leaf, Mail, Check, Trophy, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Clock } from 'lucide-react-native';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
 import { GlassCard } from './GlassCard';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing, LinearTransition } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing } from 'react-native-reanimated';
 import { Shimmer } from './Shimmer';
 import { useOrbitStore } from '../lib/store';
 import { PremiumTabLoader } from './PremiumTabLoader';
@@ -1075,8 +1075,7 @@ export const MenstrualPhaseWidget = React.memo(() => {
     const isFemale = profile?.gender === 'female';
     const cycleProfile = isFemale ? profile?.cycle_profile : partnerProfile?.cycle_profile;
 
-    let computedPhase = 'follicular';
-
+    let computedPhase: string;
     if (cycleProfile?.last_period_start) {
         const { getCycleDay, getPhaseForDay } = require('../lib/cycle');
         const currentDay = getCycleDay(cycleProfile.last_period_start, cycleProfile.avg_cycle_length || 28);
@@ -1084,9 +1083,12 @@ export const MenstrualPhaseWidget = React.memo(() => {
         computedPhase = phaseObj.name.toLowerCase();
     } else {
         const phaseContext = isFemale ? profile?.menstrual_cycle : partnerProfile?.menstrual_cycle;
-        computedPhase = (phaseContext?.current_phase || 'follicular').toLowerCase();
+        // Don't hardcode 'follicular' — show nothing rather than wrong data
+        computedPhase = (phaseContext?.current_phase || '').toLowerCase();
     }
     const phase = computedPhase;
+    // Return null instead of permanently showing hardcoded Follicular
+    if (!phase) return null;
 
     const [photo, setPhoto] = useState<{ url: string; name: string; link: string } | null>(null);
 
@@ -1252,6 +1254,8 @@ export const BucketListWidget = React.memo(() => {
     const handleToggle = async (id: string, completed: boolean) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         updateBucketItemOptimistic(id, !completed);
+        // Also persist to Firebase so the change survives app restart
+        try { await toggleBucketItem(id, !completed); } catch (e) { console.error('[Bucket] toggle failed:', e); updateBucketItemOptimistic(id, completed); }
     };
 
     return (
@@ -1321,9 +1325,9 @@ export const BucketListWidget = React.memo(() => {
                     </TouchableOpacity>
                 </View>
 
-                <Animated.View layout={LinearTransition.springify().mass(0.7)} style={styles.bucketItemsList}>
+                <View style={styles.bucketItemsList}>
                     {filteredList.slice(0, 3).map(item => (
-                        <Animated.View key={item.id} layout={LinearTransition.springify().mass(0.7)}>
+                        <View key={item.id}>
                             <Pressable
                                 onPress={() => handleToggle(item.id, item.is_completed)}
                                 style={({ pressed }) => [
@@ -1340,9 +1344,9 @@ export const BucketListWidget = React.memo(() => {
                                 </Text>
                                 {item.is_completed && <Trophy size={14} color={Colors.dark.amber[400]} style={{ opacity: 0.8 }} />}
                             </Pressable>
-                        </Animated.View>
+                        </View>
                     ))}
-                </Animated.View>
+                </View>
 
                 <TouchableOpacity style={styles.viewMoreBtn} onPress={() => setTabIndex(4, 'tap')}>
                     <Text style={styles.viewMoreText}>VIEW FULL LIST</Text>
