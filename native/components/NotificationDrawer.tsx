@@ -170,6 +170,7 @@ export function NotificationDrawer() {
                                                         style: 'destructive',
                                                         onPress: async () => {
                                                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                                            useOrbitStore.setState({ notifications: [] });
                                                             await clearAllNotifications(profile.id);
                                                         }
                                                     }
@@ -221,6 +222,13 @@ export function NotificationDrawer() {
                                             onPress={() => {
                                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                                 if (!item.is_read && profile?.id) {
+                                                    useOrbitStore.setState((state) => ({
+                                                        notifications: state.notifications.map((notification) =>
+                                                            notification.id === item.id
+                                                                ? { ...notification, is_read: true }
+                                                                : notification
+                                                        )
+                                                    }));
                                                     markAsRead(profile.id, item.id);
                                                 }
                                                 closeDrawer();
@@ -242,6 +250,9 @@ export function NotificationDrawer() {
                                                     onPress={async () => {
                                                         if (!profile?.id) return;
                                                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                                        useOrbitStore.setState((state) => ({
+                                                            notifications: state.notifications.filter((notification) => notification.id !== item.id)
+                                                        }));
                                                         await deleteNotification(profile.id, item.id);
                                                     }}
                                                     style={styles.itemDeleteButton}
@@ -360,7 +371,7 @@ function getDisplayCopy(item: any, fallbackActor: string) {
 const styles = StyleSheet.create({
     backdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.7)',
+        backgroundColor: 'rgba(0,0,0,0.52)',
     },
     drawer: {
         position: 'absolute',
@@ -376,7 +387,7 @@ const styles = StyleSheet.create({
     },
     // Solid dark glass — no BlurView shimmer during slide animation
     drawerBg: {
-        backgroundColor: 'rgba(10,10,20,0.92)',
+        backgroundColor: 'rgba(9,10,16,0.98)',
         borderTopLeftRadius: Radius.xl * 2,
         borderTopRightRadius: Radius.xl * 2,
         borderBottomLeftRadius: 0,
@@ -384,7 +395,7 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderLeftWidth: 1,
         borderRightWidth: 1,
-        borderColor: 'rgba(255,255,255,0.07)',
+        borderColor: 'rgba(255,255,255,0.05)',
     },
     handleContainer: {
         width: '100%',
@@ -414,11 +425,11 @@ const styles = StyleSheet.create({
         width: 44,
         height: 44,
         borderRadius: 22,
-        backgroundColor: 'rgba(255,255,255,0.05)',
+        backgroundColor: 'rgba(255,255,255,0.03)',
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: 'rgba(255,255,255,0.06)',
     },
     title: {
         fontSize: 24,
@@ -436,7 +447,7 @@ const styles = StyleSheet.create({
         width: 36,
         height: 36,
         borderRadius: 18,
-        backgroundColor: 'rgba(255,255,255,0.08)',
+        backgroundColor: 'rgba(255,255,255,0.05)',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -449,9 +460,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(255,255,255,0.04)',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
+        borderColor: 'rgba(255,255,255,0.07)',
         borderRadius: 999,
         paddingHorizontal: 10,
         height: 32,
@@ -501,13 +512,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         borderRadius: Radius.lg,
         marginBottom: 8,
-        backgroundColor: 'rgba(255,255,255,0.03)',
+        backgroundColor: 'rgba(255,255,255,0.02)',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,254,0.05)',
+        borderColor: 'rgba(255,255,254,0.04)',
     },
     unreadItem: {
-        backgroundColor: 'rgba(255,255,255,0.06)',
-        borderColor: 'rgba(251,113,133,0.15)',
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        borderColor: 'rgba(251,113,133,0.12)',
     },
     itemIconContainer: {
         width: 40,
@@ -561,9 +572,9 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(255,255,255,0.04)',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: 'rgba(255,255,255,0.06)',
     },
 });
 

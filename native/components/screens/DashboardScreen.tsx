@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, RefreshControl, KeyboardAvoidingView, Platform, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { auth, db, rtdb } from '../../lib/firebase';
+import { auth, db } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ref as dbRef, set } from 'firebase/database';
 import { useOrbitStore } from '../../lib/store';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
@@ -11,9 +10,9 @@ import {
     LayoutDashboard, Image as ImageIcon, Camera, Lock, Plus, Flame, Heart, Zap, Activity, Smile, Thermometer, Moon, Search, Bell, Sparkles
 } from 'lucide-react-native';
 import { Svg, Defs, LinearGradient as SvgGradient, Stop, Rect as SvgRect } from 'react-native-svg';
-import { LinearGradient } from 'expo-linear-gradient';
 import { PolaroidStack } from '../../components/PolaroidStack';
 import { PartnerHeader } from '../../components/PartnerHeader';
+import { PremiumTabLoader } from '../../components/PremiumTabLoader';
 import {
     RelationshipStats,
     IntimacyAlert,
@@ -26,7 +25,7 @@ import {
 import { GlassCard } from '../../components/GlassCard';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
 import * as Haptics from 'expo-haptics';
-import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, withDelay, withTiming, Easing, runOnJS, LinearTransition, FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, runOnJS, FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderPill } from '../../components/HeaderPill';
 import { getPublicStorageUrl } from '../../lib/storage';
@@ -35,13 +34,16 @@ import { getTodayIST, getPartnerName } from '../../lib/utils';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { submitPolaroid } from '../../lib/auth';
+import { sendNotification } from '../../lib/notifications';
 import { storage } from '../../lib/firebase';
 import { updateWeatherAndLocation } from '../../lib/weather';
 import { PerfChip, usePerfMonitor } from '../../components/PerfChip';
 
 const { width, height } = Dimensions.get('window');
-const SHARED_CANVAS_PRELOAD_DISTANCE = 900;
 const SHARED_CANVAS_PLACEHOLDER_HEIGHT = Math.round(width * 1.2);
+const DASHBOARD_PRELOAD_DISTANCE = 700;
+const DEFERRED_CARD_HEIGHT = 320;
+const MODAL_ANIM_INC = FadeIn.duration(400);
 
 export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
     // 🚀 Performance Optimization: Using granular selectors to avoid whole-screen re-renders
@@ -61,10 +63,14 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
     const appMode = useOrbitStore(s => s.appMode);
     const addPolaroidOptimistic = useOrbitStore(s => s.addPolaroidOptimistic);
     const isLiteMode = useOrbitStore(s => s.isLiteMode);
+    const isAndroidPerformanceMode = Platform.OS === 'android';
+    const shouldUseAggressiveDeferral = isLiteMode || isAndroidPerformanceMode;
+    const sharedCanvasPreloadDistance = shouldUseAggressiveDeferral ? 240 : 900;
 
     const isPagerScrollEnabled = useOrbitStore(state => state.isPagerScrollEnabled);
     const toggleDebugMode = useOrbitStore(s => s.toggleDebugMode);
     const isDebugMode = useOrbitStore(s => s.isDebugMode);
+    const isLoadingInspiration = useOrbitStore(s => s.isLoadingInspiration);
 
     const [user, setUser] = useState<any>(auth.currentUser);
     const insets = useSafeAreaInsets();
@@ -173,20 +179,25 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
             const cleanPath = `polaroids/${auth.currentUser?.uid}_${todayStr}_${Date.now()}.webp`;
             const r2Url = `${uploadBase}/${cleanPath}`;
 
-            const blob = await fetch(manipResult.uri).then(r => r.blob());
+            let blob: any = null;
+            try {
+                blob = await fetch(manipResult.uri).then(r => r.blob());
 
-            await new Promise<void>((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open('PUT', r2Url, true);
-                if (process.env.EXPO_PUBLIC_UPLOAD_SECRET) {
-                    xhr.setRequestHeader('Authorization', `Bearer ${process.env.EXPO_PUBLIC_UPLOAD_SECRET}`);
-                }
-                xhr.setRequestHeader('Content-Type', 'image/webp');
-                xhr.onerror = () => reject(new Error('Network error during Polaroid upload'));
-                xhr.timeout = 50000;
-                xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`Cloud upload failed (Status: ${xhr.status})`));
-                xhr.send(blob as any);
-            });
+                await new Promise<void>((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('PUT', r2Url, true);
+                    if (process.env.EXPO_PUBLIC_UPLOAD_SECRET) {
+                        xhr.setRequestHeader('Authorization', `Bearer ${process.env.EXPO_PUBLIC_UPLOAD_SECRET}`);
+                    }
+                    xhr.setRequestHeader('Content-Type', 'image/webp');
+                    xhr.onerror = () => reject(new Error('Network error during Polaroid upload'));
+                    xhr.timeout = 50000;
+                    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`Cloud upload failed (Status: ${xhr.status})`));
+                    xhr.send(blob as any);
+                });
+            } finally {
+                blob?.close?.();
+            }
 
             // 4. Metadata Broadcast
             const metaRes = await submitPolaroid(cleanPath, titleToSend, todayStr);
@@ -206,6 +217,18 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
     const [refreshing, setRefreshing] = useState(false);
     const [sharedCanvasMountY, setSharedCanvasMountY] = useState<number | null>(null);
     const [shouldMountSharedCanvas, setShouldMountSharedCanvas] = useState(false);
+    const [deferredMountPositions, setDeferredMountPositions] = useState<Record<string, number | null>>({
+        polaroids: null,
+        location: null,
+        inspiration: null,
+        menstrual: null,
+    });
+    const [deferredMounts, setDeferredMounts] = useState<Record<string, boolean>>({
+        polaroids: !shouldUseAggressiveDeferral,
+        location: !shouldUseAggressiveDeferral,
+        inspiration: !shouldUseAggressiveDeferral,
+        menstrual: !shouldUseAggressiveDeferral,
+    });
 
     // Local scroll tracking
     const scrollOffset = useSharedValue(0);
@@ -216,15 +239,28 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
 
     const maybeMountSharedCanvas = useCallback((scrollY: number, viewportHeight: number) => {
         if (shouldMountSharedCanvas || sharedCanvasMountY === null) return;
-        if (scrollY + viewportHeight + SHARED_CANVAS_PRELOAD_DISTANCE >= sharedCanvasMountY) {
+        if (scrollY + viewportHeight + sharedCanvasPreloadDistance >= sharedCanvasMountY) {
             setShouldMountSharedCanvas(true);
         }
-    }, [sharedCanvasMountY, shouldMountSharedCanvas]);
+    }, [sharedCanvasMountY, shouldMountSharedCanvas, sharedCanvasPreloadDistance]);
+
+    const maybeMountDeferredSection = useCallback((key: string, scrollY: number, viewportHeight: number, mountY: number | null) => {
+        if (!shouldUseAggressiveDeferral || mountY === null) return;
+        setDeferredMounts((prev) => {
+            if (prev[key]) return prev;
+            if (scrollY + viewportHeight + DASHBOARD_PRELOAD_DISTANCE < mountY) return prev;
+            return { ...prev, [key]: true };
+        });
+    }, [shouldUseAggressiveDeferral]);
 
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
             scrollOffset.value = event.contentOffset.y;
             runOnJS(maybeMountSharedCanvas)(event.contentOffset.y, event.layoutMeasurement.height);
+            runOnJS(maybeMountDeferredSection)('polaroids', event.contentOffset.y, event.layoutMeasurement.height, deferredMountPositions.polaroids);
+            runOnJS(maybeMountDeferredSection)('location', event.contentOffset.y, event.layoutMeasurement.height, deferredMountPositions.location);
+            runOnJS(maybeMountDeferredSection)('inspiration', event.contentOffset.y, event.layoutMeasurement.height, deferredMountPositions.inspiration);
+            runOnJS(maybeMountDeferredSection)('menstrual', event.contentOffset.y, event.layoutMeasurement.height, deferredMountPositions.menstrual);
         },
     });
 
@@ -257,18 +293,6 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
         };
     }, [isActive]);
 
-    // Morphing: Standardized thresholds for professional overlap - Silky Smooth [20-150] range
-    const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [20, 150], [1, 0], Extrapolate.CLAMP),
-        transform: [
-            { scale: interpolate(scrollOffset.value, [20, 150], [1, 0.96], Extrapolate.CLAMP) },
-        ]
-    }));
-
-    const sublineAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [10, 120], [1, 0], Extrapolate.CLAMP),
-    }));
-
     const headerPillStyle = useAnimatedStyle(() => ({
         opacity: interpolate(scrollOffset.value, [120, 180], [0, 1], Extrapolate.CLAMP),
         transform: [{ translateY: interpolate(scrollOffset.value, [120, 180], [10, 0], Extrapolate.CLAMP) }]
@@ -277,15 +301,6 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
     // Avatar Morphing Style: Smooth fade-out 
     const avatarMorphStyle = useAnimatedStyle(() => ({
         opacity: interpolate(scrollOffset.value, [20, 150], [1, 0], Extrapolate.CLAMP),
-    }));
-
-    // Entry Animations for Widgets - Optimized to avoid blinks on remount
-    const widgetOpacity = useSharedValue(1);
-    const widgetTranslateY = useSharedValue(0);
-
-    const widgetAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: widgetOpacity.value,
-        transform: [{ translateY: widgetTranslateY.value }]
     }));
 
     const myPolaroid = useMemo(() => {
@@ -307,10 +322,31 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
     const handleSharedCanvasLayout = useCallback((event: any) => {
         const nextY = event.nativeEvent.layout.y;
         setSharedCanvasMountY(nextY);
-        if (!shouldMountSharedCanvas && nextY <= (height + SHARED_CANVAS_PRELOAD_DISTANCE)) {
+        if (!shouldMountSharedCanvas && nextY <= (height + sharedCanvasPreloadDistance)) {
             setShouldMountSharedCanvas(true);
         }
-    }, [shouldMountSharedCanvas]);
+    }, [sharedCanvasPreloadDistance, shouldMountSharedCanvas]);
+
+    const createDeferredLayoutHandler = useCallback((key: string) => (event: any) => {
+        const nextY = event.nativeEvent.layout.y;
+        setDeferredMountPositions((prev) => prev[key] === nextY ? prev : { ...prev, [key]: nextY });
+        if (!shouldUseAggressiveDeferral && !deferredMounts[key]) {
+            setDeferredMounts((prev) => prev[key] ? prev : { ...prev, [key]: true });
+            return;
+        }
+        maybeMountDeferredSection(key, scrollOffset.value, height, nextY);
+    }, [deferredMounts, shouldUseAggressiveDeferral, maybeMountDeferredSection, scrollOffset.value]);
+
+    useEffect(() => {
+        if (!shouldUseAggressiveDeferral) {
+            setDeferredMounts({
+                polaroids: true,
+                location: true,
+                inspiration: true,
+                menstrual: true,
+            });
+        }
+    }, [shouldUseAggressiveDeferral]);
 
     // Don't block hook definition sequence — if no user after auth check, parent layout handles redirect
     if (!user) return <View style={styles.container} />;
@@ -330,9 +366,9 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
                 showsVerticalScrollIndicator={false}
                 scrollEnabled={isPagerScrollEnabled}
                 onScroll={scrollHandler}
-                scrollEventThrottle={isLiteMode ? 32 : 16}
+                scrollEventThrottle={32}
                 nestedScrollEnabled={true}
-                removeClippedSubviews={isLiteMode}
+                removeClippedSubviews={shouldUseAggressiveDeferral}
                 overScrollMode="never"
                 refreshControl={
                     <RefreshControl
@@ -345,17 +381,24 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
                 }
             >
                 <View style={styles.feedSection}>
-                    <Animated.View
-                        style={[styles.headerTitleContainer, avatarMorphStyle]}
-                        renderToHardwareTextureAndroid={true}
-                    >
-                        <PartnerHeader
-                            profile={profile}
-                            partnerProfile={partnerProfile}
-                            coupleId={couple?.id}
-                            isActive={activeTabIndex === 1}
-                        />
-                    </Animated.View>
+                    {!isLoadingInspiration && (
+                        <Animated.View
+                            style={[styles.headerTitleContainer, avatarMorphStyle]}
+                        >
+                            <PartnerHeader
+                                profile={profile}
+                                partnerProfile={partnerProfile}
+                                coupleId={couple?.id}
+                                isActive={activeTabIndex === 1}
+                            />
+                        </Animated.View>
+                    )}
+
+                    {isLoadingInspiration && (
+                        <View style={{ paddingTop: 40, paddingBottom: 20 }}>
+                            <PremiumTabLoader color={Colors.dark.rose[400]} message="Curating Daily Inspiration..." />
+                        </View>
+                    )}
 
                     {/* Quick Actions Row - Premium Gradient Borders */}
                     <View style={styles.quickActionsContainer}>
@@ -368,32 +411,18 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
                                 Alert.alert("Canvas Locked", "Drawing is now disabled to protect your shared art.");
                             }}
                         >
-                            <LinearGradient
-                                colors={['rgba(25, 25, 30, 0.95)', 'rgba(10, 10, 12, 1)']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                                style={[StyleSheet.absoluteFill, { padding: 1.5, borderRadius: 26 }]}
-                            >
-                                <View style={styles.quickActionInner}>
-                                    <Lock size={20} color="white" />
-                                </View>
-                            </LinearGradient>
+                            <View style={[styles.quickActionInner, styles.quickActionInnerNeutral]}>
+                                <Lock size={20} color="white" />
+                            </View>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.quickActionGlass}
                             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); useOrbitStore.getState().setMoodDrawerOpen(true); }}
                         >
-                            <LinearGradient
-                                colors={['rgba(30, 30, 45, 0.95)', 'rgba(15, 15, 20, 1)']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                                style={[StyleSheet.absoluteFill, { padding: 1, borderRadius: 26 }]}
-                            >
-                                <View style={styles.quickActionInner}>
-                                    <Plus size={20} color="white" />
-                                </View>
-                            </LinearGradient>
+                            <View style={[styles.quickActionInner, styles.quickActionInnerIndigo]}>
+                                <Plus size={20} color="white" />
+                            </View>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -410,46 +439,37 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
                                 );
                             }}
                         >
-                            <LinearGradient
-                                colors={['rgba(40, 20, 20, 0.95)', 'rgba(20, 10, 10, 1)']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                                style={[StyleSheet.absoluteFill, { padding: 1.5, borderRadius: 26 }]}
-                            >
-                                <View style={styles.quickActionInner}>
-                                    <Camera size={20} color="white" />
-                                </View>
-                            </LinearGradient>
+                            <View style={[styles.quickActionInner, styles.quickActionInnerRose]}>
+                                <Camera size={20} color="white" />
+                            </View>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.quickActionGlass}
-                            onPress={() => {
-                                if (!couple?.id || !profile?.id) return;
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                                // Broadcast Spark event (Heartbeat) - SYNC WITH WEB
-                                const vibeRef = dbRef(rtdb, `vibrations/${couple.id}`);
-                                set(vibeRef, {
-                                    senderId: profile.id,
-                                    timestamp: Date.now(),
-                                    type: 'spark'
+                            onPress={async () => {
+                                if (!profile?.id || !partnerProfile?.id) return;
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                const result = await sendNotification({
+                                    recipientId: partnerProfile.id,
+                                    actorId: profile.id,
+                                    actorName: profile.display_name,
+                                    type: 'spark',
+                                    title: `${profile.display_name || 'Your partner'} sent a Spark ✨`,
+                                    message: 'Your partner is thinking about you right now.',
+                                    actionUrl: '/dashboard',
                                 });
+                                if (result?.success) {
+                                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                }
                             }}
                         >
-                            <LinearGradient
-                                colors={['rgba(35, 25, 45, 0.95)', 'rgba(15, 10, 25, 1)']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                                style={[StyleSheet.absoluteFill, { padding: 1.5, borderRadius: 26 }]}
-                            >
-                                <View style={styles.quickActionInner}>
-                                    <Sparkles size={20} color="white" />
-                                </View>
-                            </LinearGradient>
+                            <View style={[styles.quickActionInner, styles.quickActionInnerViolet]}>
+                                <Sparkles size={20} color="white" />
+                            </View>
                         </TouchableOpacity>
                     </View>
 
-                    <Animated.View style={[styles.widgetsGrid, widgetAnimatedStyle]}>
+                    <View style={styles.widgetsGrid}>
                         {/* Passion Alert - Immersive Glass Card */}
                         <IntimacyAlert
                             profile={profile}
@@ -457,9 +477,6 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
                             cycleLogs={cycleLogs}
                             isActive={activeTabIndex === 1}
                         />
-
-
-
 
                         <View style={styles.borderBottomWrapper}>
                             <RelationshipStats
@@ -539,41 +556,59 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
                         </View>
 
                         <View style={styles.borderBottomWrapper}>
-                            <GlassCard style={[styles.placeholderCard, { padding: 0 }]} intensity={10}>
-                                <View style={styles.polaroidHeader}>
-                                    <View style={styles.polaroidTitleRow}>
-                                        <Camera size={20} color={Colors.dark.indigo[400]} />
-                                        <Text style={styles.polaroidTitle}>Daily Polaroid</Text>
-                                    </View>
-                                    <View style={styles.momentBadge}>
-                                        <Text style={styles.momentBadgeText}>Moment</Text>
-                                    </View>
-                                </View>
-                                <View style={styles.stackSection}>
-                                    <PolaroidStack
-                                        userPolaroid={polaroids.find(p => p.user_id === profile?.id && p.polaroid_date === today) || null}
-                                        partnerPolaroid={polaroids.find(p => p.user_id === partnerProfile?.id && p.polaroid_date === today) || null}
-                                        partnerName={getPartnerName(profile, partnerProfile)}
-                                        onUploadPress={handlePolaroidUpload}
-                                        authToken={idToken}
+                            <View onLayout={createDeferredLayoutHandler('polaroids')}>
+                                {deferredMounts.polaroids ? (
+                                    <GlassCard style={[styles.placeholderCard, { padding: 0 }]} intensity={10}>
+                                        <View style={styles.polaroidHeader}>
+                                            <View style={styles.polaroidTitleRow}>
+                                                <Camera size={20} color={Colors.dark.indigo[400]} />
+                                                <Text style={styles.polaroidTitle}>Daily Polaroid</Text>
+                                            </View>
+                                            <View style={styles.momentBadge}>
+                                                <Text style={styles.momentBadgeText}>Moment</Text>
+                                            </View>
+                                        </View>
+                                        <View style={styles.stackSection}>
+                                            <PolaroidStack
+                                                userPolaroid={polaroids.find(p => p.user_id === profile?.id && p.polaroid_date === today) || null}
+                                                partnerPolaroid={polaroids.find(p => p.user_id === partnerProfile?.id && p.polaroid_date === today) || null}
+                                                partnerName={getPartnerName(profile, partnerProfile)}
+                                                onUploadPress={handlePolaroidUpload}
+                                                authToken={idToken}
+                                                isActive={activeTabIndex === 1}
+                                            />
+                                        </View>
+                                    </GlassCard>
+                                ) : (
+                                    <View style={styles.deferredSectionPlaceholder} />
+                                )}
+                            </View>
+                        </View>
+
+                        <View style={styles.borderBottomWrapper}>
+                            <View onLayout={createDeferredLayoutHandler('location')}>
+                                {deferredMounts.location ? (
+                                    <LocationWidget
+                                        profile={profile}
+                                        partnerProfile={partnerProfile}
                                         isActive={activeTabIndex === 1}
                                     />
-                                </View>
-                            </GlassCard>
+                                ) : (
+                                    <View style={styles.deferredSectionPlaceholder} />
+                                )}
+                            </View>
                         </View>
 
                         <View style={styles.borderBottomWrapper}>
-                            <LocationWidget
-                                profile={profile}
-                                partnerProfile={partnerProfile}
-                                isActive={activeTabIndex === 1}
-                            />
+                            <View onLayout={createDeferredLayoutHandler('inspiration')}>
+                                {deferredMounts.inspiration ? (
+                                    <DailyInspirationWidget variant="card" />
+                                ) : (
+                                    <View style={styles.deferredSectionPlaceholder} />
+                                )}
+                            </View>
                         </View>
-
-                        <View style={styles.borderBottomWrapper}>
-                            <DailyInspirationWidget variant="card" />
-                        </View>
-                    </Animated.View>
+                    </View>
                 </View>
 
                 {/* Full Width Shared Canvas */}
@@ -593,7 +628,13 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
 
                 <Animated.View style={styles.feedSection}>
                     <View style={styles.borderBottomWrapper}>
-                        <MenstrualPhaseWidget />
+                        <View onLayout={createDeferredLayoutHandler('menstrual')}>
+                            {deferredMounts.menstrual ? (
+                                <MenstrualPhaseWidget />
+                            ) : (
+                                <View style={styles.deferredSectionPlaceholder} />
+                            )}
+                        </View>
                     </View>
                 </Animated.View>
                 <View style={{ height: 120 }} />
@@ -618,7 +659,7 @@ export function DashboardScreen({ isActive = true }: { isActive?: boolean }) {
             {
                 isTitleModalVisible && (
                     <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 99999, justifyContent: 'center', padding: 24 }]}>
-                        <Animated.View entering={FadeIn.duration(400)} style={styles.titleModalCard}>
+                        <Animated.View entering={MODAL_ANIM_INC} style={styles.titleModalCard}>
                             <Text style={styles.titleModalHeader}>Daily Polaroid</Text>
                             <Text style={styles.titleModalSub}>Add a title to your shared moment</Text>
 
@@ -742,16 +783,22 @@ const styles = StyleSheet.create({
         width: 56,
         height: 56,
         borderRadius: 28,
-        overflow: 'hidden'
+        overflow: 'hidden',
+        backgroundColor: '#09090b',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
     },
     quickActionInner: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.4)',
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: 28,
-        margin: 1.5,
+        margin: 1,
     },
+    quickActionInnerNeutral: { backgroundColor: '#111216' },
+    quickActionInnerIndigo: { backgroundColor: '#151926' },
+    quickActionInnerRose: { backgroundColor: '#201215' },
+    quickActionInnerViolet: { backgroundColor: '#181327' },
     widgetsGrid: {
         flexDirection: 'column',
     },
@@ -961,6 +1008,11 @@ const styles = StyleSheet.create({
         color: 'rgba(255,255,255,0.5)',
         fontSize: 12,
         fontFamily: Typography.sans,
+    },
+    deferredSectionPlaceholder: {
+        width: '100%',
+        height: DEFERRED_CARD_HEIGHT,
+        backgroundColor: '#050507',
     },
     titleModalCard: {
         backgroundColor: '#111111',

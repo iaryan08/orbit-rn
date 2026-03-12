@@ -289,8 +289,10 @@ const styles = StyleSheet.create({
         fontSize: 34,
         color: '#1e293b', // Elegant slate-900 like dark blue/black
         fontFamily: Typography.script,
-        letterSpacing: -0.5,
+        lineHeight: 40,
+        letterSpacing: -0.4,
         marginTop: -4,
+        includeFontPadding: false,
     },
     timeWrapper: {
         flexDirection: 'row',

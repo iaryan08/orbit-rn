@@ -14,7 +14,7 @@ interface PhaseSphereProps {
 }
 
 export const PhaseSphere = React.memo(({ phase, intensity = 0.5, isActive = true }: PhaseSphereProps) => {
-    const { isLiteMode } = useOrbitStore();
+    const isLiteMode = useOrbitStore(s => s.isLiteMode);
     const pulse = useSharedValue(0);
     const rotation = useSharedValue(0);
 
@@ -62,6 +62,10 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5, isActive = true
     const innerPulse = useDerivedValue(() => 0.95 + pulse.value * 0.05);
     const glowOpacity = useDerivedValue(() => 0.3 + pulse.value * 0.4);
 
+    const glowRadius = useDerivedValue(() => (SPHERE_SIZE / 2 + 30) * innerPulse.value);
+    const mainRadius = useDerivedValue(() => (SPHERE_SIZE / 2) * innerPulse.value);
+    const glossRadius = useDerivedValue(() => SPHERE_SIZE / 3);
+
     // Lite Mode or Inactive: COMPLETELY bypass Skia to preserve RAM and GPU
     if (isLiteMode || !isActive) {
         return (
@@ -97,16 +101,16 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5, isActive = true
 
                 <Group origin={vec(width / 2, width / 2)}>
                     {/* Glow Effect (Replaces Blur to fix OnePlus Nord 5 square bug) */}
-                    <Circle cx={width / 2} cy={width / 2} r={(SPHERE_SIZE / 2 + 30) * innerPulse.value}>
+                    <Circle cx={width / 2} cy={width / 2} r={glowRadius}>
                         <RadialGradient
                             c={vec(width / 2, width / 2)}
-                            r={(SPHERE_SIZE / 2 + 30) * innerPulse.value}
+                            r={glowRadius}
                             colors={[colors.glow, 'transparent']}
                         />
                     </Circle>
 
                     {/* Main Sphere Body */}
-                    <Circle cx={width / 2} cy={width / 2} r={(SPHERE_SIZE / 2) * innerPulse.value}>
+                    <Circle cx={width / 2} cy={width / 2} r={mainRadius}>
                         <LinearGradient
                             start={vec(width / 2 - SPHERE_SIZE / 2, width / 2 - SPHERE_SIZE / 2)}
                             end={vec(width / 2 + SPHERE_SIZE / 2, width / 2 + SPHERE_SIZE / 2)}
@@ -115,10 +119,10 @@ export const PhaseSphere = React.memo(({ phase, intensity = 0.5, isActive = true
                     </Circle>
 
                     {/* Glossy Overlay - Radial fallback */}
-                    <Circle cx={width / 2 - 15} cy={width / 2 - 15} r={SPHERE_SIZE / 3}>
+                    <Circle cx={width / 2 - 15} cy={width / 2 - 15} r={glossRadius}>
                         <RadialGradient
                             c={vec(width / 2 - 15, width / 2 - 15)}
-                            r={SPHERE_SIZE / 3}
+                            r={glossRadius}
                             colors={['rgba(255,255,255,0.25)', 'transparent']}
                         />
                     </Circle>

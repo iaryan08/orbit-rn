@@ -9,20 +9,21 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 interface LibidoMeterProps {
     level: 'low' | 'medium' | 'high' | 'very_high' | string | null;
+    compact?: boolean;
 }
 
 const levels = ['low', 'medium', 'high', 'very_high'];
 
-export function LibidoMeter({ level }: LibidoMeterProps) {
-    const rotation = useSharedValue(-88);
+export function LibidoMeter({ level, compact = false }: LibidoMeterProps) {
+    const rotation = useSharedValue(-90);
 
     const getAngle = (l: string | null) => {
         switch (l) {
-            case 'low': return -88;
-            case 'medium': return -30;
+            case 'low': return -80;
+            case 'medium': return -20;
             case 'high': return 30;
-            case 'very_high': return 88;
-            default: return -30;
+            case 'very_high': return 80;
+            default: return -80; // Default to lowest edge to prevent dipping below the line
         }
     };
 
@@ -32,7 +33,7 @@ export function LibidoMeter({ level }: LibidoMeterProps) {
             case 'medium': return "#eab308";
             case 'high': return "#f97316";
             case 'very_high': return "#ef4444";
-            default: return "#eab308";
+            default: return "#22c55e";
         }
     };
 
@@ -44,14 +45,20 @@ export function LibidoMeter({ level }: LibidoMeterProps) {
     const isVeryHigh = level === 'very_high';
 
     const CX = 100;
-    const CY = 108;
+    const CY = 100;
 
-    const needleAnimatedProps = useAnimatedProps(() => ({
-        transform: [{ rotate: `${rotation.value}deg` }]
-    }));
+    const needleAnimatedProps = useAnimatedProps(() => {
+        return {
+            transform: [
+                { translateX: CX },
+                { translateY: CY },
+                { rotate: `${rotation.value}deg` }
+            ] as any,
+        };
+    });
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, compact && { aspectRatio: 3, paddingTop: 4 }]}>
             <Svg viewBox="0 0 200 110" style={styles.svg}>
                 <Defs>
                     <LinearGradient id="meterGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -80,13 +87,11 @@ export function LibidoMeter({ level }: LibidoMeterProps) {
                     opacity={0.9}
                 />
 
-                <G transform={`translate(${CX}, ${CY})`}>
-                    <AnimatedG animatedProps={needleAnimatedProps}>
-                        <Path
-                            d="M -4 0 L 0 -90 L 4 0 Z"
-                            fill={activeColor}
-                        />
-                    </AnimatedG>
+                <AnimatedG animatedProps={needleAnimatedProps}>
+                    <Path
+                        d="M -3 0 L 0 -75 L 3 0 Z"
+                        fill={activeColor}
+                    />
 
                     {/* Pivot Hub */}
                     <Circle cx="0" cy="0" r="7.5" fill="#1a1a1a" stroke="rgba(255,255,255,0.15)" strokeWidth="0.5" />
@@ -101,7 +106,7 @@ export function LibidoMeter({ level }: LibidoMeterProps) {
                             <Circle cx="0" cy="0" r="1.5" fill="#1a1a1a" />
                         </G>
                     )}
-                </G>
+                </AnimatedG>
             </Svg>
         </View>
     );

@@ -7,8 +7,7 @@ import { getPublicStorageUrl } from '../lib/storage';
 import { useOrbitStore } from '../lib/store';
 import { ProfileAvatar } from './ProfileAvatar';
 import { rtdb } from '../lib/firebase';
-import { ref, onValue, set } from 'firebase/database';
-import { MarqueeText } from './DashboardWidgets';
+import { ref, onValue } from 'firebase/database';
 import { useState } from 'react';
 import * as Haptics from 'expo-haptics';
 import { getPartnerName } from '../lib/utils';
@@ -24,47 +23,29 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
     const { sendHeartbeatOptimistic, idToken } = useOrbitStore();
     const resolvedPartnerName = getPartnerName(profile, partnerProfile);
     const pulseAnim = useRef(new Animated.Value(1)).current;
+    const heartbeatFlashAnim = useRef(new Animated.Value(0)).current;
     const [isPartnerActive, setIsPartnerActive] = useState(false);
-    const [serverOffset, setServerOffset] = useState(0);
-
-    // RTDB instantaneous presence
+    // Dashboard header should stay idle when the screen is idle.
     useEffect(() => {
-        if (!isActive) return;
-        const offsetRef = ref(rtdb, '.info/serverTimeOffset');
-        const unsubOffset = onValue(offsetRef, (snap) => {
-            setServerOffset(snap.val() || 0);
+        if (!isActive || !coupleId || !profile?.id) return;
+
+        const presenceRef = ref(rtdb, `presence/${coupleId}`);
+        const unsub = onValue(presenceRef, (snapshot) => {
+            const allPresence = snapshot.val() || {};
+            const partnerEntry = Object.entries(allPresence).find(([userId]) => userId !== profile.id);
+            const data = partnerEntry?.[1] as any;
+            const isOnline = !!data?.is_online || !!data?.in_cinema;
+            const lastChanged = typeof data?.last_changed === 'number'
+                ? data.last_changed
+                : (isOnline ? Date.now() : 0);
+            const isFresh = Date.now() - lastChanged < 300_000;
+            setIsPartnerActive(isOnline && isFresh);
         });
-
-        if (!coupleId || !partnerProfile?.id) return unsubOffset;
-
-        const partnerRef = ref(rtdb, `presence/${coupleId}/${partnerProfile.id}`);
-        let lastData: any = null;
-
-        const validate = () => {
-            if (!lastData) {
-                setIsPartnerActive(false);
-                return;
-            }
-            const now = Date.now() + serverOffset;
-            const lastChanged = lastData.last_changed || 0;
-            const diff = Math.abs(now - lastChanged);
-            const isFresh = diff < 300_000;
-            setIsPartnerActive(isFresh && (!!lastData.is_online || !!lastData.in_cinema));
-        };
-
-        const unsub = onValue(partnerRef, (snapshot) => {
-            lastData = snapshot.val();
-            validate();
-        });
-
-        const validator = setInterval(validate, 30000);
 
         return () => {
-            unsubOffset();
             unsub();
-            clearInterval(validator);
         };
-    }, [coupleId, partnerProfile?.id, serverOffset, isActive]);
+    }, [coupleId, isActive, profile?.id]);
 
     const userAvatarUrl = useMemo(() =>
         getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
@@ -92,12 +73,24 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
     };
 
     const handleHeartbeat = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        heartbeatFlashAnim.setValue(0);
+        Animated.sequence([
+            Animated.timing(heartbeatFlashAnim, {
+                toValue: 1,
+                duration: 120,
+                useNativeDriver: true,
+            }),
+            Animated.timing(heartbeatFlashAnim, {
+                toValue: 0,
+                duration: 180,
+                useNativeDriver: true,
+            }),
+        ]).start();
         sendHeartbeatOptimistic();
     };
 
     const partnerCity = partnerProfile?.location?.city || partnerProfile?.location_city || 'Somewhere...';
-    const partnerDetailedLoc = partnerProfile?.location?.subtext || partnerProfile?.location?.location_name || '';
-
     const getWeatherIcon = (temp: number, condition?: string) => {
         const c = (condition || '').toLowerCase();
         if (c.includes('rain')) return <CloudRain size={12} color={Colors.dark.indigo[400]} />;
@@ -105,7 +98,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
         if (c.includes('cloud')) return <Cloud size={12} color="rgba(255,255,255,0.4)" />;
 
         // Time based check for sun/moon if no clouds
-        const hour = new Date().getHours() + (serverOffset / (1000 * 60 * 60));
+        const hour = new Date().getHours();
         const isNight = hour < 6 || hour > 18;
 
         if (isNight) return <Moon size={12} color={Colors.dark.indigo[400]} />;
@@ -129,11 +122,27 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
 
                     {/* Partner Avatar - Clickable Trigger */}
                     <Animated.View style={[styles.partnerAvatarContainer, { transform: [{ scale: pulseAnim }] }]}>
+                        <Animated.View
+                            pointerEvents="none"
+                            style={[
+                                styles.heartbeatFlash,
+                                {
+                                    opacity: heartbeatFlashAnim,
+                                    transform: [{
+                                        scale: heartbeatFlashAnim.interpolate({
+                                            inputRange: [0, 1],
+                                            outputRange: [0.92, 1.06],
+                                        })
+                                    }]
+                                }
+                            ]}
+                        />
                         <TouchableOpacity
                             activeOpacity={0.8}
                             onPressIn={handlePressIn}
                             onPressOut={handlePressOut}
-                            onPress={handleHeartbeat}
+                            onLongPress={handleHeartbeat}
+                            delayLongPress={220}
                             hitSlop={GlobalHitSlops.md}
                         >
                             <ProfileAvatar
@@ -141,7 +150,7 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
                                 fallbackText={resolvedPartnerName}
                                 size={80}
                                 borderWidth={2}
-                                borderColor={isPartnerActive ? Colors.dark.rose[500] : 'rgba(255,255,255,0.08)'}
+                                borderColor={isPartnerActive ? 'rgba(16, 185, 129, 0.88)' : 'rgba(255,255,255,0.08)'}
                             />
                         </TouchableOpacity>
                     </Animated.View>
@@ -154,9 +163,9 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
                 <View style={styles.nameHeaderGroup}>
                     <Text style={styles.connectedText}>Connected With • </Text>
                     <View style={{ flex: 1, minHeight: 28, justifyContent: 'center' }}>
-                        <MarqueeText style={styles.partnerName} isActive={isActive}>
+                        <Text style={styles.partnerName} numberOfLines={1} ellipsizeMode="tail">
                             {resolvedPartnerName}
-                        </MarqueeText>
+                        </Text>
                     </View>
                 </View>
 
@@ -203,6 +212,18 @@ const styles = StyleSheet.create({
     partnerAvatarContainer: {
         zIndex: 10, // Bring decisively to front
         marginLeft: -25,
+        position: 'relative',
+    },
+    heartbeatFlash: {
+        position: 'absolute',
+        top: -4,
+        left: -4,
+        right: -4,
+        bottom: -4,
+        borderRadius: 48,
+        borderWidth: 1,
+        borderColor: 'rgba(244, 63, 94, 0.55)',
+        backgroundColor: 'rgba(244, 63, 94, 0.08)',
     },
     partnerAvatarOverlap: {
         // Style applied to the avatar itself
@@ -225,10 +246,6 @@ const styles = StyleSheet.create({
         borderRadius: 2,
         backgroundColor: Colors.dark.emerald[400],
         marginRight: 8,
-        shadowColor: Colors.dark.emerald[400],
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.8,
-        shadowRadius: 4,
     },
     activeText: {
         color: 'rgba(255,255,255,0.7)',
@@ -246,17 +263,19 @@ const styles = StyleSheet.create({
         alignItems: 'baseline',
     },
     connectedText: {
-        color: 'rgba(255,255,255,0.85)',
-        fontSize: 11,
+        color: 'rgba(255,255,255,0.92)',
+        fontSize: 14,
         fontFamily: Typography.serifItalic,
-        letterSpacing: 1.2,
+        letterSpacing: 0.8,
     },
     partnerName: {
         color: 'white',
         fontFamily: Typography.script,
-        fontSize: 34,
-        letterSpacing: -0.5,
-        marginTop: -10,
+        fontSize: 40,
+        lineHeight: 46,
+        letterSpacing: -0.4,
+        marginTop: -12,
+        includeFontPadding: false,
     },
     locationCityRow: {
         flexDirection: 'row',
@@ -264,10 +283,10 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     locationCityText: {
-        color: 'rgba(255,255,255,1)',
-        fontSize: 11,
+        color: 'rgba(255,255,255,0.96)',
+        fontSize: 15,
         fontFamily: Typography.serif,
-        letterSpacing: 0.5,
+        letterSpacing: 0.2,
     },
     dividerDot: {
         width: 3,
@@ -276,8 +295,8 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.15)',
     },
     tempText: {
-        color: 'rgba(255,255,255,1)',
-        fontSize: 11,
+        color: 'rgba(255,255,255,0.96)',
+        fontSize: 15,
         fontFamily: Typography.sansBold,
     },
     weatherGroup: {

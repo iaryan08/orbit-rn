@@ -53,7 +53,8 @@ export async function updateLocation() {
         if (coupleId) {
             const { ref, update, serverTimestamp } = require('firebase/database');
             const { rtdb } = require('./firebase');
-            const presenceRef = ref(rtdb, `presence/${coupleId}/${user.uid}`);
+            const presenceUserId = userData?.id || user.uid;
+            const presenceRef = ref(rtdb, `presence/${coupleId}/${presenceUserId}`);
             await update(presenceRef, {
                 location: locationData,
                 last_changed: serverTimestamp()

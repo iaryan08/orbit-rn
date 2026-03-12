@@ -50,9 +50,15 @@ const STATIC_ITEMS = [
         keywords: ['intimacy', 'flame', 'milestones', 'closeness', 'romance', 'timeline'],
     },
     {
+        id: 'partner_screen', title: 'Partner', subtitle: 'Connections, libido & calendar',
+        icon: Heart, iconColor: '#f43f5e', group: 'Screens',
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(9, 'tap'); },
+        keywords: ['partner', 'connections', 'libido', 'drive', 'calendar', 'rhythm'],
+    },
+    {
         id: 'settings', title: 'Settings', subtitle: 'Profile, atmosphere, security',
         icon: Settings, iconColor: '#94a3b8', group: 'Screens',
-        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(7, 'tap'); },
+        action: (s: any) => { s.setAppMode('moon'); s.setTabIndex(10, 'tap'); },
         keywords: ['settings', 'profile', 'account', 'wallpaper', 'atmosphere'],
     },
     {
@@ -195,6 +201,8 @@ export function SearchPalette() {
     const { isSearchOpen, setSearchOpen, memories, letters, milestones } = store;
     const insets = useSafeAreaInsets();
     const inputRef = useRef<TextInput>(null);
+    const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [query, setQuery] = useState('');
 
@@ -224,7 +232,8 @@ export function SearchPalette() {
         translateY.value = withTiming(0, ANIM_FADE_IN);
 
         // Force immediate focus without waiting for transition
-        setTimeout(() => {
+        if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = setTimeout(() => {
             inputRef.current?.focus();
         }, 50);
     };
@@ -233,15 +242,23 @@ export function SearchPalette() {
         opacity.value = withTiming(0, ANIM_FADE_OUT);
         translateY.value = withTiming(-10, ANIM_FADE_OUT);
         Keyboard.dismiss();
-        setTimeout(() => {
+        if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = setTimeout(() => {
             setSearchOpen(false);
             setQuery('');
         }, ANIM_FADE_OUT.duration + 10);
-    }, []);
+    }, [opacity, setSearchOpen, translateY]);
 
     useEffect(() => {
         if (isSearchOpen) show();
     }, [isSearchOpen]);
+
+    useEffect(() => {
+        return () => {
+            if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+            if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+        };
+    }, []);
 
     const panelStyle = useAnimatedStyle(() => ({
         opacity: opacity.value,

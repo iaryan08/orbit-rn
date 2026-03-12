@@ -26,7 +26,8 @@ export function ProfileAvatar({
     const radius = size / 2;
 
     // 🛡️ Phase 3: High-Reliability Local Archive Cache
-    const persistentUrl = usePersistentMedia(url || undefined, url || undefined, true);
+    // Avatars are already covered by background mirroring; avoid eager persistence work on every render site.
+    const persistentUrl = usePersistentMedia(url || undefined, url || undefined, false);
     const [imgUrl, setImgUrl] = React.useState<string | undefined>(persistentUrl ?? url ?? undefined);
 
     React.useEffect(() => {

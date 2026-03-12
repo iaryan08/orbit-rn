@@ -1,7 +1,6 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { View, Dimensions, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import Animated, { useSharedValue, withTiming, withRepeat, withSequence, useAnimatedStyle, SharedValue, useAnimatedProps } from 'react-native-reanimated';
 
 import { BRIGHT_STARS } from '../../lib/astronomy/stars';
 
@@ -126,10 +125,10 @@ export function CelestialSky({
     }
 
     return (
-        <Animated.View style={StyleSheet.absoluteFillObject} pointerEvents="none" renderToHardwareTextureAndroid={true}>
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
             <Svg width="100%" height="100%">
                 {renderedStars}
             </Svg>
-        </Animated.View>
+        </View>
     );
 }

@@ -1,13 +1,17 @@
-import { auth, db, storage } from './firebase';
-import { doc, setDoc, addDoc, collection, serverTimestamp, getDocs, query, where, deleteDoc } from 'firebase/firestore';
-import { ref, deleteObject, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage, rtdb } from './firebase';
+import { doc, setDoc, addDoc, collection, serverTimestamp, getDocs, query, where, deleteDoc, Timestamp } from 'firebase/firestore';
+import { ref, deleteObject, uploadBytes, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image as ImageCompressor } from 'react-native-compressor';
 import { updateDoc as firestoreUpdateDoc } from 'firebase/firestore';
+
 // useOrbitStore is imported dynamically inside functions to avoid circular dependency with store.ts
 
 import { getTodayIST } from './utils';
 import { sendNotification } from './notifications';
+
+const resolveCoupleId = (state: any): string | null =>
+    state.couple?.id || state.profile?.couple_id || state.activeCoupleId || null;
 
 export async function submitMood(mood: string, note?: string) {
     const user = auth.currentUser;
@@ -15,7 +19,7 @@ export async function submitMood(mood: string, note?: string) {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple ID' };
 
     const today = getTodayIST();
@@ -56,7 +60,7 @@ export async function clearMood() {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple ID' };
 
     const today = getTodayIST();
@@ -82,7 +86,7 @@ export async function logSymptoms(symptoms: string[], options?: { notifyPartner?
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple ID' };
 
     const today = getTodayIST();
@@ -133,7 +137,7 @@ export async function logSexDrive(level: string) {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple ID' };
 
     const today = getTodayIST();
@@ -178,7 +182,7 @@ export async function logIntimacyMilestone(payload: {
     if (!user) return { error: 'Not authenticated' };
 
     const state = (await import('./store')).useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple ID' };
 
     try {
@@ -230,7 +234,7 @@ export async function addBucketItem(title: string, description: string = '', is_
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
     const normalizedTitle = (title || '').trim();
     if (!normalizedTitle) return { error: 'Title is required' };
@@ -273,7 +277,7 @@ export async function toggleBucketItem(id: string, isCompleted: boolean) {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
 
     try {
@@ -312,11 +316,14 @@ export async function deleteBucketItem(id: string) {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
 
     try {
-        await deleteDoc(doc(db, 'couples', coupleId, 'bucket_list', id));
+        await setDoc(doc(db, 'couples', coupleId, 'bucket_list', id), {
+            deleted: true,
+            updated_at: serverTimestamp()
+        }, { merge: true });
         return { success: true };
     } catch (error: any) {
         return { error: error.message };
@@ -329,7 +336,7 @@ export async function updateLetterReadStatus(id: string, isRead: boolean) {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
 
     try {
@@ -350,15 +357,18 @@ export async function deleteMemory(memory: any) {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
 
     const R2_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
     const R2_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
 
     try {
-        // 1. Delete from Firestore
-        await deleteDoc(doc(db, 'couples', coupleId, 'memories', memory.id));
+        // 1. Tombstone in Firestore so offline peers and local delta sync can converge correctly.
+        await setDoc(doc(db, 'couples', coupleId, 'memories', memory.id), {
+            deleted: true,
+            updated_at: serverTimestamp()
+        }, { merge: true });
 
         // 2. Best-in-Class: Total Storage Cleanup
         const urls = memory.image_urls || (memory.image_url ? [memory.image_url] : []);
@@ -404,7 +414,7 @@ export async function submitPolaroid(imageUrl: string, caption?: string, explici
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
 
     const today = explicitDate || getTodayIST();
@@ -450,7 +460,7 @@ export async function uploadWallpaper(uri: string) {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
 
     const R2_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
@@ -469,14 +479,21 @@ export async function uploadWallpaper(uri: string) {
         const storagePath = `wallpapers/${fileName}`;
 
         // Utility: Convert URI to Blob
-        const blob: Blob = await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.onerror = () => reject(new Error(`Blob conversion failed`));
-            xhr.onload = () => resolve(xhr.response);
-            xhr.responseType = 'blob';
-            xhr.open('GET', manipulated.uri, true);
-            xhr.send();
-        });
+        let blob: any = null;
+        try {
+            blob = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.onload = function () { resolve(xhr.response); };
+                xhr.onerror = function (e) { reject(new TypeError('Network request failed')); };
+                xhr.responseType = 'blob';
+                xhr.open('GET', manipulated.uri, true);
+                xhr.send(null);
+            });
+        } catch (xhrError) {
+            console.warn("XHR Blob failed, trying fetch fallback");
+            const response = await fetch(manipulated.uri);
+            blob = await response.blob();
+        }
 
         // 2. Upload to R2 (Primary)
         if (R2_URL && R2_SECRET) {
@@ -500,13 +517,12 @@ export async function uploadWallpaper(uri: string) {
         try {
             await uploadBytes(storageRef, blob, { contentType: 'image/webp' });
         } catch (fbErr: any) {
-            if (fbErr.code === 'storage/unknown') {
-                // Force resumable fallback for fragmented networks
-                await new Promise((resolve, reject) => {
-                    const task = uploadBytesResumable(storageRef, blob, { contentType: 'image/webp' });
-                    task.on('state_changed', null, (err) => reject(err), () => resolve(null));
-                });
-            } else throw fbErr;
+            console.error("Firebase uploadBytes failed:", fbErr);
+            throw fbErr;
+        } finally {
+            if (blob && typeof blob.close === 'function') {
+                blob.close();
+            }
         }
 
         // 4. Update Profile
@@ -584,7 +600,7 @@ export async function savePolaroidToMemories(polaroid: any) {
 
     const { useOrbitStore } = await import('./store');
     const state = useOrbitStore.getState();
-    const coupleId = state.profile?.couple_id;
+    const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
 
     try {
@@ -645,15 +661,9 @@ export async function uploadAvatar(uri: string) {
         const fileName = `${user.uid}_${timestamp}.webp`;
         const storagePath = `avatars/${fileName}`;
 
-        // Robust Blob Conversion (XHR is more stable than fetch() for file:// on Android)
-        const blob: Blob = await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.onerror = () => reject(new Error("XHR blob conversion failed"));
-            xhr.onload = () => resolve(xhr.response);
-            xhr.responseType = 'blob';
-            xhr.open('GET', manipulated.uri, true);
-            xhr.send();
-        });
+        // SAFEST BLOB CREATION FOR REACT NATIVE:
+        const response = await fetch(manipulated.uri);
+        const blob = await response.blob();
 
         // 2. Upload to R2 (Primary)
         if (R2_URL && R2_SECRET) {
@@ -672,17 +682,13 @@ export async function uploadAvatar(uri: string) {
             }
         }
 
-        // 3. Upload to Firebase (Backup with Resumable Fallback)
+        // 3. Upload to Firebase (Vastly more stable on Android than Blobs)
         const storageRef = ref(storage, storagePath);
         try {
             await uploadBytes(storageRef, blob, { contentType: 'image/webp' });
         } catch (firstError: any) {
-            if (firstError.code === 'storage/unknown') {
-                await new Promise((resolve, reject) => {
-                    const uploadTask = uploadBytesResumable(storageRef, blob, { contentType: 'image/webp' });
-                    uploadTask.on('state_changed', null, (err) => reject(err), () => resolve(null));
-                });
-            } else throw firstError;
+            console.error("Firebase uploadString failed:", firstError);
+            throw firstError;
         }
 
         // 4. Update Profile

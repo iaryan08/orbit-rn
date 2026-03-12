@@ -20,7 +20,7 @@ export async function initializeDatabase() {
             `CREATE TABLE IF NOT EXISTS bucket_list (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, is_completed INTEGER DEFAULT 0, is_private INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0, created_at INTEGER, created_by TEXT NOT NULL, updated_at INTEGER);`,
             `CREATE TABLE IF NOT EXISTS music_state (id TEXT PRIMARY KEY, current_track TEXT, queue TEXT, playlist TEXT, is_playing INTEGER DEFAULT 0, progress_ms INTEGER DEFAULT 0, last_updated INTEGER, updated_at INTEGER);`,
             `CREATE TABLE IF NOT EXISTS couples (id TEXT PRIMARY KEY, user1_id TEXT, user2_id TEXT, anniversary_date TEXT, paired_at TEXT, wallpaper_url TEXT, updated_at INTEGER);`,
-            `CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY, display_name TEXT, avatar_url TEXT, couple_id TEXT, partner_id TEXT, is_partner INTEGER DEFAULT 0, location_city TEXT, location_json TEXT, bio TEXT, updated_at INTEGER);`
+            `CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY, display_name TEXT, avatar_url TEXT, couple_id TEXT, partner_id TEXT, partner_nickname TEXT, custom_wallpaper_url TEXT, background_aesthetic TEXT, is_partner INTEGER DEFAULT 0, location_city TEXT, location_json TEXT, bio TEXT, updated_at INTEGER);`
         ];
 
         tables.forEach(sql => {
@@ -67,6 +67,9 @@ export async function initializeDatabase() {
         });
 
         const profileColumns = [
+            'partner_nickname TEXT',
+            'custom_wallpaper_url TEXT',
+            'background_aesthetic TEXT',
             'location_city TEXT',
             'location_json TEXT',
             'bio TEXT'

@@ -1,13 +1,14 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View, Platform } from 'react-native';
-import Animated, { useAnimatedStyle, withSpring, withTiming, interpolate } from 'react-native-reanimated';
-import { BlurView } from 'expo-blur';
+import { StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { TouchableOpacity } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Colors, Typography, Spacing } from '../constants/Theme';
+import { Colors, Typography } from '../constants/Theme';
 import { useOrbitStore } from '../lib/store';
 import { getPublicStorageUrl } from '../lib/storage';
 import { ProfileAvatar } from './ProfileAvatar';
+import { SafeBlurView } from './SafeBlurView';
 
 interface HeaderPillProps {
     title: string;
@@ -18,17 +19,22 @@ interface HeaderPillProps {
     onLongPress?: () => void;
 }
 
-import * as Haptics from 'expo-haptics';
-import { TouchableOpacity } from 'react-native-gesture-handler';
-
 export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, onLongPress }: HeaderPillProps) {
-    const { profile, idToken, setTabIndex, activeTabIndex, appMode } = useOrbitStore();
-    const insets = useSafeAreaInsets();
+    const { profile, idToken, setTabIndex, appMode, isLiteMode, lunaraPhaseColor } = useOrbitStore();
     const isLunara = appMode === 'lunara';
 
+    // Phase-driven accent — mirrors NavbarDock indicator color exactly
+    const accentColor = isLunara
+        ? (lunaraPhaseColor || '#a855f7')
+        : Colors.dark.rose[500];
+    const borderAccent = isLunara
+        ? `${lunaraPhaseColor || '#a855f7'}70`
+        : 'rgba(244, 63, 94, 0.4)';
+
+    // Settings is now index 10
     const handleProfilePress = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        setTabIndex(7, 'tap');
+        setTabIndex(10, 'tap');
     };
 
     const avatarUrl = useMemo(() =>
@@ -50,13 +56,15 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, o
                     onLongPress?.();
                 }}
             >
-                <BlurView
-                    intensity={35}
+                <SafeBlurView
+                    intensity={20}
                     tint="dark"
-                    style={[styles.blur, isLunara && styles.lunaraBlur]}
+                    style={[styles.blur, { borderColor: borderAccent }]}
                     experimentalBlurMethod="dimezisBlurView"
+                    fallbackBackgroundColor="rgba(5,5,10,0.92)"
+                    allowAndroidBlur={!isLiteMode}
                 >
-                    <View style={[styles.dot, isLunara ? { backgroundColor: '#a855f7' } : { backgroundColor: Colors.dark.rose[500] }]} />
+                    <View style={[styles.dot, { backgroundColor: accentColor }]} />
                     <Text style={[styles.text, isLunara && styles.lunaraText]}>{title.toUpperCase()}</Text>
                     {count !== undefined && (
                         <>
@@ -64,7 +72,7 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, o
                             <Text style={styles.count}>{count}</Text>
                         </>
                     )}
-                </BlurView>
+                </SafeBlurView>
             </TouchableOpacity>
 
             {/* Right-pinned Profile */}
@@ -74,7 +82,7 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, o
             >
                 <ProfileAvatar
                     url={avatarUrl}
-                    size={48} // Balanced premium size
+                    size={48}
                 />
             </TouchableOpacity>
         </View>
@@ -84,15 +92,13 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, o
 const styles = StyleSheet.create({
     headerContent: {
         width: '100%',
-        height: 68, // Precision height as requested
+        height: 68,
         flexDirection: 'row',
-        alignItems: 'center', // Vertical centering for both elements
+        alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
     },
-    pillContainer: {
-        // Naturally centered by flex row
-    },
+    pillContainer: {},
     blur: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -101,18 +107,14 @@ const styles = StyleSheet.create({
         borderRadius: 999,
         backgroundColor: 'rgba(0,0,0,0.5)',
         borderWidth: 1.2,
-        borderColor: 'rgba(225, 29, 72, 0.4)',
+        borderColor: 'rgba(225, 29, 72, 0.5)', // fallback, overridden via inline style
         gap: 10,
         overflow: 'hidden',
-    },
-    lunaraBlur: {
-        borderColor: 'rgba(168, 85, 247, 0.45)',
     },
     dot: {
         width: 6,
         height: 6,
         borderRadius: 3,
-        backgroundColor: Colors.dark.rose[500],
     },
     text: {
         color: 'white',

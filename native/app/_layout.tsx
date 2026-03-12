@@ -9,6 +9,7 @@ import { useSafeAreaInsets, SafeAreaProvider } from "react-native-safe-area-cont
 import { DynamicBackground } from "../components/DynamicBackground";
 import { NotificationDrawer } from "../components/NotificationDrawer";
 import { MoodLoggerDrawer } from "../components/MoodLoggerDrawer";
+import { MoodHistoryDrawer } from "../components/MoodHistoryDrawer";
 import { MediaViewer } from "../components/MediaViewer";
 import { SearchPalette } from "../components/SearchPalette";
 import { ConnectionSync } from "../components/ConnectionSync";
@@ -44,8 +45,9 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter } from 'expo-router';
 import { registerForPushNotificationsAsync, setupNotificationListeners } from '../lib/push';
 
-// Keep the splash screen visible while we fetch resources
-SplashScreen.preventAutoHideAsync();
+// Keep the splash screen visible while we fetch resources, but never let
+// a boot edge case trap the app behind the splash forever.
+void SplashScreen.preventAutoHideAsync().catch(() => { });
 
 function RootLayoutNav() {
     const profile = useOrbitStore(state => state.profile);
@@ -66,6 +68,7 @@ function RootLayoutNav() {
 
     // undefined = still loading, null = signed out, object = signed in
     const [authUser, setAuthUser] = useState<any>(undefined);
+    const [canRenderApp, setCanRenderApp] = useState(false);
 
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, (user) => {
@@ -111,11 +114,20 @@ function RootLayoutNav() {
 
     useEffect(() => {
         if (fontsLoaded || fontError) {
-            SplashScreen.hideAsync();
+            setCanRenderApp(true);
+            void SplashScreen.hideAsync().catch(() => { });
         }
     }, [fontsLoaded, fontError]);
 
-    if (!fontsLoaded && !fontError) {
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setCanRenderApp(true);
+            void SplashScreen.hideAsync().catch(() => { });
+        }, 3500);
+        return () => clearTimeout(timer);
+    }, []);
+
+    if (!canRenderApp && !fontError) {
         return null;
     }
 
@@ -135,7 +147,7 @@ function RootLayoutNav() {
     // We let activeTabIndex === 0 (Sync Cinema) animate the dock out inside NavbarDock.tsx itself
     const isAuthenticated = !!authUser;
     const isAppLoading = loading && isAuthenticated;
-    const hideDock = pathname === '/login' || !isAuthenticated || isAppLoading || activeTabIndex === 0;
+    const hideDock = pathname === '/login' || pathname === '/settings' || !isAuthenticated || isAppLoading || activeTabIndex === 0;
     const shouldRenderDynamicBackground = isAuthenticated && !hideDock && [1, 5, 6, 7].includes(activeTabIndex);
 
 
@@ -160,10 +172,11 @@ function RootLayoutNav() {
                 {isAuthenticated && !hideDock && <NavbarDock />}
                 {isAuthenticated && <NotificationDrawer />}
                 {isAuthenticated && <MoodLoggerDrawer />}
+                {isAuthenticated && <MoodHistoryDrawer />}
                 {isAuthenticated && <MediaViewer />}
                 {isAuthenticated && <SearchPalette />}
                 {/* Global Intimacy Layer: Always at the Top Z-Index */}
-                {isAuthenticated && <ConnectionSync />}
+                {isAuthenticated && activeTabIndex !== 0 && <ConnectionSync />}
                 {isAuthenticated && <AppLockOverlay />}
                 <StatusBar style="light" />
                 {isDebugMode && (

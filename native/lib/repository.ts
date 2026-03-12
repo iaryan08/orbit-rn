@@ -242,7 +242,80 @@ class Repository {
     }
 
     async deleteMemory(id: string) {
-        await db_local.delete(memories).where(eq(memories.id, id));
+        await db_local.update(memories)
+            .set({ deleted: 1, updated_at: Date.now() } as any)
+            .where(eq(memories.id, id));
+    }
+
+    async saveLetterLocal(letter: any) {
+        try {
+            const payload = {
+                ...letter,
+                is_read: letter.is_read ? 1 : 0,
+                is_scheduled: letter.is_scheduled ? 1 : 0,
+                is_vanish: letter.is_vanish ? 1 : 0,
+                updated_at: letter.updated_at || Date.now()
+            };
+            await db_local.insert(letters).values(payload as any).onConflictDoUpdate({
+                target: letters.id,
+                set: payload as any
+            });
+        } catch (e) {
+            console.warn("[Repo] saveLetterLocal failed:", e);
+        }
+    }
+
+    async saveMemoryLocal(memory: any) {
+        try {
+            const sanitized = { ...memory };
+            if (memory.image_urls) sanitized.image_urls = JSON.stringify(memory.image_urls);
+            const payload = {
+                ...sanitized,
+                deleted: memory.deleted ? 1 : 0,
+                updated_at: memory.updated_at || Date.now()
+            };
+            await db_local.insert(memories).values(payload as any).onConflictDoUpdate({
+                target: memories.id,
+                set: payload as any
+            });
+        } catch (e) {
+            console.warn("[Repo] saveMemoryLocal failed:", e);
+        }
+    }
+
+    async saveMoodLocal(mood: any) {
+        try {
+            const payload = {
+                ...mood,
+                updated_at: mood.updated_at || Date.now(),
+                created_at: mood.created_at || Date.now(),
+            };
+            await db_local.insert(moods).values(payload as any).onConflictDoUpdate({
+                target: moods.id,
+                set: payload as any,
+            });
+        } catch (e) {
+            console.warn("[Repo] saveMoodLocal failed:", e);
+        }
+    }
+
+    async saveBucketItemLocal(item: any) {
+        try {
+            const payload = {
+                ...item,
+                title: typeof item.title === 'string' ? item.title.trim() : item.title,
+                is_completed: item.is_completed ? 1 : 0,
+                is_private: item.is_private ? 1 : 0,
+                deleted: item.deleted ? 1 : 0,
+                updated_at: item.updated_at || Date.now(),
+            };
+            await db_local.insert(bucketList).values(payload as any).onConflictDoUpdate({
+                target: bucketList.id,
+                set: payload as any,
+            });
+        } catch (e) {
+            console.warn("[Repo] saveBucketItemLocal failed:", e);
+        }
     }
 
     // Music State Persistence

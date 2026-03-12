@@ -86,9 +86,9 @@ type ReactionType = 'laugh' | 'heartbeat' | 'tap' | 'emoji-preset';
 const BASE_EMOJIS = ['💗', '🥺', '😘'];
 
 
-export function SyncCinemaScreen() {
+export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
     const { profile, couple, activeTabIndex, partnerProfile, idToken } = useOrbitStore();
-    const isFocused = activeTabIndex === 0;
+    const isFocused = activeTabIndex === 0 && isActive;
     const insets = useSafeAreaInsets();
     const perfStats = usePerfMonitor('SyncCinema');
     const isDebugMode = useOrbitStore(state => state.isDebugMode);
@@ -99,6 +99,7 @@ export function SyncCinemaScreen() {
     const [selectedEmoji, setSelectedEmoji] = useState(BASE_EMOJIS[0]);
 
     const isMountedRef = useRef(true);
+    const lastProcessedBroadcastRef = useRef<Record<string, number>>({});
     const partnerName = getPartnerName(profile, partnerProfile);
 
     const partnerAvatarUrl = React.useMemo(() =>
@@ -150,11 +151,16 @@ export function SyncCinemaScreen() {
 
     const player = useVideoPlayer(null, (p) => {
         p.loop = true;
+        p.staysActiveInBackground = true;
         // Disable by default to avoid binder race conditions on boot
         p.showNowPlayingNotification = false;
     });
 
     const [hasBeenFocused, setHasBeenFocused] = useState(false);
+    const currentSongRef = useRef<any>(null);
+    const lastActiveTrackSignatureRef = useRef<string | null>(null);
+    const searchAbortRef = useRef<AbortController | null>(null);
+    const searchRequestIdRef = useRef(0);
 
     useEffect(() => {
         if (isFocused && !hasBeenFocused) {
@@ -162,8 +168,25 @@ export function SyncCinemaScreen() {
         }
     }, [isFocused]);
 
+    useEffect(() => {
+        player.staysActiveInBackground = backgroundEnabled;
+        if (backgroundEnabled && currentSongRef.current) {
+            player.showNowPlayingNotification = true;
+        } else if (!backgroundEnabled && !player.playing) {
+            player.showNowPlayingNotification = false;
+        }
+    }, [backgroundEnabled, player]);
+
+    useEffect(() => {
+        if (!isFocused && player.playing && !backgroundEnabled) {
+            player.pause();
+            setIsPlaying(false);
+        }
+    }, [backgroundEnabled, isFocused, player]);
+
     const sharedQueueRef = useRef<any[]>([]);
     const sharedTapeRef = useRef<any[]>([]);
+    useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
     useEffect(() => { sharedQueueRef.current = sharedQueue; }, [sharedQueue]);
     useEffect(() => { sharedTapeRef.current = sharedTape; }, [sharedTape]);
 
@@ -308,11 +331,9 @@ export function SyncCinemaScreen() {
             // 1. Save to SQLite always
             repository.saveMusicState(couple.id, { queue: updated });
 
-            // 2. Sync to RTDB ONLY if partner is connected
-            if (partnerInCinema) {
-                const cleanData = JSON.parse(JSON.stringify(updated));
-                set(ref(rtdb, `couples/${couple.id}/music/queue`), cleanData);
-            }
+            // Keep shared queue durable even if partner is not currently in cinema.
+            const cleanData = JSON.parse(JSON.stringify(updated));
+            set(ref(rtdb, `couples/${couple.id}/music/queue`), cleanData);
             return updated;
         });
     };
@@ -325,10 +346,7 @@ export function SyncCinemaScreen() {
             // 1. Save locally
             repository.saveMusicState(couple.id, { queue: updated });
 
-            // 2. RTDB only if shared
-            if (partnerInCinema) {
-                set(ref(rtdb, `couples/${couple.id}/music/queue`), updated);
-            }
+            set(ref(rtdb, `couples/${couple.id}/music/queue`), updated);
             return updated;
         });
     };
@@ -352,11 +370,8 @@ export function SyncCinemaScreen() {
             // 1. Save locally
             repository.saveMusicState(couple.id, { playlist: updated });
 
-            // 2. RTDB only if shared
-            if (partnerInCinema) {
-                const cleanData = JSON.parse(JSON.stringify(updated));
-                set(ref(rtdb, `couples/${couple.id}/music/tape`), cleanData);
-            }
+            const cleanData = JSON.parse(JSON.stringify(updated));
+            set(ref(rtdb, `couples/${couple.id}/music/tape`), cleanData);
             return updated;
         });
     };
@@ -369,10 +384,7 @@ export function SyncCinemaScreen() {
             // 1. Save locally
             repository.saveMusicState(couple.id, { playlist: updated });
 
-            // 2. RTDB only if shared
-            if (partnerInCinema) {
-                set(ref(rtdb, `couples/${couple.id}/music/tape`), updated);
-            }
+            set(ref(rtdb, `couples/${couple.id}/music/tape`), updated);
             return updated;
         });
     };
@@ -397,37 +409,69 @@ export function SyncCinemaScreen() {
         player.currentTime = 0;
     };
 
-    const handleSearch = async () => {
-        if (!searchQuery.trim()) return;
+    const handleSearch = useCallback(async (rawQuery?: string) => {
+        const queryText = (rawQuery ?? searchQuery).trim();
+        if (!queryText) {
+            searchAbortRef.current?.abort();
+            setSearchResults([]);
+            setIsLoadingMusic(false);
+            return;
+        }
+
+        const requestId = ++searchRequestIdRef.current;
+        searchAbortRef.current?.abort();
+        const controller = new AbortController();
+        searchAbortRef.current = controller;
         setIsLoadingMusic(true);
         const API_URLS = [
-            `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(searchQuery)}`,
-            `https://jiosaavn-api-beta.vercel.app/api/search/songs?query=${encodeURIComponent(searchQuery)}`
+            `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(queryText)}`,
+            `https://jiosaavn-api-beta.vercel.app/api/search/songs?query=${encodeURIComponent(queryText)}`
         ];
 
         let lastError = null;
         for (const url of API_URLS) {
             try {
-                const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+                const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, signal: controller.signal });
                 if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                 const json = await res.json();
                 const results = json.data?.results || json.data || [];
                 if (results.length > 0) {
-                    setSearchResults(results);
-                    setIsLoadingMusic(false);
+                    if (requestId === searchRequestIdRef.current) {
+                        setSearchResults(results);
+                        setIsLoadingMusic(false);
+                    }
                     return;
                 }
             } catch (error) {
+                if ((error as any)?.name === 'AbortError') return;
                 console.error(`Search failed with ${url}:`, error);
                 lastError = error;
             }
         }
 
-        setIsLoadingMusic(false);
-        if (lastError) {
+        if (requestId === searchRequestIdRef.current) {
+            setSearchResults([]);
+            setIsLoadingMusic(false);
+        }
+        if (lastError && requestId === searchRequestIdRef.current) {
             Alert.alert("VOID ERROR", "COULD NOT PIERCE THE MUSIC STREAM. TRY ANOTHER QUERY.");
         }
-    };
+    }, [searchQuery]);
+
+    useEffect(() => {
+        if (!showMusicSearch || musicTab !== 'search') return;
+        const trimmed = searchQuery.trim();
+        if (!trimmed) {
+            searchAbortRef.current?.abort();
+            setSearchResults([]);
+            setIsLoadingMusic(false);
+            return;
+        }
+        const timer = setTimeout(() => {
+            void handleSearch(trimmed);
+        }, 260);
+        return () => clearTimeout(timer);
+    }, [handleSearch, musicTab, searchQuery, showMusicSearch]);
 
     const selectSong = (song: any) => {
         const url = song.downloadUrl?.[song.downloadUrl.length - 1]?.url;
@@ -453,15 +497,14 @@ export function SyncCinemaScreen() {
             // 1. Save to local SQLite always
             repository.saveMusicState(couple.id, { current_track: entry, is_playing: true, progress_ms: 0 });
 
-            // 2. Clear literal: Don't waste RTDB if partner isn't connected
-            if (partnerInCinema) {
-                const cleanSong = JSON.parse(JSON.stringify(entry));
-                set(ref(rtdb, `couples/${couple.id}/music/active_track`), {
-                    song: cleanSong,
-                    senderId: profile?.id,
-                    timestamp: Date.now()
-                });
-            }
+            const cleanSong = JSON.parse(JSON.stringify(entry));
+            set(ref(rtdb, `couples/${couple.id}/music/active_track`), {
+                song: cleanSong,
+                senderId: profile?.id,
+                isPlaying: true,
+                position: 0,
+                timestamp: Date.now()
+            });
         }
 
         setCurrentSong(entry);
@@ -534,17 +577,21 @@ export function SyncCinemaScreen() {
         };
     }, [isFocused, couple?.id, profile?.id]);
 
-    const [serverOffset, setServerOffset] = useState(0);
-
     useEffect(() => {
-        if (!couple?.id || !partnerProfile?.id || !isFocused) return;
-
+        if (!isFocused) return;
         const offsetRef = ref(rtdb, '.info/serverTimeOffset');
         const unsubOffset = onValue(offsetRef, (snap) => {
-            setServerOffset(snap.val() || 0);
+            const nextOffset = typeof snap.val() === 'number' ? snap.val() : 0;
+            serverOffsetRef.current = nextOffset;
         });
+        return () => unsubOffset();
+    }, [isFocused]);
 
-        const presenceRef = ref(rtdb, `presence/${couple.id}/${partnerProfile.id}`);
+    const serverOffsetRef = useRef(0);
+
+    useEffect(() => {
+        if (!couple?.id || !profile?.id || !isFocused) return;
+        const presenceRef = ref(rtdb, `presence/${couple.id}`);
         let lastPresenceData: any = null;
 
         const validatePresence = () => {
@@ -553,8 +600,11 @@ export function SyncCinemaScreen() {
                 setPartnerOnline(false);
                 return;
             }
-            const now = Date.now() + serverOffset;
-            const lastChanged = lastPresenceData.last_changed || 0;
+            const now = Date.now() + serverOffsetRef.current;
+            const isMarkedOnline = !!lastPresenceData.is_online || !!lastPresenceData.in_cinema;
+            const lastChanged = typeof lastPresenceData.last_changed === 'number'
+                ? lastPresenceData.last_changed
+                : (isMarkedOnline ? now : 0);
             // Best-in-Class: 5 minute buffer + Server Offset Correction
             // Robust check against local clock drift
             const diff = Math.abs(now - lastChanged);
@@ -565,40 +615,50 @@ export function SyncCinemaScreen() {
         };
 
         const unsubPresence = onValue(presenceRef, (snap) => {
-            lastPresenceData = snap.val();
+            const allPresence = snap.val() || {};
+            const partnerEntry = Object.entries(allPresence).find(([userId]) => userId !== profile.id);
+            lastPresenceData = partnerEntry?.[1] ?? null;
             validatePresence();
         });
 
         const presenceValidator = setInterval(validatePresence, 30000);
 
         return () => {
-            unsubOffset();
             unsubPresence();
             clearInterval(presenceValidator);
         };
-    }, [isFocused, couple?.id, partnerProfile?.id, serverOffset]);
+    }, [isFocused, couple?.id, profile?.id]);
 
     // 1. Transient Broadcasts (Seeks, Reactions, Heartbeats)
     // High frequency — only listen if partner is actually online
     useEffect(() => {
-        if (!couple?.id || !partnerProfile?.id || !isFocused) return;
+        if (!couple?.id || !profile?.id || !isFocused) return;
 
-        const broadcastRef = ref(rtdb, `broadcasts/${couple.id}/${partnerProfile.id}`);
+        const broadcastRef = ref(rtdb, `broadcasts/${couple.id}`);
         const unsubBroadcasts = onValue(broadcastRef, (snap) => {
-            const data = snap.val();
-            if (data?.event === 'cinema_event' && (Date.now() - data.timestamp < 5000)) {
-                handleIncomingEvent(data.payload);
-            } else if (data?.event === 'music_event' && (Date.now() - data.timestamp < 10000)) {
-                handleMusicSync(data.payload);
-            } else if (data?.event === 'music_control' && (Date.now() - data.timestamp < 5000)) {
-                handleMusicControl(data.payload);
-            } else if (data?.event === 'music_seek' && (Date.now() - data.timestamp < 5000)) {
-                handleMusicSeek(data.payload);
-            }
+            const allData = snap.val() || {};
+
+            Object.entries(allData).forEach(([senderId, data]: [string, any]) => {
+                if (senderId === profile.id || !data?.event) return;
+
+                const timestamp = Number(data?.timestamp || 0);
+                if (timestamp <= (lastProcessedBroadcastRef.current[senderId] || 0)) return;
+                lastProcessedBroadcastRef.current[senderId] = timestamp;
+
+                if (data.event === 'cinema_event' && (Date.now() - timestamp < 5000)) {
+                    handleIncomingEvent(data.payload);
+                } else if (data.event === 'music_event' && (Date.now() - timestamp < 10000)) {
+                    handleMusicSync(data.payload);
+                } else if (data.event === 'music_control' && (Date.now() - timestamp < 5000)) {
+                    handleMusicControl(data.payload);
+                } else if (data.event === 'music_seek' && (Date.now() - timestamp < 5000)) {
+                    handleMusicSeek(data.payload);
+                }
+            });
         });
 
         return () => unsubBroadcasts();
-    }, [isFocused, couple?.id, partnerProfile?.id]);
+    }, [isFocused, couple?.id, profile?.id]);
 
     // Shared Space Listeners (Queue, Tape, & Active Track)
     useEffect(() => {
@@ -611,15 +671,26 @@ export function SyncCinemaScreen() {
         const tapeRef = ref(rtdb, `couples/${couple.id}/music/tape`);
         const activeTrackRef = ref(rtdb, `couples/${couple.id}/music/active_track`);
 
-        const unsubQueue = onValue(queueRef, (snap) => setSharedQueue(snap.val() || []));
-        const unsubTape = onValue(tapeRef, (snap) => setSharedTape(snap.val() || []));
+        const unsubQueue = onValue(queueRef, (snap) => {
+            const nextQueue = snap.val() || [];
+            setSharedQueue((prev) => JSON.stringify(prev) === JSON.stringify(nextQueue) ? prev : nextQueue);
+        });
+        const unsubTape = onValue(tapeRef, (snap) => {
+            const nextTape = snap.val() || [];
+            setSharedTape((prev) => JSON.stringify(prev) === JSON.stringify(nextTape) ? prev : nextTape);
+        });
 
         const unsubActive = onValue(activeTrackRef, (snap) => {
             const data = snap.val();
             if (data?.song) {
-                // Determine if we need to sync based on local state vs global state
+                const songId = String(data.song.id);
+                const signature = `${songId}:${data.senderId || ''}:${Math.round(Number(data.position || 0))}:${data.isPlaying ? 1 : 0}`;
+                if (signature === lastActiveTrackSignatureRef.current) return;
+                lastActiveTrackSignatureRef.current = signature;
+
+                const currentSongId = currentSongRef.current?.id ? String(currentSongRef.current.id) : null;
                 const isExternalChange = data.senderId !== profile?.id;
-                const isNewSong = currentSong?.id !== String(data.song.id);
+                const isNewSong = currentSongId !== songId;
 
                 if (isNewSong) {
                     setCurrentSong(data.song);
@@ -649,7 +720,7 @@ export function SyncCinemaScreen() {
             unsubTape();
             unsubActive();
         };
-    }, [couple?.id, isFocused, currentSong?.id, partnerOnline]);
+    }, [couple?.id, isFocused, partnerOnline, player, profile?.id]);
 
     const handleIncomingEvent = (event: any) => {
         if (!event || event.senderId === profile?.id) return;
@@ -1061,7 +1132,7 @@ export function SyncCinemaScreen() {
                                         placeholderTextColor="rgba(255,255,255,0.4)"
                                         value={searchQuery}
                                         onChangeText={setSearchQuery}
-                                        onSubmitEditing={handleSearch}
+                                        onSubmitEditing={() => { void handleSearch(); }}
                                         autoFocus
                                     />
                                 </View>

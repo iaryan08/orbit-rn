@@ -35,6 +35,52 @@ const mergeCollections = <T extends { id: string }>(current: T[], incoming: T[])
     return hasChanged ? result : current;
 };
 
+const getComparableTimestamp = (value: any): number => {
+    if (typeof value === 'number') return value;
+    if (value?.toMillis && typeof value.toMillis === 'function') return value.toMillis();
+    if (value?.seconds && typeof value.seconds === 'number') return value.seconds * 1000;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const collapseLatestMoods = (items: MoodData[]): MoodData[] => {
+    const latestBySlot = new Map<string, MoodData>();
+    for (const item of items) {
+        const slotKey = `${item.user_id || 'unknown'}_${item.mood_date || 'unknown'}`;
+        const existing = latestBySlot.get(slotKey);
+        if (!existing) {
+            latestBySlot.set(slotKey, item);
+            continue;
+        }
+        const existingStamp = Math.max(
+            getComparableTimestamp((existing as any).updated_at),
+            getComparableTimestamp(existing.created_at)
+        );
+        const nextStamp = Math.max(
+            getComparableTimestamp((item as any).updated_at),
+            getComparableTimestamp(item.created_at)
+        );
+        if (nextStamp >= existingStamp) {
+            latestBySlot.set(slotKey, item);
+        }
+    }
+
+    return Array.from(latestBySlot.values()).sort((a, b) => {
+        const aStamp = Math.max(
+            getComparableTimestamp((a as any).updated_at),
+            getComparableTimestamp(a.created_at)
+        );
+        const bStamp = Math.max(
+            getComparableTimestamp((b as any).updated_at),
+            getComparableTimestamp(b.created_at)
+        );
+        return bStamp - aStamp;
+    });
+};
+
+const resolveCoupleId = (state: any): string | null =>
+    state.couple?.id || state.profile?.couple_id || state.activeCoupleId || null;
+
 export interface DataSlice {
     memories: MemoryData[]
     polaroids: PolaroidData[]
@@ -62,6 +108,8 @@ export interface DataSlice {
     submitMoodOptimistic: (userId: string, emoji: string, note?: string) => void
     clearMoodOptimistic: (userId: string) => void
     deleteMemoryOptimistic: (memory: MemoryData) => void
+    sendLetterOptimistic: (letter: Partial<LetterData>) => Promise<void>
+    addMemoryOptimistic: (memory: Partial<MemoryData>) => Promise<void>
     sendHeartbeatOptimistic: () => void
     resetData: () => void,
     runJanitor: () => Promise<void>,
@@ -96,7 +144,30 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
         try {
             console.log("[Janitor] Cleaning ephemeral RTDB nodes...");
-            const { ref, remove } = require('firebase/database');
+            const { ref, remove, get: rtdbGet } = require('firebase/database');
+
+            // Persist the shared cinema/music state locally before clearing ephemeral RTDB transport nodes.
+            try {
+                const [activeTrackSnap, queueSnap, tapeSnap] = await Promise.all([
+                    rtdbGet(ref(rtdb, `couples/${activeCoupleId}/music/active_track`)),
+                    rtdbGet(ref(rtdb, `couples/${activeCoupleId}/music/queue`)),
+                    rtdbGet(ref(rtdb, `couples/${activeCoupleId}/music/tape`)),
+                ]);
+
+                const activeTrack = activeTrackSnap.val();
+                const queue = queueSnap.val() || [];
+                const tape = tapeSnap.val() || [];
+
+                await repository.saveMusicState(activeCoupleId, {
+                    current_track: activeTrack?.song || null,
+                    queue: Array.isArray(queue) ? queue : [],
+                    playlist: Array.isArray(tape) ? tape : [],
+                    is_playing: !!activeTrack?.isPlaying,
+                    progress_ms: typeof activeTrack?.position === 'number' ? Math.round(activeTrack.position * 1000) : 0,
+                });
+            } catch (snapshotError) {
+                console.warn("[Janitor] Failed to snapshot shared music state:", snapshotError);
+            }
 
             // 1. Wipe my own broadcasts (drawing/typing indicators)
             const myBroadcastRef = ref(rtdb, `broadcasts/${activeCoupleId}/${profile.id}`);
@@ -141,6 +212,97 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
         let isCleanedUp = false;
 
+        const bootstrapFromLocal = async () => {
+            console.log("[DataSlice] Bootstrap from SQLite starting...");
+            try {
+                // 1. Load profiles from instant SQLite cache
+                const profs = await repository.getProfiles().catch(() => []);
+                const me = profs.find((u: any) => u.id === userId);
+                const partner = profs.find((u: any) => u.id !== userId && u.couple_id === me?.couple_id);
+
+                const normalize = (p: any) => {
+                    if (!p) return null;
+                    let loc = null;
+                    if (p.location_json) {
+                        try { loc = typeof p.location_json === 'string' ? JSON.parse(p.location_json) : p.location_json; } catch (e) { }
+                    }
+                    return { ...p, location: loc };
+                };
+
+                const myProfile = normalize(me);
+                const pProfile = normalize(partner);
+                const cachedCouple = myProfile?.couple_id
+                    ? await repository.getCouple(myProfile.couple_id).catch(() => null)
+                    : null;
+
+                // 2. Hydrate collections
+                const [mems, lets, pols, moody, buck] = await Promise.all([
+                    repository.getMemories().catch(() => []),
+                    repository.getLetters().catch(() => []),
+                    repository.getPolaroids().catch(() => []),
+                    repository.getMoods().catch(() => []),
+                    repository.getBucketList().catch(() => [])
+                ]);
+
+                if (!isCleanedUp) {
+                    // 🚀 PERFORMANCE: Single atomic state update to prevent re-render thrashing
+                    set({
+                        profile: myProfile || get().profile,
+                        couple: cachedCouple || get().couple,
+                        activeCoupleId: myProfile?.couple_id || get().activeCoupleId,
+                        partnerProfile: pProfile || get().partnerProfile,
+                        activePartnerId: pProfile?.id || get().activePartnerId,
+                        memories: mems,
+                        letters: lets,
+                        polaroids: pols,
+                        moods: moody,
+                        bucketList: buck,
+                        loading: false
+                    });
+                }
+            } catch (e) {
+                console.warn("[DataSlice] Bootstrap failed:", e);
+                set({ loading: false });
+            }
+        };
+
+        const performSilentDeltaSync = async (coupleId: string) => {
+            if (isCleanedUp) return;
+            // 2500ms delay to let the app finish booting and first paint
+            await new Promise(r => setTimeout(r, 2500));
+            if (isCleanedUp) return;
+
+            set({ isSyncing: true });
+            try {
+                let anyChanged = false;
+
+                // Sequential Sync (Background work, doesn't touch UI directly)
+                if (await repository.syncCollection('moods', coupleId, moodsTable, 'moods')) anyChanged = true;
+                if (await repository.syncCollection('letters', coupleId, lettersTable, 'letters')) anyChanged = true;
+                if (await repository.syncCollection('polaroids', coupleId, polaroidsTable, 'polaroids')) anyChanged = true;
+                if (await repository.syncCollection('bucket_list', coupleId, bucketTable, 'bucket_list')) anyChanged = true;
+                if (await repository.syncCollection('memories', coupleId, memoriesTable, 'memories')) anyChanged = true;
+
+                // 🚀 COOLING: Only bootstrap ONCE if something actually changed on the server
+                if (anyChanged && !isCleanedUp) {
+                    await bootstrapFromLocal();
+                }
+
+                // Background Mirroring
+                const { memories, polaroids, idToken, profile, partnerProfile } = get();
+                if (idToken && !isCleanedUp) {
+                    triggerMirroring(memories, polaroids, idToken, profile, partnerProfile);
+                }
+
+            } finally {
+                set({ isSyncing: false });
+            }
+        };
+
+        // 🚀 BOOT CRITICAL: Load from SQLite INSTANTLY before network
+        // This ensures the app is never empty/white even on an airplane.
+        bootstrapFromLocal();
+
         // VITAL LISTENERS (Profile & Couple Metadata only)
         // These are tiny Firestore documents (<1KB). We listen to them for real-time paired state.
         const setupVitalListeners = async () => {
@@ -160,7 +322,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 repository.saveProfile(snapshot.id, data, false);
 
                 const cId = data?.couple_id;
-                if (cId && cId !== get().activeCoupleId) {
+                if (cId && (cId !== get().activeCoupleId || !activeCoupleUnsub)) {
                     set({ activeCoupleId: cId });
                     subscribeToCoupleMetadata(cId);
                 }
@@ -169,7 +331,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
             // Notifications Listener (user-scoped)
             const notifsRef = collection(db, 'users', userId, 'notifications');
-            const unsubNotifications = onSnapshot(notifsRef, (snap) => {
+            const unsubNotifications = onSnapshot(query(notifsRef, orderBy('created_at', 'desc'), limit(100)), (snap) => {
                 if (isCleanedUp) return;
 
                 const nextNotifications = snap.docs
@@ -202,7 +364,22 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
             set((s: any) => ({ activeUnsubs: [...s.activeUnsubs, unsubNotifications] }));
         };
 
+        let activePartnerUnsub: Unsubscribe | null = null;
+        let activeCoupleUnsub: Unsubscribe | null = null;
+        let activeMusicUnsub: Unsubscribe | null = null;
+        let activeMilestonesUnsub: Unsubscribe | null = null;
+        let activeCycleUnsub: Unsubscribe | null = null;
+        let activeMoodsUnsub: Unsubscribe | null = null;
+        let activeLettersUnsub: Unsubscribe | null = null;
+
         const subscribeToCoupleMetadata = (coupleId: string) => {
+            if (activeCoupleUnsub) activeCoupleUnsub();
+            if (activeMusicUnsub) activeMusicUnsub();
+            if (activeMilestonesUnsub) activeMilestonesUnsub();
+            if (activeCycleUnsub) activeCycleUnsub();
+            if (activeMoodsUnsub) activeMoodsUnsub();
+            if (activeLettersUnsub) activeLettersUnsub();
+
             const coupleRef = doc(db, 'couples', coupleId);
             const unsubCouple = onSnapshot(coupleRef, (snap) => {
                 const data = snap.data();
@@ -216,6 +393,10 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 // Derived Partner Meta-Listener
                 const pId = data?.user1_id === userId ? data?.user2_id : data?.user1_id;
                 if (pId && pId !== get().activePartnerId) {
+                    if (activePartnerUnsub) {
+                        activePartnerUnsub();
+                        activePartnerUnsub = null;
+                    }
                     set({ activePartnerId: pId });
                     const pRef = doc(db, 'users', pId);
                     const unsubPartner = onSnapshot(pRef, (pSnap) => {
@@ -225,9 +406,11 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                         if (strip(get().partnerProfile) !== strip(fullP)) set({ partnerProfile: fullP });
                         repository.saveProfile(pSnap.id, pData, true);
                     });
+                    activePartnerUnsub = unsubPartner;
                     set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubPartner] }));
                 }
             });
+            activeCoupleUnsub = unsubCouple;
             // CRITICAL: Ensure the couple unsub is also tracked
             set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubCouple] }));
 
@@ -250,6 +433,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                     repository.saveMusicState(coupleId, data);
                 }
             });
+            activeMusicUnsub = unsubMusic;
             set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubMusic] }));
 
             // 📍 INTNSTANT SYNC: Intimacy Milestones
@@ -259,6 +443,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 snap.docs.forEach(d => { m[d.id] = { id: d.id, ...d.data() }; });
                 if (strip(get().milestones) !== strip(m)) set({ milestones: m });
             });
+            activeMilestonesUnsub = unsubMilestones;
             set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubMilestones] }));
 
             // 📍 REAL-TIME PRESENCE: Partner Feeling Updates
@@ -273,18 +458,41 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 });
                 if (strip(get().cycleLogs) !== strip(logs)) set({ cycleLogs: logs });
             });
+            activeCycleUnsub = unsubCycle;
             set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubCycle] }));
 
             // 🕒 REAL-TIME MOOD SYNC (Bridge the ephemeral gap)
             const moodsRef = collection(db, 'couples', coupleId, 'moods');
-            const unsubMoods = onSnapshot(query(moodsRef, orderBy('mood_date', 'desc'), limit(15)), (snap) => {
-                const mo: any[] = [];
-                snap.docs.forEach(d => mo.push({ id: d.id, ...d.data() }));
-                const currentMoods = get().moods;
-                const nextMoods = mergeCollections(currentMoods, mo as MoodData[]);
+            const unsubMoods = onSnapshot(query(moodsRef, orderBy('updated_at', 'desc'), limit(50)), (snap) => {
+                const mo: MoodData[] = [];
+                snap.docs.forEach(d => {
+                    const entry = { id: d.id, ...d.data() } as MoodData;
+                    mo.push(entry);
+                    repository.saveMoodLocal(entry).catch(() => { });
+                });
+                const currentMoods = collapseLatestMoods(get().moods);
+                const nextMoods = collapseLatestMoods(mergeCollections(currentMoods, mo));
                 if (strip(currentMoods) !== strip(nextMoods)) set({ moods: nextMoods });
             });
+            activeMoodsUnsub = unsubMoods;
             set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubMoods] }));
+
+            // Bucket list should feel live like the web app, not delayed behind delta sync.
+            const bucketRef = collection(db, 'couples', coupleId, 'bucket_list');
+            const unsubBucket = onSnapshot(query(bucketRef, orderBy('created_at', 'desc'), limit(200)), (snap) => {
+                const nextBucket: any[] = [];
+                snap.docs.forEach((d) => {
+                    const data: any = d.data();
+                    const entry = { id: d.id, ...data };
+                    repository.saveBucketItemLocal(entry).catch(() => { });
+                    if (data?.deleted) return;
+                    nextBucket.push(entry);
+                });
+                const currentBucket = get().bucketList;
+                const merged = mergeCollections(currentBucket, nextBucket as BucketItem[]);
+                if (strip(currentBucket) !== strip(merged)) set({ bucketList: merged });
+            });
+            set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubBucket] }));
 
             // ✉️ REAL-TIME LETTER SYNC (instant reflection like memories)
             const lettersRef = collection(db, 'couples', coupleId, 'letters');
@@ -292,123 +500,56 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
                 const nextLetters: any[] = [];
                 snap.docs.forEach((d) => {
                     const data: any = d.data();
+                    const entry = { id: d.id, ...data };
+                    repository.saveLetterLocal(entry).catch(() => { });
                     if (data?.deleted) return;
-                    nextLetters.push({ id: d.id, ...data });
+                    nextLetters.push(entry);
                 });
                 const currentLetters = get().letters;
                 const merged = mergeCollections(currentLetters, nextLetters as LetterData[]);
                 if (strip(currentLetters) !== strip(merged)) set({ letters: merged });
             });
+            activeLettersUnsub = unsubLetters;
             set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubLetters] }));
-        };
 
-        const performSilentDeltaSync = async (coupleId: string) => {
-            if (isCleanedUp) return;
-            // 1500ms is the sweet spot for JS hydration to finish
-            await new Promise(r => setTimeout(r, 1500));
-            if (isCleanedUp) return;
-
-            set({ isSyncing: true });
-            try {
-                // High Priority: Moods
-                const moodsChanged = await repository.syncCollection('moods', coupleId, moodsTable, 'moods');
-                if (moodsChanged && !isCleanedUp) await bootstrapFromLocal();
-                await new Promise(r => setTimeout(r, 400));
-
-                // High Priority: Letters
-                const lettersChanged = await repository.syncCollection('letters', coupleId, lettersTable, 'letters');
-                if (lettersChanged && !isCleanedUp) await bootstrapFromLocal();
-                await new Promise(r => setTimeout(r, 400));
-
-                // High Priority: Polaroids
-                const polaroidsChanged = await repository.syncCollection('polaroids', coupleId, polaroidsTable, 'polaroids');
-                if (polaroidsChanged && !isCleanedUp) await bootstrapFromLocal();
-                await new Promise(r => setTimeout(r, 400));
-
-                // Medium Priority: Bucket List
-                const bucketChanged = await repository.syncCollection('bucket_list', coupleId, bucketTable, 'bucket_list');
-                if (bucketChanged && !isCleanedUp) await bootstrapFromLocal();
-
-                const memsChanged = await repository.syncCollection('memories', coupleId, memoriesTable, 'memories');
-                if (memsChanged && !isCleanedUp) await bootstrapFromLocal();
-
-                // 🛡️ DATA LONGEVITY (Phase 3): Mirror assets to local storage after sync
-                const { memories, polaroids, idToken, profile, partnerProfile } = get();
-                if (idToken && !isCleanedUp) {
-                    triggerMirroring(memories, polaroids, idToken, profile, partnerProfile);
-                }
-
-            } finally {
-                set({ isSyncing: false });
-            }
-        };
-
-        const bootstrapFromLocal = async () => {
-            console.log("[DataSlice] Bootstrap from SQLite starting...");
-            try {
-                // 1. Load profiles from instant SQLite cache
-                const profs = await repository.getProfiles().catch(() => []);
-                const me = profs.find((u: any) => u.id === userId);
-                const partner = profs.find((u: any) => u.id !== userId && u.couple_id === me?.couple_id);
-
-                const normalize = (p: any) => {
-                    if (!p) return null;
-                    let loc = null;
-                    if (p.location_json) {
-                        try { loc = typeof p.location_json === 'string' ? JSON.parse(p.location_json) : p.location_json; } catch (e) { }
-                    }
-                    return { ...p, location: loc };
-                };
-
-                const myProfile = normalize(me);
-                const pProfile = normalize(partner);
-                let c = null;
-                if (myProfile?.couple_id) c = await repository.getCouple(myProfile.couple_id).catch(() => null);
-
-                if (isCleanedUp) return;
-
-                // Atomic Bootstrap: Load EVERYTHING from local in one go with MERGE to maintain references
-                const [m, l, mo, b, p] = await Promise.all([
-                    repository.getMemories().catch(() => []),
-                    repository.getLetters().catch(() => []),
-                    repository.getMoods().catch(() => []),
-                    repository.getBucketList().catch(() => []),
-                    repository.getPolaroids().catch(() => [])
-                ]);
-
-                if (isCleanedUp) return;
-
-                const s = get();
-                console.log("[DataSlice] Bootstrap from Local SUCCESS. Loading: false");
-                set({
-                    // Keep last known in-memory profile data during transient/local cache gaps
-                    // to avoid "Partner" fallback flicker on first paint/re-hydration.
-                    profile: myProfile || s.profile,
-                    partnerProfile: pProfile || s.partnerProfile,
-                    couple: c || s.couple,
-                    memories: mergeCollections(s.memories, m as MemoryData[]),
-                    letters: mergeCollections(s.letters, l as LetterData[]),
-                    moods: mergeCollections(s.moods, mo as MoodData[]),
-                    bucketList: mergeCollections(s.bucketList, b as BucketItem[]),
-                    polaroids: mergeCollections(s.polaroids, p as PolaroidData[]),
-                    loading: false
+            // Memories also need a light live bridge so sender/native sees new items immediately.
+            const memoriesRef = collection(db, 'couples', coupleId, 'memories');
+            const unsubMemories = onSnapshot(query(memoriesRef, orderBy('created_at', 'desc'), limit(100)), (snap) => {
+                const nextMemories: any[] = [];
+                snap.docs.forEach((d) => {
+                    const data: any = d.data();
+                    const entry = { id: d.id, ...data };
+                    repository.saveMemoryLocal(entry).catch(() => { });
+                    if (data?.deleted) return;
+                    nextMemories.push(entry);
                 });
-
-            } catch (err) {
-                console.error("[DataSlice] Bootstrap failed:", err);
-                set({ loading: false });
-            }
+                const currentMemories = get().memories;
+                const merged = mergeCollections(currentMemories, nextMemories as MemoryData[]);
+                if (strip(currentMemories) !== strip(merged)) set({ memories: merged });
+            });
+            set((s: any) => ({ activeCoupleUnsubs: [...s.activeCoupleUnsubs, unsubMemories] }));
         };
 
-        // 🚀 Boot Architecture: Run both paths in parallel
         // Vitals provide the most critical 'unblocking' data (profile/couple) from Cloud.
-        // Local bootstrap provides the high-volume data (memories/letters) from SQLite.
-        bootstrapFromLocal();
         setupVitalListeners();
+        const bootCoupleId = get().activeCoupleId;
+        if (bootCoupleId) {
+            subscribeToCoupleMetadata(bootCoupleId);
+        }
 
         return () => {
             clearTimeout(safetyUnlock);
             isCleanedUp = true;
+            if (activePartnerUnsub) {
+                activePartnerUnsub();
+                activePartnerUnsub = null;
+            }
+            if (activeCoupleUnsub) activeCoupleUnsub();
+            if (activeMusicUnsub) activeMusicUnsub();
+            if (activeMilestonesUnsub) activeMilestonesUnsub();
+            if (activeCycleUnsub) activeCycleUnsub();
+            if (activeMoodsUnsub) activeMoodsUnsub();
+            if (activeLettersUnsub) activeLettersUnsub();
             const s = get();
             s.activeUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
             s.activeCoupleUnsubs.forEach((u: any) => u && typeof u === 'function' && u());
@@ -459,12 +600,13 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
     // OPTIMISTIC MUTATORS (Instant UI feel)
     updateBucketItemOptimistic: (id: string, isCompleted: boolean) => {
-        const { bucketList } = get();
+        const state = get();
+        const { bucketList } = state;
         const next = bucketList.map((i: any) => i.id === id ? { ...i, is_completed: isCompleted } : i);
         set({ bucketList: next });
         repository.updateBucketItemStatus(id, isCompleted);
-        const { couple } = get();
-        if (couple?.id) updateDoc(doc(db, 'couples', couple.id, 'bucket_list', id), { is_completed: isCompleted, updated_at: Timestamp.now() });
+        const coupleId = resolveCoupleId(state);
+        if (coupleId) updateDoc(doc(db, 'couples', coupleId, 'bucket_list', id), { is_completed: isCompleted, updated_at: Timestamp.now() });
     },
 
     updateLetterReadOptimistic: (id: string, isRead: boolean) => {
@@ -478,12 +620,13 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
     logSymptomsOptimistic: (userId: string, symptoms: string[]) => {
         const today = getTodayIST();
-        const { cycleLogs } = get();
+        const state = get();
+        const { cycleLogs } = state;
         const userLogs = { ...(cycleLogs[userId] || {}) };
         userLogs[today] = { ...(userLogs[today] || {}), symptoms, user_id: userId, log_date: today };
         set({ cycleLogs: { ...cycleLogs, [userId]: userLogs } });
-        const { couple } = get();
-        if (couple?.id) setDoc(doc(db, 'couples', couple.id, 'cycle_logs', `${userId}_${today}`), { user_id: userId, log_date: today, symptoms, updated_at: Timestamp.now() }, { merge: true });
+        const coupleId = resolveCoupleId(state);
+        if (coupleId) setDoc(doc(db, 'couples', coupleId, 'cycle_logs', `${userId}_${today}`), { user_id: userId, log_date: today, symptoms, updated_at: Timestamp.now() }, { merge: true });
     },
 
     addBucketItemOptimistic: (title: string, isPrivate: boolean = false) => {
@@ -521,35 +664,39 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
     },
 
     deleteBucketItemOptimistic: (id: string) => {
-        const { bucketList } = get();
+        const state = get();
+        const { bucketList } = state;
         set({ bucketList: bucketList.filter((i: any) => i.id !== id) });
         repository.deleteBucketItem(id);
-        const { couple } = get();
-        if (couple?.id && !id.startsWith('temp_')) updateDoc(doc(db, 'couples', couple.id, 'bucket_list', id), { deleted: true, updated_at: Timestamp.now() });
+        const coupleId = resolveCoupleId(state);
+        if (coupleId && !id.startsWith('temp_')) updateDoc(doc(db, 'couples', coupleId, 'bucket_list', id), { deleted: true, updated_at: Timestamp.now() });
     },
 
     logSexDriveOptimistic: (userId: string, level: string) => {
         const today = getTodayIST();
-        const { cycleLogs } = get();
+        const state = get();
+        const { cycleLogs } = state;
         const userLogs = { ...(cycleLogs[userId] || {}) };
         userLogs[today] = { ...(userLogs[today] || {}), sex_drive: level, user_id: userId, log_date: today };
         set({ cycleLogs: { ...cycleLogs, [userId]: userLogs } });
-        const { couple } = get();
-        if (couple?.id) setDoc(doc(db, 'couples', couple.id, 'cycle_logs', `${userId}_${today}`), { user_id: userId, log_date: today, sex_drive: level, updated_at: Timestamp.now() }, { merge: true });
+        const coupleId = resolveCoupleId(state);
+        if (coupleId) setDoc(doc(db, 'couples', coupleId, 'cycle_logs', `${userId}_${today}`), { user_id: userId, log_date: today, sex_drive: level, updated_at: Timestamp.now() }, { merge: true });
     },
 
     submitMoodOptimistic: (userId: string, emoji: string, note: string = '') => {
         const today = getTodayIST();
         const moodId = `${userId}_${today}`;
-        const { moods, couple } = get();
+        const state = get();
+        const { moods } = state;
+        const coupleId = resolveCoupleId(state);
         const newMood: MoodData = { id: moodId, user_id: userId, emoji, mood_text: note, mood_date: today, created_at: Date.now() };
 
         // Use deterministic ID for optimistic update to match sync later
         set({ moods: [newMood, ...moods.filter((m: MoodData) => m.id !== moodId)] });
 
         // Sync to cloud
-        if (couple?.id) {
-            setDoc(doc(db, 'couples', couple.id, 'moods', `${userId}_${today}`), {
+        if (coupleId) {
+            setDoc(doc(db, 'couples', coupleId, 'moods', `${userId}_${today}`), {
                 id: `${userId}_${today}`,
                 user_id: userId,
                 emoji,
@@ -562,7 +709,7 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
             // 🚀 High-Frequency Presence Sync (RTDB)
             // Mirrors latest vibe to presence for zero-latency partner view
             const { ref, update, serverTimestamp } = require('firebase/database');
-            const presenceRef = ref(rtdb, `presence/${couple.id}/${userId}`);
+            const presenceRef = ref(rtdb, `presence/${coupleId}/${userId}`);
             update(presenceRef, {
                 latest_mood: { emoji, note, timestamp: Date.now() },
                 last_changed: serverTimestamp()
@@ -572,12 +719,14 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
 
     clearMoodOptimistic: (userId: string) => {
         const today = getTodayIST();
-        const { moods, couple } = get();
+        const state = get();
+        const { moods } = state;
+        const coupleId = resolveCoupleId(state);
         set({ moods: moods.filter((m: MoodData) => !(m.user_id === userId && m.mood_date === today)) });
 
-        if (couple?.id) {
+        if (coupleId) {
             // Delete mood for today in cloud
-            deleteDoc(doc(db, 'couples', couple.id, 'moods', `${userId}_${today}`));
+            deleteDoc(doc(db, 'couples', coupleId, 'moods', `${userId}_${today}`));
         }
     },
 
@@ -599,20 +748,105 @@ export const createDataSlice: StateCreator<DataSlice & any> = (set, get) => ({
         }
     },
 
-    sendHeartbeatOptimistic: () => {
-        const { couple, profile } = get();
-        if (!couple?.id || !profile?.id) return;
+    sendLetterOptimistic: async (letter: Partial<LetterData>) => {
+        const tempId = `temp_letter_${Date.now()}`;
+        const { letters, couple, profile } = get();
 
-        // 💫 INTANT CONNECTION: Broadcast Spark to RTDB (Sync with Web)
+        const fullLetter: LetterData = {
+            id: tempId,
+            content: letter.content || '',
+            title: letter.title || 'Untitled',
+            sender_id: letter.sender_id || profile?.id || '',
+            receiver_id: letter.receiver_id || '',
+            sender_name: profile?.display_name || null,
+            created_at: Date.now(),
+            updated_at: Date.now(),
+            is_read: false,
+            is_vanish: !!letter.is_vanish,
+            is_scheduled: !!letter.is_scheduled,
+            scheduled_delivery_time: letter.scheduled_delivery_time || null,
+            unlock_type: letter.unlock_type || 'instant',
+        };
+
+        // 1. Instant UI update
+        set({ letters: [fullLetter, ...letters] });
+
+        // 2. Local persistence (survives app reload/crash)
+        await repository.saveLetterLocal?.(fullLetter);
+
+        // 3. Background Cloud Sync
+        if (couple?.id) {
+            const { addDoc, collection, serverTimestamp } = require('firebase/firestore');
+            const dataToSync = {
+                ...fullLetter,
+                created_at: serverTimestamp(),
+                updated_at: serverTimestamp()
+            };
+            delete (dataToSync as any).id; // Let Firestore generate real ID
+
+            addDoc(collection(db, 'couples', couple.id, 'letters'), dataToSync).catch((e: unknown) => {
+                console.error("[DataSlice] Background Letter Sync failed:", e);
+            });
+        }
+    },
+
+    addMemoryOptimistic: async (memory: Partial<MemoryData>) => {
+        const tempId = `temp_mem_${Date.now()}`;
+        const { memories, couple, profile } = get();
+
+        const fullMemory: MemoryData = {
+            id: tempId,
+            title: memory.title || 'Moment',
+            content: memory.content || '',
+            image_url: memory.image_url || null,
+            image_urls: memory.image_urls || [],
+            sender_id: memory.sender_id || profile?.id || '',
+            sender_name: memory.sender_name || profile?.display_name || null,
+            couple_id: couple?.id || '',
+            memory_date: memory.memory_date || new Date().toISOString(),
+            created_at: Date.now(),
+            updated_at: Date.now(),
+            type: 'image'
+        };
+
+        // 1. Instant UI update
+        set({ memories: [fullMemory, ...memories] });
+
+        // 2. Local persistence
+        await repository.saveMemoryLocal?.(fullMemory);
+
+        // 3. Background Cloud Sync (Assumes images already uploaded by screen)
+        if (couple?.id) {
+            const { addDoc, collection, serverTimestamp } = require('firebase/firestore');
+            const dataToSync = {
+                ...fullMemory,
+                created_at: serverTimestamp(),
+                updated_at: serverTimestamp()
+            };
+            delete (dataToSync as any).id;
+
+            addDoc(collection(db, 'couples', couple.id, 'memories'), dataToSync).catch((e: unknown) => {
+                console.error("[DataSlice] Background Memory Sync failed:", e);
+            });
+        }
+    },
+
+    sendHeartbeatOptimistic: () => {
+        const state = get();
+        const { profile } = state;
+        const coupleId = resolveCoupleId(state);
+        if (!coupleId || !profile?.id) return;
+
+        // Heartbeat is a direct live signal, not a spark.
         const { ref, set, update, serverTimestamp } = require('firebase/database');
-        const vibeRef = ref(rtdb, `vibrations/${couple.id}`);
+        const vibeRef = ref(rtdb, `vibrations/${coupleId}`);
         set(vibeRef, {
             senderId: profile.id,
             timestamp: Date.now(),
-            type: 'spark'
+            type: 'heartbeat'
         });
 
-        const presenceRef = ref(rtdb, `presence/${couple.id}/${profile.id}`);
+        const presenceRef = ref(rtdb, `presence/${coupleId}/${profile.id}`);
         update(presenceRef, {
             is_online: true,
             last_changed: serverTimestamp()

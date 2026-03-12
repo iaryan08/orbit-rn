@@ -3,16 +3,18 @@ import { createAppSlice, AppSlice } from './appSlice';
 import { createAuthSlice, AuthSlice } from './authSlice';
 import { createDataSlice, DataSlice } from './dataSlice';
 import { createLunaraSlice, LunaraSlice } from './lunaraSlice';
+import { createInspirationSlice, InspirationSlice } from './inspirationSlice';
 import { repository } from '../repository';
 
 export type { AppSlice } from './appSlice';
-export type OrbitState = AppSlice & AuthSlice & DataSlice & LunaraSlice & { logout: () => void };
+export type OrbitState = AppSlice & AuthSlice & DataSlice & LunaraSlice & InspirationSlice & { logout: () => void };
 
 export const useOrbitStore = create<OrbitState>()((...a) => ({
     ...createAppSlice(...a),
     ...createAuthSlice(...a),
     ...createDataSlice(...a),
     ...createLunaraSlice(...a),
+    ...createInspirationSlice(...a),
     logout: () => {
         const [set, get] = a;
         set({

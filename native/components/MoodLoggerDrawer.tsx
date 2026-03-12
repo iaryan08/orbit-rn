@@ -41,6 +41,19 @@ const MOOD_EMOJIS: Record<string, string> = {
     playful: '😈'
 };
 
+const getMoodTimestamp = (mood: any) => {
+    const updated = mood?.updated_at;
+    if (typeof updated === 'number') return updated;
+    if (updated?.toMillis && typeof updated.toMillis === 'function') return updated.toMillis();
+    const created = mood?.created_at;
+    if (typeof created === 'number') return created;
+    if (created?.toMillis && typeof created.toMillis === 'function') return created.toMillis();
+    const parsedUpdated = Date.parse(updated);
+    if (Number.isFinite(parsedUpdated)) return parsedUpdated;
+    const parsedCreated = Date.parse(created);
+    return Number.isFinite(parsedCreated) ? parsedCreated : 0;
+};
+
 
 export function MoodLoggerDrawer() {
     const insets = useSafeAreaInsets();
@@ -55,7 +68,9 @@ export function MoodLoggerDrawer() {
         if (isMoodDrawerOpen) {
             // High-Value: Pre-select today's vibe if it exists
             const today = getTodayIST();
-            const currentMood = (moods || []).find(m => m.user_id === profile?.id && m.mood_date === today);
+            const currentMood = (moods || [])
+                .filter(m => m.user_id === profile?.id && m.mood_date === today)
+                .sort((a, b) => getMoodTimestamp(b) - getMoodTimestamp(a))[0];
             if (currentMood) {
                 setSelectedMood(currentMood.emoji);
                 setNote(currentMood.mood_text || '');

@@ -17,19 +17,22 @@ interface ShimmerProps {
     style?: any;
 }
 
-export const Shimmer = ({ width, height, borderRadius = 8, style }: ShimmerProps) => {
+export const Shimmer = ({ width, height, borderRadius = 8, style, isActive = true }: ShimmerProps & { isActive?: boolean }) => {
     const { isLiteMode } = useOrbitStore();
     const shimmerProgress = useSharedValue(-1);
 
     useEffect(() => {
-        if (isLiteMode) return;
+        if (isLiteMode || !isActive) {
+            shimmerProgress.value = -1;
+            return;
+        }
 
         shimmerProgress.value = withRepeat(
             withTiming(1.2, { duration: 1200 }),
             -1,
             false
         );
-    }, [isLiteMode]);
+    }, [isLiteMode, isActive]);
 
     const animatedStyle = useAnimatedStyle(() => {
         if (isLiteMode) return { opacity: 0 };

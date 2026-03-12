@@ -16,6 +16,9 @@ import { Colors, Typography } from '../constants/Theme';
 import { useOrbitStore } from '../lib/store';
 import { SecurityKeyboard } from './SecurityKeyboard';
 
+const LAYOUT_ANIM_INC = FadeIn.duration(220);
+const LAYOUT_ANIM_OUT = FadeOut.duration(200);
+
 export function AppLockOverlay() {
     const isAppLockEnabled = useOrbitStore(state => state.isAppLockEnabled);
     const isBiometricEnabled = useOrbitStore(state => state.isBiometricEnabled);
@@ -30,6 +33,7 @@ export function AppLockOverlay() {
     const canBiometric = isBiometricEnabled;
 
     const shake = useSharedValue(0);
+    const errorResetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const shakeStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: shake.value }],
@@ -57,7 +61,8 @@ export function AppLockOverlay() {
             withTiming(8, { duration: 50 }),
             withSpring(0)
         );
-        setTimeout(() => {
+        if (errorResetTimerRef.current) clearTimeout(errorResetTimerRef.current);
+        errorResetTimerRef.current = setTimeout(() => {
             setPin('');
             setPinError(false);
         }, 500);
@@ -136,6 +141,12 @@ export function AppLockOverlay() {
         return () => clearTimeout(t);
     }, [isLocked]);
 
+    useEffect(() => {
+        return () => {
+            if (errorResetTimerRef.current) clearTimeout(errorResetTimerRef.current);
+        };
+    }, []);
+
     const swipeUpResponder = useMemo(
         () =>
             PanResponder.create({
@@ -160,8 +171,8 @@ export function AppLockOverlay() {
 
     return (
         <Animated.View
-            entering={FadeIn.duration(220)}
-            exiting={FadeOut.duration(200)}
+            entering={LAYOUT_ANIM_INC}
+            exiting={LAYOUT_ANIM_OUT}
             style={styles.container}
             {...swipeUpResponder.panHandlers}
         >

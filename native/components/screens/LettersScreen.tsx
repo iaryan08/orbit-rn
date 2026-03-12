@@ -20,11 +20,15 @@ import { PerfChip, usePerfMonitor } from '../PerfChip';
 const { width } = Dimensions.get('window');
 const AnimatedFlashList = Animated.createAnimatedComponent<any>(FlashList);
 
+const ZOOM_IN_ANIM = ZoomIn.duration(300);
+const FADE_IN_DOWN_ANIM = FadeInDown.duration(300);
+
 export function LettersScreen({ isActive = true }: { isActive?: boolean }) {
     const profile = useOrbitStore(state => state.profile);
     const partnerProfile = useOrbitStore(state => state.partnerProfile);
     const letters = useOrbitStore(state => state.letters);
     const couple = useOrbitStore(state => state.couple);
+    const activeCoupleId = useOrbitStore(state => state.activeCoupleId);
     const flashListRef = React.useRef<any>(null);
     const insets = useSafeAreaInsets();
     const partnerName = React.useMemo(() => getPartnerName(profile, partnerProfile), [profile, partnerProfile]);
@@ -261,11 +265,12 @@ export function LettersScreen({ isActive = true }: { isActive?: boolean }) {
 
     const handleSend = async () => {
         const senderId = profile?.id || auth.currentUser?.uid;
+        const resolvedCoupleId = couple?.id || profile?.couple_id || activeCoupleId;
         if (!content.trim()) {
             Alert.alert('Write something first', 'Your letter content is empty.');
             return;
         }
-        if (!senderId || !couple?.id) {
+        if (!senderId || !resolvedCoupleId) {
             Alert.alert('Unable to send', 'Connection details are not ready yet. Please try again in a moment.');
             return;
         }
@@ -282,7 +287,7 @@ export function LettersScreen({ isActive = true }: { isActive?: boolean }) {
 
         try {
             setIsComposing(true);
-            const lettersRef = collection(db, 'couples', couple?.id, 'letters');
+            const lettersRef = collection(db, 'couples', resolvedCoupleId, 'letters');
 
             const delayMs = customDeliveryDate
                 ? Math.max(0, customDeliveryDate.getTime() - Date.now())
@@ -379,7 +384,7 @@ export function LettersScreen({ isActive = true }: { isActive?: boolean }) {
             >
                 <View style={styles.modalOverlay}>
                     <Animated.View style={styles.modalBlur} />
-                    <Animated.View entering={ZoomIn} style={styles.modalContent}>
+                    <Animated.View entering={ZOOM_IN_ANIM} style={styles.modalContent}>
                         <GlassCard style={styles.viewerCard} intensity={10}>
                             <View style={styles.modalHeader}>
                                 <TouchableOpacity onPress={() => setSelectedLetter(null)} style={styles.closeBtn}>
@@ -479,7 +484,7 @@ export function LettersScreen({ isActive = true }: { isActive?: boolean }) {
                                     </TouchableOpacity>
 
                                     {isOptionsExpanded && (
-                                        <Animated.View entering={FadeInDown} style={styles.expandedOptions}>
+                                        <Animated.View entering={FADE_IN_DOWN_ANIM} style={styles.expandedOptions}>
                                             <View style={styles.controlRow}>
                                                 <View style={{ flex: 1 }}>
                                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -557,7 +562,7 @@ export function LettersScreen({ isActive = true }: { isActive?: boolean }) {
                                             )}
 
                                             {isScheduled && customDeliveryDate && (
-                                                <Animated.View entering={FadeInDown} style={styles.customDatePicker}>
+                                                <Animated.View entering={FADE_IN_DOWN_ANIM} style={styles.customDatePicker}>
                                                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroll}>
                                                         {CUSTOM_DATES.map((date) => {
                                                             const isSelected = customDeliveryDate && date.toDateString() === customDeliveryDate.toDateString();

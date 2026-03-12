@@ -16,6 +16,8 @@ export interface AppSlice {
     isNotificationDrawerOpen: boolean;
     setNotificationDrawerOpen: (open: boolean) => void;
     isMoodDrawerOpen: boolean;
+    isMoodHistoryOpen: boolean;
+    setMoodHistoryOpen: (open: boolean) => void;
     setMoodDrawerOpen: (open: boolean) => void;
     appMode: 'moon' | 'lunara';
     setAppMode: (mode: 'moon' | 'lunara') => void;
@@ -44,8 +46,8 @@ export interface AppSlice {
     toggleLiteMode: () => void;
     cinemaQuality: '360p' | '720p' | '1080p';
     setCinemaQuality: (quality: '360p' | '720p' | '1080p') => void;
-    settingsTargetTab: 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates';
-    setSettingsTargetTab: (tab: 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates') => void;
+    settingsTargetTab: 'profile' | 'couple' | 'lunara' | 'atmosphere' | 'security' | 'updates';
+    setSettingsTargetTab: (tab: 'profile' | 'couple' | 'lunara' | 'atmosphere' | 'security' | 'updates') => void;
     debugApiUrl: string | null;
     setDebugApiUrl: (url: string | null) => void;
     isAppLockEnabled: boolean;
@@ -70,6 +72,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     isPagerScrollEnabled: true,
     isNotificationDrawerOpen: false,
     isMoodDrawerOpen: false,
+    isMoodHistoryOpen: false,
     appMode: 'moon',
     wallpaperConfig: {
         mode: 'stars',
@@ -99,6 +102,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     },
     setNotificationDrawerOpen: (open: boolean) => set({ isNotificationDrawerOpen: open }),
     setMoodDrawerOpen: (open: boolean) => set({ isMoodDrawerOpen: open }),
+    setMoodHistoryOpen: (open: boolean) => set({ isMoodHistoryOpen: open }),
     setAppMode: (mode: 'moon' | 'lunara') => {
         AsyncStorage.setItem('orbit_app_mode', mode).catch(console.error);
         set({ appMode: mode });
@@ -112,7 +116,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         try {
             const { totalMemory } = await import('expo-device');
             const ramGB = (totalMemory || 8000000000) / (1024 * 1024 * 1024);
-            const isLowEnd = ramGB < 5;
+            const isLowEnd = ramGB < 6;
 
             const savedMode = await AsyncStorage.getItem('orbit_app_mode');
             const savedQuality = await AsyncStorage.getItem('cinema_quality') as any;
@@ -178,7 +182,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     toggleLiteMode: () => {
         const next = !get().isLiteMode;
         set({ isLiteMode: next });
-        AsyncStorage.setItem('lite_mode', JSON.stringify(next)).catch(console.error);
+        AsyncStorage.setItem('orbit_lite_mode', next ? 'true' : 'false').catch(console.error);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     },
     setCinemaQuality: (quality) => {

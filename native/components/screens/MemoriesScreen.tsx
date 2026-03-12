@@ -441,6 +441,7 @@ export function MemoriesScreen({ isActive = true }: { isActive?: boolean }) {
     const profile = useOrbitStore(state => state.profile);
     const partnerProfile = useOrbitStore(state => state.partnerProfile);
     const couple = useOrbitStore(state => state.couple);
+    const activeCoupleId = useOrbitStore(state => state.activeCoupleId);
     const memories = useOrbitStore(state => state.memories);
     const idToken = useOrbitStore(state => state.idToken);
     const fetchData = useOrbitStore(state => state.fetchData);
@@ -544,21 +545,9 @@ export function MemoriesScreen({ isActive = true }: { isActive?: boolean }) {
     };
 
     const uploadFile = async (uri: string, path: string, onProgress?: (value: number) => void) => {
-        const blob: Blob = await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.onerror = () => reject(new Error(`XHR blob conversion failed for URI: ${uri}`));
-            xhr.onload = () => {
-                const converted = xhr.response as Blob | null;
-                if (!converted || typeof converted.size !== 'number' || converted.size <= 0) {
-                    reject(new Error(`Converted blob is empty for URI: ${uri}`));
-                    return;
-                }
-                resolve(converted);
-            };
-            xhr.responseType = 'blob';
-            xhr.open('GET', uri, true);
-            xhr.send();
-        });
+        // SAFEST BLOB CREATION FOR REACT NATIVE (Bypasses ArrayBuffer/Blob conversion bugs)
+        const response = await fetch(uri);
+        const blob = await response.blob();
 
         const fileRef = ref(storage, path);
         const ext = path.split('.').pop()?.toLowerCase() || '';
@@ -684,6 +673,7 @@ export function MemoriesScreen({ isActive = true }: { isActive?: boolean }) {
 
     const handleSend = async () => {
         const senderId = profile?.id || auth.currentUser?.uid;
+        const resolvedCoupleId = couple?.id || profile?.couple_id || activeCoupleId;
         if (selectedMedia.length === 0) {
             Alert.alert('No Media', 'Please select at least one photo or video.');
             return;
@@ -696,7 +686,7 @@ export function MemoriesScreen({ isActive = true }: { isActive?: boolean }) {
             Alert.alert('Authentication Error', 'Please re-login and try again.');
             return;
         }
-        if (!couple?.id) {
+        if (!resolvedCoupleId) {
             Alert.alert('Error', 'Could not identify your couple profile. Please try again.');
             return;
         }
@@ -765,7 +755,7 @@ export function MemoriesScreen({ isActive = true }: { isActive?: boolean }) {
                     }
                 }
 
-                const path = `memories/${couple.id}/${uploadBatchId}_${index}.${extension}`;
+                const path = `memories/${resolvedCoupleId}/${uploadBatchId}_${index}.${extension}`;
                 return uploadFile(finalUri, path, (p) => updateOverallProgress(index, p));
             });
 
@@ -776,13 +766,13 @@ export function MemoriesScreen({ isActive = true }: { isActive?: boolean }) {
                 image_urls: imageUrls,
                 sender_id: senderId,
                 sender_name: profile?.display_name || null,
-                couple_id: couple.id,
+                couple_id: resolvedCoupleId,
                 memory_date: memoryDate,
                 created_at: serverTimestamp(),
                 updated_at: serverTimestamp(),
             };
 
-            await addDoc(collection(db, 'couples', couple.id, 'memories'), memoryData);
+            await addDoc(collection(db, 'couples', resolvedCoupleId, 'memories'), memoryData);
 
             // Send notification to partner
             if (partnerProfile?.id) {

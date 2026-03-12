@@ -4,6 +4,7 @@ import { BlurView, BlurViewProps } from 'expo-blur';
 
 interface SafeBlurViewProps extends BlurViewProps {
     fallbackBackgroundColor?: string;
+    allowAndroidBlur?: boolean;
 }
 
 /**
@@ -13,11 +14,12 @@ interface SafeBlurViewProps extends BlurViewProps {
  */
 export function SafeBlurView({
     fallbackBackgroundColor = 'rgba(25, 25, 25, 0.85)',
+    allowAndroidBlur = false,
     style,
     children,
     ...props
 }: SafeBlurViewProps) {
-    if (Platform.OS === 'android') {
+    if (Platform.OS === 'android' && !allowAndroidBlur) {
         return (
             <View style={[style, { backgroundColor: fallbackBackgroundColor }]}>
                 {children}

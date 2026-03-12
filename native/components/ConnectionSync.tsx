@@ -9,7 +9,6 @@ import Animated, {
     withDelay,
     withRepeat,
     withSequence,
-    runOnJS,
     Easing,
     FadeIn,
     FadeOut,
@@ -19,9 +18,8 @@ import Animated, {
     Extrapolate
 } from 'react-native-reanimated';
 import { useOrbitStore } from '../lib/store';
-import { rtdb, db } from '../lib/firebase';
-import { ref, onValue, off, serverTimestamp } from 'firebase/database';
-import { collection, query, where, orderBy, limit, onSnapshot, Timestamp, doc, getDoc } from 'firebase/firestore';
+import { rtdb } from '../lib/firebase';
+import { ref, onValue, off } from 'firebase/database';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography } from '../constants/Theme';
@@ -96,15 +94,26 @@ const SparkleItem = ({ delay = 0, x = 0, y = 0 }: { delay?: number; x?: number; 
 };
 
 export function ConnectionSync() {
-    const { couple, profile, partnerProfile } = useOrbitStore();
+    const { couple, profile, partnerProfile, activeTabIndex } = useOrbitStore();
     const resolvedPartnerName = getPartnerName(profile, partnerProfile);
     const [interactionType, setInteractionType] = useState<'heartbeat' | 'spark' | 'connection' | 'letter' | null>(null);
     const wasOnlineRef = useRef(false);
-    const lastSessionIdRef = useRef<string | null>(null);
+    const lastSeenLetterIdRef = useRef<string | null>(null);
+    const hasLoadedLastSeenLetterRef = useRef(false);
+    const interactionResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const heartbeatTimerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
+    const latestPartnerLetter = useOrbitStore(
+        useCallback(
+            (state) => state.letters.find((letter) => letter.sender_id === partnerProfile?.id) ?? null,
+            [partnerProfile?.id]
+        )
+    );
+    const isHeavyScreenActive = activeTabIndex === 0;
+    const isEnabled = !isHeavyScreenActive;
 
     // Heartbeat listener
     useEffect(() => {
-        if (!couple?.id || !profile?.id) return;
+        if (!isEnabled || !couple?.id || !profile?.id) return;
 
         const vibeRef = ref(rtdb, `vibrations/${couple.id}`);
         let isFirstLoad = true;
@@ -119,75 +128,93 @@ export function ConnectionSync() {
             if (val && val.senderId && val.senderId !== profile.id) {
                 // Conceptually distinct type handling
                 const type = val.type === 'spark' ? 'spark' : 'heartbeat';
-                runOnJS(triggerInteraction)(type);
+                triggerInteraction(type);
             }
         });
 
         return () => off(vibeRef, 'value', unsub);
-    }, [couple?.id, profile?.id]);
+    }, [couple?.id, isEnabled, profile?.id]);
 
     // Presence listener for "Connected" flash
     useEffect(() => {
-        if (!couple?.id || !partnerProfile?.id) return;
+        if (!isEnabled || !couple?.id || !profile?.id) return;
 
-        const partnerPresenceRef = ref(rtdb, `presence/${couple.id}/${partnerProfile.id}`);
+        const partnerPresenceRef = ref(rtdb, `presence/${couple.id}`);
         const unsub = onValue(partnerPresenceRef, (snap) => {
-            const data = snap.val();
+            const allPresence = snap.val() || {};
+            const partnerEntry = Object.entries(allPresence).find(([userId]) => userId !== profile.id);
+            const data = partnerEntry?.[1] as any;
             const now = Date.now();
-            const lastChanged = data?.last_changed || 0;
+            const isMarkedOnline = !!data?.is_online || !!data?.in_cinema;
+            const lastChanged = typeof data?.last_changed === 'number'
+                ? data.last_changed
+                : (isMarkedOnline ? now : 0);
             // Best-in-Class: 5 minute buffer for background sync stability
-            const isOnline = (data?.is_online || data?.in_cinema) && (now - lastChanged) < 300000;
+            const isOnline = isMarkedOnline && (now - lastChanged) < 300000;
 
             if (isOnline && !wasOnlineRef.current) {
                 // Partner just came online!
-                runOnJS(triggerInteraction)('connection');
+                triggerInteraction('connection');
             }
             wasOnlineRef.current = isOnline;
         });
 
         return () => off(partnerPresenceRef, 'value', unsub);
-    }, [couple?.id, partnerProfile?.id]);
+    }, [couple?.id, isEnabled, profile?.id]);
 
-    const letters = useOrbitStore(state => state.letters);
+    useEffect(() => {
+        hasLoadedLastSeenLetterRef.current = false;
+        lastSeenLetterIdRef.current = null;
+
+        if (!partnerProfile?.id) return;
+
+        let isMounted = true;
+        AsyncStorage.getItem(`last_seen_letter_${partnerProfile.id}`)
+            .then((value) => {
+                if (!isMounted) return;
+                lastSeenLetterIdRef.current = value;
+                hasLoadedLastSeenLetterRef.current = true;
+            })
+            .catch(() => {
+                if (!isMounted) return;
+                hasLoadedLastSeenLetterRef.current = true;
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [partnerProfile?.id]);
 
     // Letter Listener: Trigger when partner sends a letter (Store-driven)
     useEffect(() => {
-        if (!partnerProfile?.id || !letters.length) return;
+        if (!isEnabled || !partnerProfile?.id || !latestPartnerLetter || !hasLoadedLastSeenLetterRef.current) return;
 
-        const partnerLetters = letters.filter(l => l.sender_id === partnerProfile.id);
-        if (partnerLetters.length === 0) return;
+        const letterId = latestPartnerLetter.id;
 
-        const latestLetter = partnerLetters[0]; // Already sorted by created_at desc in store
-        const letterId = latestLetter.id;
+        const lastSeenId = lastSeenLetterIdRef.current;
+        if (!lastSeenId) {
+            lastSeenLetterIdRef.current = letterId;
+            AsyncStorage.setItem(`last_seen_letter_${partnerProfile.id}`, letterId).catch(() => { });
+            return;
+        }
 
-        const checkLatest = async () => {
-            const lastSeenId = await AsyncStorage.getItem(`last_seen_letter_${partnerProfile.id}`);
+        if (letterId !== lastSeenId) {
+            lastSeenLetterIdRef.current = letterId;
+            AsyncStorage.setItem(`last_seen_letter_${partnerProfile.id}`, letterId).catch(() => { });
 
-            if (!lastSeenId) {
-                // Initialize on first ever load
-                await AsyncStorage.setItem(`last_seen_letter_${partnerProfile.id}`, letterId);
-                return;
+            // Within 1 hour to avoid notifying on very old synced data
+            if (latestPartnerLetter.created_at && (Date.now() - latestPartnerLetter.created_at) < 3600000) {
+                triggerInteraction('letter');
             }
-
-            if (letterId !== lastSeenId) {
-                await AsyncStorage.setItem(`last_seen_letter_${partnerProfile.id}`, letterId);
-
-                // Within 1 hour to avoid notifying on very old synced data
-                if (latestLetter.created_at && (Date.now() - latestLetter.created_at) < 3600000) {
-                    runOnJS(triggerInteraction)('letter');
-                }
-            }
-        };
-
-        checkLatest();
-    }, [letters, partnerProfile?.id]);
+        }
+    }, [isEnabled, latestPartnerLetter, partnerProfile?.id]);
 
     const triggerInteraction = (type: 'heartbeat' | 'spark' | 'connection' | 'letter') => {
         if (type === 'heartbeat') {
             // "lub-dub-LUB" Triple-Beat Intense Haptics
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 100);
-            setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 300);
+            heartbeatTimerRefs.current.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 100));
+            heartbeatTimerRefs.current.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 300));
         } else if (type === 'spark' || type === 'letter') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } else {
@@ -195,7 +222,8 @@ export function ConnectionSync() {
         }
 
         setInteractionType(type);
-        setTimeout(() => setInteractionType(null), 3500);
+        if (interactionResetTimerRef.current) clearTimeout(interactionResetTimerRef.current);
+        interactionResetTimerRef.current = setTimeout(() => setInteractionType(null), 3500);
     };
 
     const pulseVal = useSharedValue(0.4);
@@ -217,7 +245,15 @@ export function ConnectionSync() {
         opacity: withTiming(interactionType ? 1 : 0, { duration: 400 }),
     }));
 
-    if (!interactionType) return null;
+    useEffect(() => {
+        return () => {
+            if (interactionResetTimerRef.current) clearTimeout(interactionResetTimerRef.current);
+            heartbeatTimerRefs.current.forEach((timer) => clearTimeout(timer));
+            heartbeatTimerRefs.current = [];
+        };
+    }, []);
+
+    if (!interactionType || isHeavyScreenActive) return null;
 
     return (
         <Animated.View

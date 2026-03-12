@@ -11,7 +11,7 @@ import { useOrbitStore } from '../../lib/store';
 
 import { MilestoneCard } from '../MilestoneCard';
 import { Heart, Sparkles, MapPin, Camera, Music, Gift, Coffee, Star, Plus, Check, Trash2, ChevronDown, ChevronUp, Trophy, Target, Lock, Unlock, MessageSquare, Waves, Moon, Infinity, CloudMoon, Home, Film, HeartPulse } from 'lucide-react-native';
-import { addBucketItem, toggleBucketItem, deleteBucketItem } from '../../lib/auth';
+import { addBucketItem } from '../../lib/auth';
 import { TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -36,9 +36,10 @@ const MILESTONES = [
     { id: 'first_intimate_moment', title: 'First Intimate Moment', description: 'Romantic Spark', prompt: 'First romantic expression to your partner?', icon: <HeartPulse size={22} color={Colors.dark.indigo[400]} /> },
 ];
 
-export function IntimacyScreen() {
+export function IntimacyScreen({ isActive = true }: { isActive?: boolean }) {
     const insets = useSafeAreaInsets();
     const { milestones, bucketList, profile } = useOrbitStore();
+    const isAndroidPerformanceMode = Platform.OS === 'android';
 
     // Scroll tracking for morphing header
     const scrollOffset = useSharedValue(0);
@@ -64,10 +65,17 @@ export function IntimacyScreen() {
     const totalCount = filteredBucket.length;
     const progress = totalCount === 0 ? 0 : (completedCount / totalCount);
 
-    const handleAdd = () => {
+    const handleAdd = async () => {
         if (!newItem.trim()) return;
-        const { addBucketItemOptimistic } = useOrbitStore.getState();
-        addBucketItemOptimistic(newItem.trim(), isPrivate);
+        if (isAdding) return;
+        const title = newItem.trim();
+        setIsAdding(true);
+        const result = await addBucketItem(title, '', isPrivate);
+        setIsAdding(false);
+        if (result?.error) {
+            Alert.alert('Could not add item', result.error);
+            return;
+        }
         setNewItem('');
         setIsPrivate(false);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -121,20 +129,21 @@ export function IntimacyScreen() {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
             {/* Sticky Header Pill */}
-            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
+            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, !isAndroidPerformanceMode && headerPillStyle]}>
                 <HeaderPill title="Intimacy" scrollOffset={scrollOffset} />
             </Animated.View>
 
             <Animated.ScrollView
-                onScroll={scrollHandler}
-                scrollEventThrottle={16}
+                onScroll={isAndroidPerformanceMode ? undefined : scrollHandler}
+                scrollEventThrottle={32}
                 contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: 100 }}
                 keyboardShouldPersistTaps="handled"
                 nestedScrollEnabled={true}
+                removeClippedSubviews={isAndroidPerformanceMode}
             >
                 <View style={styles.standardHeader}>
-                    <Animated.Text style={[styles.standardTitle, titleAnimatedStyle]}>Intimacy</Animated.Text>
-                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>Precious · Milestones</Animated.Text>
+                    <Animated.Text style={[styles.standardTitle, !isAndroidPerformanceMode && titleAnimatedStyle]}>Intimacy</Animated.Text>
+                    <Animated.Text style={[styles.standardSubtitle, !isAndroidPerformanceMode && sublineAnimatedStyle]}>Precious · Milestones</Animated.Text>
                 </View>
 
                 <View style={styles.content}>

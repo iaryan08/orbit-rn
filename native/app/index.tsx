@@ -12,7 +12,7 @@ import { MemoriesScreen } from '../components/screens/MemoriesScreen';
 import { IntimacyScreen } from '../components/screens/IntimacyScreen';
 import { SettingsScreen } from '../components/screens/SettingsScreen';
 import { LunaraScreen } from '../components/screens/LunaraScreen';
-import { PartnerScreen } from '../components/screens/PartnerScreen';
+// import { PartnerScreen } from '../components/screens/PartnerScreen';
 import { SyncCinemaScreen } from '../components/screens/SyncCinemaScreen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -48,25 +48,51 @@ export default function Index() {
     const [isAuthChecking, setIsAuthChecking] = useState(true);
     const [isPagerReady, setIsPagerReady] = useState(false);
     const [mountedIndexes, setMountedIndexes] = useState<number[]>([activeTabIndex]);
+    const [retainedTabIndex, setRetainedTabIndex] = useState<number | null>(null);
     const fetchCalledForId = useRef<string | null>(null);
     const fetchCleanupRef = useRef<(() => void) | null>(null);
     const pagerRef = useRef<PagerView>(null);
     const lastBackPressRef = useRef(0);
+    const previousActiveTabRef = useRef(activeTabIndex);
     const EXIT_THRESHOLD_MS = 1800;
     const insets = useSafeAreaInsets();
     const perfStats = usePerfMonitor('Index');
+    const currentCoupleId = useOrbitStore(state => state.couple?.id);
+    const currentPresenceUserId = profile?.id || user?.uid || null;
 
     useEffect(() => {
-        setMountedIndexes((prev) => (prev.length === 1 && prev[0] === activeTabIndex) ? prev : [activeTabIndex]);
-    }, [activeTabIndex]);
+        const prevActive = previousActiveTabRef.current;
+        const nextRetained = prevActive !== activeTabIndex ? prevActive : retainedTabIndex;
+        setRetainedTabIndex(nextRetained ?? null);
+        const nextMounted = Array.from(new Set(
+            [activeTabIndex, nextRetained]
+                .filter((value): value is number => typeof value === 'number')
+        )).sort((a, b) => a - b);
+        setMountedIndexes((prev) => (
+            prev.length === nextMounted.length && prev.every((value, idx) => value === nextMounted[idx])
+        ) ? prev : nextMounted);
+        previousActiveTabRef.current = activeTabIndex;
+    }, [activeTabIndex, retainedTabIndex]);
 
     useEffect(() => {
         const setup = async () => {
-            await initializeDatabase();
-            await initializeMediaEngine();
-            initAppMode();
+            try {
+                await initializeDatabase();
+            } catch (e) {
+                console.warn("[Index] Database init failed", e);
+            }
+            try {
+                await initializeMediaEngine();
+            } catch (e) {
+                console.warn("[Index] Media init failed", e);
+            }
+            try {
+                await initAppMode();
+            } catch (e) {
+                console.warn("[Index] App mode init failed", e);
+            }
         };
-        setup();
+        void setup();
 
         const unsub = onIdTokenChanged(auth, async (u) => {
             setUser(u);
@@ -103,15 +129,23 @@ export default function Index() {
         const sub = AppState.addEventListener('change', (nextState) => {
             if (nextState === 'background' || nextState === 'inactive') {
                 runJanitor();
+                if (currentCoupleId && currentPresenceUserId) {
+                    const presenceRef = ref(rtdb, `presence/${currentCoupleId}/${currentPresenceUserId}`);
+                    update(presenceRef, { is_online: false, last_changed: serverTimestamp() }).catch(() => { });
+                }
+            } else if (nextState === 'active') {
+                if (currentCoupleId && currentPresenceUserId) {
+                    const presenceRef = ref(rtdb, `presence/${currentCoupleId}/${currentPresenceUserId}`);
+                    update(presenceRef, { is_online: true, last_changed: serverTimestamp() }).catch(() => { });
+                }
             }
         });
         return () => sub.remove();
-    }, [runJanitor]);
+    }, [runJanitor, currentCoupleId, currentPresenceUserId]);
 
     useEffect(() => {
-        const currentCouple = useOrbitStore.getState().couple;
-        if (!user || !currentCouple?.id) return;
-        const presenceRef = ref(rtdb, `presence/${currentCouple.id}/${user.uid}`);
+        if (!currentPresenceUserId || !currentCoupleId) return;
+        const presenceRef = ref(rtdb, `presence/${currentCoupleId}/${currentPresenceUserId}`);
 
         const updatePresence = () => {
             update(presenceRef, { is_online: true, last_changed: serverTimestamp() });
@@ -122,7 +156,7 @@ export default function Index() {
         onDisconnect(presenceRef).update({ is_online: false, in_cinema: null, last_changed: serverTimestamp() });
 
         return () => clearInterval(heartbeat);
-    }, [user?.uid]);
+    }, [currentCoupleId, currentPresenceUserId]);
 
     const onBackPress = useCallback(() => {
         if (activeTabIndex !== 1) {
@@ -160,7 +194,9 @@ export default function Index() {
 
     if (isAuthChecking) return <LoadingScreen />;
     if (!user) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
-    if (loading && memories.length === 0 && letters.length === 0 && !profile) return <LoadingScreen />;
+    if (!profile) return <LoadingScreen />;
+
+    const isFemale = profile.gender === 'female';
 
     return (
         <View style={styles.container}>
@@ -177,31 +213,45 @@ export default function Index() {
                 onPageScroll={(e) => {
                     scrollOffset.value = e.nativeEvent.position + e.nativeEvent.offset;
                     const visibleIndexes = new Set<number>([activeTabIndex, e.nativeEvent.position]);
-                    if (e.nativeEvent.offset > 0) {
-                        visibleIndexes.add(e.nativeEvent.position + 1);
-                    }
+                    if (retainedTabIndex !== null) visibleIndexes.add(retainedTabIndex);
+                    if (e.nativeEvent.offset > 0) visibleIndexes.add(e.nativeEvent.position + 1);
+
                     const nextMounted = Array.from(visibleIndexes).sort((a, b) => a - b);
                     setMountedIndexes((prev) => (
                         prev.length === nextMounted.length && prev.every((value, idx) => value === nextMounted[idx])
                     ) ? prev : nextMounted);
                 }}
                 onPageSelected={(e) => {
+                    const pos = e.nativeEvent.position;
+                    // Prevent feedback loop if source is 'tap'
                     if (!isProgrammaticRef.current) {
-                        setTabIndex(e.nativeEvent.position, 'swipe');
+                        setTabIndex(pos, 'swipe');
                     }
                     setPagerScrollEnabled(true);
-                    setMountedIndexes([e.nativeEvent.position]);
+                    setRetainedTabIndex(previousActiveTabRef.current === pos ? retainedTabIndex : previousActiveTabRef.current);
                 }}
                 onLayout={() => setIsPagerReady(true)}
             >
-                <View key="0"><LazyTab index={0} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <SyncCinemaScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="1"><LazyTab index={1} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}><DashboardScreen /></LazyTab></View>
-                <View key="2"><LazyTab index={2} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LettersScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="3"><LazyTab index={3} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <MemoriesScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="4"><LazyTab index={4} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <IntimacyScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="5"><LazyTab index={5} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LunaraScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="6"><LazyTab index={6} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <PartnerScreen /> : <View style={styles.black} />}</LazyTab></View>
-                <View key="7"><LazyTab index={7} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <SettingsScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="cinema"><LazyTab index={0} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <SyncCinemaScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="dashboard"><LazyTab index={1} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}><DashboardScreen /></LazyTab></View>
+                <View key="letters"><LazyTab index={2} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LettersScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="memories"><LazyTab index={3} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <MemoriesScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="milestones"><LazyTab index={4} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <IntimacyScreen /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="lunara-today"><LazyTab index={5} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LunaraScreen forcedTab="today" isActive={activeTabIndex === 5} /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="lunara-cycle"><LazyTab index={6} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LunaraScreen forcedTab={isFemale ? 'cycle' : 'body'} isActive={activeTabIndex === 6} /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="lunara-body"><LazyTab index={7} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <LunaraScreen forcedTab={isFemale ? 'body' : 'partner'} isActive={activeTabIndex === 7} /> : <View style={styles.black} />}</LazyTab></View>
+                <View key="lunara-partner">
+                    {isFemale ? (
+                        <LazyTab index={8} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>
+                            {isPagerReady ? <LunaraScreen forcedTab="partner" isActive={activeTabIndex === 8} /> : <View style={styles.black} />}
+                        </LazyTab>
+                    ) : (
+                        <LazyTab index={8} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>
+                            {isPagerReady ? <LunaraScreen forcedTab="learn" isActive={activeTabIndex === 8} /> : <View style={styles.black} />}
+                        </LazyTab>
+                    )}
+                </View>
+                <View key="settings"><LazyTab index={9} activeTabIndex={activeTabIndex} mountedIndexes={mountedIndexes}>{isPagerReady ? <SettingsScreen /> : <View style={styles.black} />}</LazyTab></View>
             </PagerView>
         </View>
     );

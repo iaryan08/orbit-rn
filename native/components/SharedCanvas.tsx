@@ -22,6 +22,7 @@ import { Download, Edit2, Eraser, Move, Redo2, Shield, ShieldOff, Trash2, Undo2,
 import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db, rtdb } from '../lib/firebase';
 import { useOrbitStore } from '../lib/store';
 import { PerfChip, usePerfMonitor } from './PerfChip';
@@ -43,6 +44,9 @@ const MAX_POINTS_PER_DELTA = 18;
 const POINT_PRECISION = 10;
 const MAX_STROKES = 500;
 const PRESET_COLORS = ['#ffffff', '#fb7185', '#a855f7'];
+const LIVE_SESSION_IDLE_MS = 20000;
+const localCanvasCache = new Map<string, { strokes: Omit<Stroke, 'path'>[]; updatedAt: number }>();
+const getCanvasStorageKey = (coupleId: string) => `orbit_canvas_${coupleId}`;
 
 interface Point {
   x: number;
@@ -118,6 +122,7 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('shield');
   const [showToolsUi, setShowToolsUi] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isLiveSessionActive, setIsLiveSessionActive] = useState(false);
 
   const activePath = useSharedValue(Skia.Path.Make());
   const handoffPath = useSharedValue(Skia.Path.Make());
@@ -146,6 +151,13 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
   const lastDeltaSyncAtRef = useRef(0);
   const isDrawingRef = useRef(false);
   const handoffClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingLegacySyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingLegacySyncStrokesRef = useRef<Stroke[] | null>(null);
+  const liveSessionIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveSessionActiveRef = useRef(false);
+  const hasUnsyncedLocalRef = useRef(false);
+  const latestLocalMutationAtRef = useRef(0);
+  const hasHydratedRef = useRef(false);
 
   const remoteStrokeRef = useRef<Record<string, { id: string; points: Point[]; meta: StrokeMeta }>>({});
   const lastProcessedBySenderRef = useRef<Record<string, number>>({});
@@ -182,6 +194,7 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
         legacyRef,
         {
           path_data: JSON.stringify(payload),
+          updated_at_ms: Date.now(),
           updated_at: serverTimestamp(),
           user_id: profile?.id || '',
         },
@@ -191,9 +204,29 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
     [couple?.id, profile?.id],
   );
 
+  const persistCanvasLocal = useCallback(async (coupleId: string, strokes: Stroke[], updatedAt: number) => {
+    try {
+      await AsyncStorage.setItem(
+        getCanvasStorageKey(coupleId),
+        JSON.stringify({
+          updatedAt,
+          strokes: strokes.map((stroke) => ({
+            id: stroke.id,
+            points: stroke.points,
+            color: stroke.color,
+            width: stroke.width,
+            isEraser: stroke.isEraser,
+          })),
+        }),
+      );
+    } catch (e) {
+      console.warn('[SharedCanvas] Failed to persist local canvas snapshot', e);
+    }
+  }, []);
+
   const broadcastDelta = useCallback(
     (payload: DeltaPayload) => {
-      if (!couple?.id || !profile?.id) return;
+      if (!liveSessionActiveRef.current || !couple?.id || !profile?.id) return;
       const senderRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
       rtdbSet(senderRef, {
         event: 'doodle_delta',
@@ -209,6 +242,72 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
     const senderRef = ref(rtdb, `broadcasts/${couple.id}/${profile.id}`);
     await rtdbSet(senderRef, null);
   }, [couple?.id, profile?.id]);
+
+  const setLiveSessionState = useCallback((next: boolean) => {
+    liveSessionActiveRef.current = next;
+    setIsLiveSessionActive(next);
+  }, []);
+
+  const stopLiveSession = useCallback(() => {
+    if (liveSessionIdleTimerRef.current) {
+      clearTimeout(liveSessionIdleTimerRef.current);
+      liveSessionIdleTimerRef.current = null;
+    }
+    setLiveSessionState(false);
+    remoteStrokeRef.current = {};
+    void clearLocalBroadcast();
+  }, [clearLocalBroadcast, setLiveSessionState]);
+
+  const scheduleLiveSessionCooldown = useCallback(() => {
+    if (liveSessionIdleTimerRef.current) {
+      clearTimeout(liveSessionIdleTimerRef.current);
+    }
+    liveSessionIdleTimerRef.current = setTimeout(() => {
+      liveSessionIdleTimerRef.current = null;
+      stopLiveSession();
+    }, LIVE_SESSION_IDLE_MS);
+  }, [stopLiveSession]);
+
+  const wakeLiveSession = useCallback(() => {
+    if (!liveSessionActiveRef.current) {
+      setLiveSessionState(true);
+    }
+    scheduleLiveSessionCooldown();
+  }, [scheduleLiveSessionCooldown, setLiveSessionState]);
+
+  const flushLegacySync = useCallback(async () => {
+    if (pendingLegacySyncTimerRef.current) {
+      clearTimeout(pendingLegacySyncTimerRef.current);
+      pendingLegacySyncTimerRef.current = null;
+    }
+    const pending = pendingLegacySyncStrokesRef.current;
+    pendingLegacySyncStrokesRef.current = null;
+    if (!pending) return;
+    await syncLegacyWeb(pending);
+    hasUnsyncedLocalRef.current = false;
+  }, [syncLegacyWeb]);
+
+  const scheduleLegacySync = useCallback(
+    (nextStrokes: Stroke[], immediate = false) => {
+      hasUnsyncedLocalRef.current = true;
+      pendingLegacySyncStrokesRef.current = nextStrokes;
+      if (pendingLegacySyncTimerRef.current) {
+        clearTimeout(pendingLegacySyncTimerRef.current);
+        pendingLegacySyncTimerRef.current = null;
+      }
+
+      if (immediate) {
+        void flushLegacySync();
+        return;
+      }
+
+      pendingLegacySyncTimerRef.current = setTimeout(() => {
+        pendingLegacySyncTimerRef.current = null;
+        void flushLegacySync();
+      }, 900);
+    },
+    [flushLegacySync],
+  );
 
   useEffect(() => {
     if (!couple?.id || !profile?.id) return;
@@ -288,11 +387,57 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
   // INITIAL HYDRATION: Listen to legacy strokes from Firestore
   useEffect(() => {
     if (!couple?.id || !isActive) return;
+    hasHydratedRef.current = false;
+
+    const cached = localCanvasCache.get(couple.id);
+    if (cached && !isDrawingRef.current) {
+      latestLocalMutationAtRef.current = Math.max(latestLocalMutationAtRef.current, cached.updatedAt);
+      const loaded = cached.strokes.map((s) => ({
+        ...s,
+        path: pointsToPath(s.points) || Skia.Path.Make(),
+      }));
+      setCommittedStrokes(loaded);
+    }
+
+    let isMounted = true;
+    const restoreLocal = AsyncStorage.getItem(getCanvasStorageKey(couple.id))
+      .then((raw) => {
+        if (!raw || !isMounted || hasUnsyncedLocalRef.current || isDrawingRef.current) return;
+        const parsed = JSON.parse(raw) as { updatedAt?: number; strokes?: Omit<Stroke, 'path'>[] };
+        if (!Array.isArray(parsed?.strokes)) return;
+        const nextUpdatedAt = Number(parsed?.updatedAt || 0);
+        if (nextUpdatedAt && nextUpdatedAt < latestLocalMutationAtRef.current) return;
+        latestLocalMutationAtRef.current = Math.max(latestLocalMutationAtRef.current, nextUpdatedAt);
+        localCanvasCache.set(couple.id, {
+          updatedAt: nextUpdatedAt,
+          strokes: parsed.strokes,
+        });
+        setCommittedStrokes(parsed.strokes.map((s) => ({
+          ...s,
+          path: pointsToPath(s.points) || Skia.Path.Make(),
+        })));
+      })
+      .catch((e) => {
+        console.warn('[SharedCanvas] Failed to restore local canvas snapshot', e);
+      })
+      .finally(() => {
+        if (isMounted) {
+          hasHydratedRef.current = true;
+        }
+      });
 
     const legacyRef = doc(db, 'couples', couple.id, 'doodles', 'latest');
     const unsub = onSnapshot(legacyRef, (snap) => {
-      if (snap.exists() && !isDrawingRef.current) {
+      if (hasUnsyncedLocalRef.current || isDrawingRef.current) return;
+      if (snap.exists()) {
         const data = snap.data();
+        const remoteUpdatedAt =
+          data?.updated_at_ms ||
+          data?.updated_at?.toMillis?.() ||
+          0;
+        if (remoteUpdatedAt && remoteUpdatedAt < latestLocalMutationAtRef.current) {
+          return;
+        }
         if (data?.path_data) {
           try {
             const raw = JSON.parse(data.path_data);
@@ -300,7 +445,15 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
               ...s,
               path: pointsToPath(s.points) || Skia.Path.Make(),
             }));
-
+            latestLocalMutationAtRef.current = Math.max(latestLocalMutationAtRef.current, remoteUpdatedAt);
+            localCanvasCache.set(couple.id, {
+              updatedAt: remoteUpdatedAt,
+              strokes: raw,
+            });
+            void AsyncStorage.setItem(
+              getCanvasStorageKey(couple.id),
+              JSON.stringify({ updatedAt: remoteUpdatedAt, strokes: raw }),
+            ).catch(() => { });
             setCommittedStrokes(loaded);
           } catch (e) {
             console.warn("[SharedCanvas] JSON Parse failed for path_data", e);
@@ -311,11 +464,35 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
       console.error('[SharedCanvas] Hydration failed:', err);
     });
 
-    return unsub;
-  }, [couple?.id]);
+    return () => {
+      isMounted = false;
+      unsub();
+    };
+  }, [couple?.id, isActive]);
+
+  useEffect(() => {
+    if (!couple?.id || !hasHydratedRef.current) return;
+    const nextUpdatedAt = Date.now();
+    latestLocalMutationAtRef.current = Math.max(latestLocalMutationAtRef.current, nextUpdatedAt);
+    localCanvasCache.set(
+      couple.id,
+      {
+        updatedAt: nextUpdatedAt,
+        strokes: committedStrokes.map((stroke) => ({
+          id: stroke.id,
+          points: stroke.points,
+          color: stroke.color,
+          width: stroke.width,
+          isEraser: stroke.isEraser,
+        })),
+      },
+    );
+    void persistCanvasLocal(couple.id, committedStrokes, nextUpdatedAt);
+  }, [committedStrokes, couple?.id, persistCanvasLocal]);
 
   const startDrawing = useCallback(
     (x: number, y: number) => {
+      wakeLiveSession();
       isDrawingRef.current = true;
       const strokeId = `${profile?.id || 'local'}-${Date.now()}`;
       const isEraser = activeTool === 'eraser';
@@ -338,11 +515,12 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
         meta,
       });
     },
-    [activeColor, activeTool, broadcastDelta, profile?.id],
+    [activeColor, activeTool, broadcastDelta, profile?.id, wakeLiveSession],
   );
 
   const continueDrawing = useCallback(
     (x: number, y: number) => {
+      scheduleLiveSessionCooldown();
       localPointsRef.current.push({ x, y });
 
       const now = Date.now();
@@ -367,12 +545,13 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
         points: chunk.map(quantizePoint),
       });
     },
-    [broadcastDelta],
+    [broadcastDelta, scheduleLiveSessionCooldown],
   );
 
   const endDrawing = useCallback(() => {
     const strokeId = currentStrokeIdRef.current;
     if (!strokeId) return;
+    scheduleLiveSessionCooldown();
 
     const unsynced = localPointsRef.current.slice(syncedPointCountRef.current);
     if (unsynced.length > 0) {
@@ -405,11 +584,12 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
           },
         ];
         const capped = next.length > MAX_STROKES ? next.slice(next.length - MAX_STROKES) : next;
-        void syncLegacyWeb(capped).then(() => clearLocalBroadcast());
+        scheduleLegacySync(capped);
         return capped;
       });
       setRedoStrokes([]);
     }
+    void clearLocalBroadcast();
 
     // Keep a tiny UI-thread buffer during commit to avoid a one-frame blink.
     handoffPath.value = activePath.value.copy();
@@ -427,7 +607,7 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
     localPointsRef.current = [];
     activePath.value = Skia.Path.Make();
     isDrawingRef.current = false;
-  }, [activePath, broadcastDelta, clearLocalBroadcast, handoffColor, handoffIsEraser, handoffPath, handoffWidth, syncLegacyWeb]);
+  }, [activePath, broadcastDelta, clearLocalBroadcast, handoffColor, handoffIsEraser, handoffPath, handoffWidth, scheduleLegacySync, scheduleLiveSessionCooldown]);
 
   const handleUndo = useCallback(() => {
     setCommittedStrokes((prev) => {
@@ -435,10 +615,11 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
       const last = prev[prev.length - 1];
       setRedoStrokes((redo) => [...redo, last]);
       const next = prev.slice(0, -1);
-      void syncLegacyWeb(next).then(() => clearLocalBroadcast());
+      scheduleLegacySync(next);
+      void clearLocalBroadcast();
       return next;
     });
-  }, [clearLocalBroadcast, syncLegacyWeb]);
+  }, [clearLocalBroadcast, scheduleLegacySync]);
 
   const handleRedo = useCallback(() => {
     setRedoStrokes((prev) => {
@@ -446,20 +627,22 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
       const last = prev[prev.length - 1];
       setCommittedStrokes((curr) => {
         const next = [...curr, last];
-        void syncLegacyWeb(next).then(() => clearLocalBroadcast());
+        scheduleLegacySync(next);
+        void clearLocalBroadcast();
         return next;
       });
       return prev.slice(0, -1);
     });
-  }, [clearLocalBroadcast, syncLegacyWeb]);
+  }, [clearLocalBroadcast, scheduleLegacySync]);
 
   const handleClear = useCallback(() => {
     setCommittedStrokes([]);
     setRedoStrokes([]);
     activePath.value = Skia.Path.Make();
-    void syncLegacyWeb([]).then(() => clearLocalBroadcast());
+    scheduleLegacySync([], true);
+    void clearLocalBroadcast();
     setShowClearConfirm(false);
-  }, [activePath, clearLocalBroadcast, syncLegacyWeb]);
+  }, [activePath, clearLocalBroadcast, scheduleLegacySync]);
 
   const handleDownload = useCallback(async () => {
     try {
@@ -490,13 +673,14 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
     setShowToolsUi(false);
     setShowHuePicker(false);
     setShowClearConfirm(false);
+    stopLiveSession();
     zoomScale.value = 1;
     zoomTx.value = 0;
     zoomTy.value = 0;
     savedZoomScale.value = 1;
     savedZoomTx.value = 0;
     savedZoomTy.value = 0;
-  }, []);
+  }, [stopLiveSession]);
   const updateColorFromTrack = useCallback(
     (x: number) => {
       const clampedX = Math.max(0, Math.min(pickerWidth, x));
@@ -686,14 +870,18 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
   useEffect(() => {
     return () => {
       if (handoffClearTimerRef.current) clearTimeout(handoffClearTimerRef.current);
+      if (liveSessionIdleTimerRef.current) clearTimeout(liveSessionIdleTimerRef.current);
+      stopLiveSession();
+      void flushLegacySync();
     };
-  }, []);
+  }, [flushLegacySync, stopLiveSession]);
 
   useEffect(() => {
     if (activeTabIndex !== 1) {
+      void flushLegacySync();
       enterShieldMode();
     }
-  }, [activeTabIndex, enterShieldMode]);
+  }, [activeTabIndex, enterShieldMode, flushLegacySync]);
 
   return (
     <View style={styles.container}>
@@ -716,7 +904,10 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
               scrollY.value = e.nativeEvent.contentOffset.y;
             }}
             onTouchStart={() => {
-              if (!isShieldMode) setPagerScrollEnabled(false);
+              if (!isShieldMode) {
+                wakeLiveSession();
+                setPagerScrollEnabled(false);
+              }
             }}
             scrollEventThrottle={16}
             style={styles.panOuterScroll}
@@ -732,7 +923,10 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
                 scrollX.value = e.nativeEvent.contentOffset.x;
               }}
               onTouchStart={() => {
-                if (!isShieldMode) setPagerScrollEnabled(false);
+                if (!isShieldMode) {
+                  wakeLiveSession();
+                  setPagerScrollEnabled(false);
+                }
               }}
               scrollEventThrottle={16}
               style={styles.panInnerScroll}
@@ -740,7 +934,6 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
             >
               <Animated.View
                 style={[styles.logicalCanvas, zoomCanvasStyle]}
-                renderToHardwareTextureAndroid={true}
               >
                 <Canvas ref={canvasRef} style={StyleSheet.absoluteFill}>
                   <Group>
@@ -783,6 +976,7 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
           style={[styles.miniActionBtn, isShieldMode && styles.miniActionBtnActive]}
           onPress={() => {
             if (isShieldMode) {
+              wakeLiveSession();
               setInteractionMode('draw');
             } else {
               enterShieldMode();
@@ -817,6 +1011,7 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
             onPress={() => {
               setShowToolsUi(true);
               setShowClearConfirm(false);
+              wakeLiveSession();
               setInteractionMode('draw');
             }}
           >
@@ -853,6 +1048,7 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
                   key={c}
                   style={[styles.swatch, { backgroundColor: c }, activeColor === c && styles.swatchActive]}
                   onPress={() => {
+                    wakeLiveSession();
                     setInteractionMode('draw');
                     setActiveColor(c);
                     setActiveTool('pen');
@@ -862,6 +1058,7 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
               <TouchableOpacity
                 style={[styles.swatch, styles.pickerSlotSwatch, { backgroundColor: pickerSlotColor }]}
                 onPress={() => {
+                  wakeLiveSession();
                   setInteractionMode('draw');
                   setActiveTool('pen');
                   setActiveColor(pickerSlotColor);
@@ -894,9 +1091,11 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
               onPress={() => {
                 setShowClearConfirm(false);
                 if (isPanMode) {
+                  wakeLiveSession();
                   setInteractionMode('draw');
                   setActiveTool('pen');
                 } else {
+                  wakeLiveSession();
                   setInteractionMode('pan');
                 }
               }}
@@ -905,7 +1104,10 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.toolBtn, activeTool === 'eraser' && styles.toolBtnActive]}
-              onPress={() => setActiveTool('eraser')}
+              onPress={() => {
+                wakeLiveSession();
+                setActiveTool('eraser');
+              }}
             >
               <Eraser size={14} color={activeTool === 'eraser' ? '#fb7185' : '#d1d5db'} />
             </TouchableOpacity>

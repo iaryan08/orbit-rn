@@ -103,6 +103,8 @@ export function DynamicBackground({ isPaused = false }: DynamicBackgroundProps) 
         return 'rgba(0,0,0,0.08)';
     }, [grayscale, aesthetic]);
 
+    const shouldRenderWallpaperCanvas = mode !== 'stars' && (!!skImageCurrent || !!skImagePrevious || !!vibeTintLayer);
+
     return (
         <View style={[StyleSheet.absoluteFillObject, styles.bg]}>
             <CelestialSky
@@ -113,64 +115,57 @@ export function DynamicBackground({ isPaused = false }: DynamicBackgroundProps) 
                 maxStars={grayscale ? 20 : (isLiteMode ? 10 : 50)}
             />
 
-            <Canvas style={StyleSheet.absoluteFillObject} pointerEvents="none">
-                {/* Previous Image Layer */}
-                {skImagePrevious && mode !== 'stars' && (
-                    <Group
-                        opacity={previousOpacity}
-                        transform={[{ scale: 1.05 }]}
-                        origin={vec(width / 2, height / 2)}
-                        layer={grayscale ? monochromePaint : undefined}
-                    >
-                        <Image
-                            image={skImagePrevious}
-                            x={0} y={0} width={width} height={height}
-                            fit="cover"
-                        />
+            {shouldRenderWallpaperCanvas && (
+                <Canvas style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                    {skImagePrevious && (
+                        <Group
+                            opacity={previousOpacity}
+                            transform={[{ scale: 1.05 }]}
+                            origin={vec(width / 2, height / 2)}
+                            layer={grayscale ? monochromePaint : undefined}
+                        >
+                            <Image
+                                image={skImagePrevious}
+                                x={0} y={0} width={width} height={height}
+                                fit="cover"
+                            />
+                        </Group>
+                    )}
+
+                    {skImageCurrent && (
+                        <Group
+                            opacity={transition.value}
+                            transform={[{ scale: 1.05 }]}
+                            origin={vec(width / 2, height / 2)}
+                            layer={grayscale ? monochromePaint : undefined}
+                        >
+                            <Image
+                                image={skImageCurrent}
+                                x={0} y={0} width={width} height={height}
+                                fit="cover"
+                            />
+                        </Group>
+                    )}
+
+                    <Group>
+                        <Fill color={overlayColor} />
+                        <Fill>
+                            <RadialGradient
+                                c={vec(width / 2, height / 2)}
+                                r={Math.max(width, height) * 1.2}
+                                colors={['transparent', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.75)']}
+                                positions={[0.3, 0.6, 1]}
+                            />
+                        </Fill>
                     </Group>
-                )}
 
-                {/* Current Image Layer */}
-                {skImageCurrent && mode !== 'stars' && (
-                    <Group
-                        opacity={transition.value}
-                        transform={[{ scale: 1.05 }]}
-                        origin={vec(width / 2, height / 2)}
-                        layer={grayscale ? monochromePaint : undefined}
-                    >
-                        <Image
-                            image={skImageCurrent}
-                            x={0} y={0} width={width} height={height}
-                            fit="cover"
-                        />
-                    </Group>
-                )}
+                    {isLunara && vibeTintLayer && (
+                        <Fill color={vibeTintLayer} opacity={0.15} />
+                    )}
 
-                {/* Unified Tint & Vignette Layer */}
-                <Group opacity={mode !== 'stars' ? 1 : 0}>
-                    <Fill color={overlayColor} />
-
-                    {/* Persistent Readability Vignette (Top & Edge Darkening for Status Bar) */}
-                    <Fill>
-                        <RadialGradient
-                            c={vec(width / 2, height / 2)}
-                            r={Math.max(width, height) * 1.2}
-                            colors={['transparent', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.75)']}
-                            positions={[0.3, 0.6, 1]}
-                        />
-                    </Fill>
-                </Group>
-
-                {/* Partner Vibe Overlays (Computed in-canvas) */}
-                {isLunara && vibeTintLayer && (
-                    <Fill color={vibeTintLayer} opacity={0.15} />
-                )}
-
-                {/* Final Pass Safety Darkening for White Wallpapers */}
-                {mode !== 'stars' && (
                     <Fill color="rgba(0,0,0,0.05)" />
-                )}
-            </Canvas>
+                </Canvas>
+            )}
         </View>
     );
 }

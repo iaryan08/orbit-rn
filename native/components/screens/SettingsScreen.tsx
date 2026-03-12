@@ -26,12 +26,15 @@ import { getMirrorStats, triggerMirroring } from '../../lib/MirrorService';
 import { RefreshCcw, HardDrive, Smartphone, ShieldCheck, Lock } from 'lucide-react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 
-type TabId = 'profile' | 'couple' | 'atmosphere' | 'security' | 'updates';
+type TabId = 'profile' | 'couple' | 'lunara' | 'atmosphere' | 'security' | 'updates';
 
 import { getPublicStorageUrl } from '../../lib/storage';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
 
 const WALLPAPER_REMOTE_SYNC_DELAY_MS = 10000;
+
+const FADE_IN_ANIM = FadeIn.duration(300);
+const FADE_OUT_ANIM = FadeOut.duration(300);
 
 export function SettingsScreen() {
     const router = useRouter();
@@ -381,7 +384,7 @@ export function SettingsScreen() {
         switch (activeTab) {
             case 'profile':
                 return (
-                    <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.tabContent}>
+                    <Animated.View entering={FADE_IN_ANIM} exiting={FADE_OUT_ANIM} style={styles.tabContent}>
                         <View style={styles.avatarSection}>
                             <View style={styles.avatarContainer}>
                                 <ProfileAvatar
@@ -432,7 +435,7 @@ export function SettingsScreen() {
                 );
             case 'couple':
                 return (
-                    <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.tabContent}>
+                    <Animated.View entering={FADE_IN_ANIM} exiting={FADE_OUT_ANIM} style={styles.tabContent}>
                         <View style={styles.formGroup}>
                             <Text style={styles.label}>Partner Nickname</Text>
                             <TextInput
@@ -478,7 +481,7 @@ export function SettingsScreen() {
                 );
             case 'atmosphere':
                 return (
-                    <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.tabContent}>
+                    <Animated.View entering={FADE_IN_ANIM} exiting={FADE_OUT_ANIM} style={styles.tabContent}>
                         <Text style={styles.sectionTitle}>Atmosphere</Text>
                         <Text style={styles.sectionSub}>Personalize the private celestial space</Text>
 
@@ -606,7 +609,7 @@ export function SettingsScreen() {
                 );
             case 'updates':
                 return (
-                    <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.tabContent}>
+                    <Animated.View entering={FADE_IN_ANIM} exiting={FADE_OUT_ANIM} style={styles.tabContent}>
                         <Text style={styles.sectionTitle}>App & Data</Text>
                         <Text style={styles.sectionSub}>Phase 3: Data Longevity & Persistence</Text>
 
@@ -698,7 +701,7 @@ export function SettingsScreen() {
                 );
             case 'security':
                 return (
-                    <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.tabContent}>
+                    <Animated.View entering={FADE_IN_ANIM} exiting={FADE_OUT_ANIM} style={styles.tabContent}>
                         <Text style={styles.sectionTitle}>Privacy & Security</Text>
                         <Text style={styles.sectionSub}>Protect your private celestial space</Text>
 

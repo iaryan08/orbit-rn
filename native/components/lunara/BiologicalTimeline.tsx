@@ -1,19 +1,24 @@
-import React, { useMemo, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Pressable } from 'react-native';
-import { Typography, Colors, Radius, Spacing } from '../../constants/Theme';
-import { Sparkles, Moon, Flame, Droplets } from 'lucide-react-native';
+import React, { useEffect, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, Pressable, Dimensions, Platform } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Typography, Spacing, Radius, Colors } from '../../constants/Theme';
+import { Sparkles, Droplets } from 'lucide-react-native';
 import { useOrbitStore } from '../../lib/store';
+import { PhaseWindow } from '../../lib/cycle';
 
+const IS_ANDROID = Platform.OS === 'android';
 const { width } = Dimensions.get('window');
-const ITEM_WIDTH = 60;
+const ITEM_WIDTH = 66;
+const ITEM_GAP = 8;
 
 interface DayItem {
     date: Date;
     dayOfCycle: number;
-    phase: string;
+    phase: PhaseWindow;
     isToday: boolean;
     isOvulation: boolean;
     isPeriod: boolean;
+    isFertile: boolean;
 }
 
 interface BiologicalTimelineProps {
@@ -22,118 +27,121 @@ interface BiologicalTimelineProps {
     onSelectDay: (day: number) => void;
 }
 
+// Stable day cell — memoized to prevent any rerender cascade
+const DayCell = React.memo(({ item, isSelected, onPress }: {
+    item: DayItem;
+    isSelected: boolean;
+    onPress: () => void;
+}) => {
+    const phaseColor = item.phase.color;
+
+    return (
+        <Pressable
+            onPress={onPress}
+            style={({ pressed }) => [
+                styles.cell,
+                isSelected && { backgroundColor: `${phaseColor}22`, borderColor: phaseColor },
+                { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
+            ]}
+        >
+            {/* Phase color bar top */}
+            <View style={[styles.phaseBar, { backgroundColor: phaseColor, opacity: isSelected ? 1 : 0.35 }]} />
+
+            <Text style={[styles.dateNum, isSelected && { color: phaseColor }]}>
+                {item.date.getDate()}
+            </Text>
+            <Text style={[styles.dateMonth, isSelected && { color: phaseColor, opacity: 0.9 }]}>
+                {item.isToday ? 'Today' : item.date.toLocaleDateString('en', { weekday: 'short' })}
+            </Text>
+
+            <View style={styles.markerRow}>
+                {item.isOvulation && <Sparkles size={10} color="#fbbf24" />}
+                {item.isPeriod && <Droplets size={10} color="#fb7185" />}
+                {item.isFertile && !item.isOvulation && <View style={[styles.fertileDot, { backgroundColor: '#34d399' }]} />}
+                {!item.isOvulation && !item.isPeriod && !item.isFertile && (
+                    <View style={[styles.phaseDot, { backgroundColor: phaseColor }]} />
+                )}
+            </View>
+
+            {isSelected && <View style={[styles.selectedBar, { backgroundColor: phaseColor }]} />}
+        </Pressable>
+    );
+}, (prev, next) => prev.isSelected === next.isSelected && prev.item.dayOfCycle === next.item.dayOfCycle);
+
 export const BiologicalTimeline = React.memo(({ days, selectedDay, onSelectDay }: BiologicalTimelineProps) => {
-    const scrollRef = useRef<ScrollView>(null);
-    const setPagerScrollEnabled = useOrbitStore(state => state.setPagerScrollEnabled);
+    const listRef = useRef<any>(null);
+    const setPagerScrollEnabled = useOrbitStore(s => s.setPagerScrollEnabled);
+
+    // Auto-scroll to today or selected on mount
+    useEffect(() => {
+        const targetIdx = days.findIndex(d => d.dayOfCycle === selectedDay);
+        if (targetIdx >= 0 && listRef.current) {
+            // Delay slightly to ensure layout
+            setTimeout(() => {
+                listRef.current?.scrollToIndex({ index: targetIdx, animated: true, viewPosition: 0.5 });
+            }, 100);
+        }
+    }, []);
+
+    const renderItem = useCallback(({ item }: { item: DayItem }) => (
+        <DayCell
+            item={item}
+            isSelected={selectedDay === item.dayOfCycle}
+            onPress={() => onSelectDay(item.dayOfCycle)}
+        />
+    ), [selectedDay, onSelectDay]);
 
     return (
         <View style={styles.container}>
-            <ScrollView
-                ref={scrollRef}
+            <Animated.FlatList
+                ref={listRef}
+                data={days}
+                renderItem={renderItem}
+                keyExtractor={(item) => item.dayOfCycle.toString()}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.scrollContent}
-                snapToInterval={ITEM_WIDTH}
+                snapToInterval={ITEM_WIDTH + ITEM_GAP}
                 decelerationRate="fast"
-                onTouchStart={() => setPagerScrollEnabled(false)}
-                onTouchEnd={() => setPagerScrollEnabled(true)}
-                onTouchCancel={() => setPagerScrollEnabled(true)}
                 onScrollBeginDrag={() => setPagerScrollEnabled(false)}
                 onScrollEndDrag={() => setPagerScrollEnabled(true)}
                 onMomentumScrollEnd={() => setPagerScrollEnabled(true)}
-            >
-                {days.map((item, idx) => {
-                    const isSelected = selectedDay === item.dayOfCycle;
-
-                    return (
-                        <Pressable
-                            key={idx}
-                            onPress={() => onSelectDay(item.dayOfCycle)}
-                            style={({ pressed }) => [
-                                styles.dayItem,
-                                isSelected && styles.dayItemActive,
-                                { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
-                            ]}
-                        >
-                            <Text style={[styles.dayNum, isSelected && styles.textActive]}>
-                                {item.date.getDate()}
-                            </Text>
-                            <Text style={[styles.dayLabel, isSelected && styles.textActive]}>
-                                {item.isToday ? 'Today' : `D${item.dayOfCycle}`}
-                            </Text>
-
-                            <View style={styles.iconContainer}>
-                                {item.isOvulation && <Sparkles size={12} color="#fbbf24" />}
-                                {item.isPeriod && <Droplets size={12} color="#fb7185" />}
-                                {!item.isOvulation && !item.isPeriod && <View style={styles.dot} />}
-                            </View>
-
-                            {isSelected && <View style={styles.activeIndicator} />}
-                        </Pressable>
-                    );
+                // Performance Props
+                getItemLayout={(_, index) => ({
+                    length: ITEM_WIDTH + ITEM_GAP,
+                    offset: (ITEM_WIDTH + ITEM_GAP) * index,
+                    index,
                 })}
-            </ScrollView>
+                windowSize={5}
+                maxToRenderPerBatch={5}
+                initialNumToRender={10}
+                removeClippedSubviews={IS_ANDROID}
+                scrollEventThrottle={16}
+            />
         </View>
     );
 });
 
 const styles = StyleSheet.create({
-    container: {
-        height: 100,
-        marginVertical: Spacing.md,
-    },
-    scrollContent: {
-        paddingHorizontal: Spacing.lg,
-        alignItems: 'center',
-    },
-    dayItem: {
+    container: { height: 106, marginVertical: Spacing.md },
+    scrollContent: { paddingHorizontal: Spacing.md, alignItems: 'center', gap: ITEM_GAP },
+    cell: {
         width: ITEM_WIDTH,
-        height: 80,
-        alignItems: 'center',
-        justifyContent: 'center',
+        height: 90,
         borderRadius: Radius.lg,
         backgroundColor: 'rgba(255,255,255,0.03)',
-        marginRight: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
-    },
-    dayItemActive: {
-        backgroundColor: 'rgba(168,85,247,0.15)',
-        borderColor: 'rgba(168,85,247,0.3)',
-    },
-    dayNum: {
-        fontSize: 18,
-        fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
-    },
-    dayLabel: {
-        fontSize: 9,
-        fontFamily: Typography.sans,
-        color: 'rgba(255,255,255,0.2)',
-        textTransform: 'uppercase',
-        marginTop: 2,
-    },
-    textActive: {
-        color: '#c084fc',
-    },
-    iconContainer: {
-        marginTop: 8,
-        height: 14,
+        borderColor: 'rgba(255,255,255,0.06)',
         alignItems: 'center',
         justifyContent: 'center',
+        overflow: 'hidden',
+        position: 'relative',
     },
-    dot: {
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-    },
-    activeIndicator: {
-        position: 'absolute',
-        bottom: 8,
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#c084fc',
-    }
+    phaseBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 2, borderRadius: 1 },
+    dateNum: { fontSize: 20, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.45)', lineHeight: 26 },
+    dateMonth: { fontSize: 9, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.25)', letterSpacing: 0.5, marginBottom: 6 },
+    markerRow: { height: 12, alignItems: 'center', justifyContent: 'center' },
+    fertileDot: { width: 6, height: 6, borderRadius: 3 },
+    phaseDot: { width: 4, height: 4, borderRadius: 2, opacity: 0.4 },
+    selectedBar: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, borderRadius: 1 },
 });

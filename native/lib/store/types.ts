@@ -11,12 +11,18 @@ export interface MemoryData {
     id: string;
     title: string;
     content: string | null;
-    description: string | null;
+    description?: string | null;
     image_url: string | null;
-    image_urls: string[] | null;
+    image_urls?: string[] | null;
+    sender_id?: string | null;
+    sender_name?: string | null;
+    couple_id?: string | null;
+    memory_date?: string | null;
     created_at: any;
-    sender_id: string | null;
-    read_by: string[] | null;
+    updated_at?: any;
+    read_by?: string[] | null;
+    type?: 'image' | 'video' | 'text';
+    deleted?: boolean;
 }
 
 export interface LetterData {
@@ -26,12 +32,13 @@ export interface LetterData {
     sender_id: string;
     sender_name: string | null;
     receiver_id: string | null;
-    unlock_type: string | null;
-    unlock_date: string | null;
+    unlock_type?: string | null;
+    unlock_date?: string | null;
     is_scheduled: boolean;
-    scheduled_delivery_time: number | null;
+    scheduled_delivery_time?: number | null;
     is_vanish: boolean;
     created_at: any;
+    updated_at?: any;
     is_read: boolean;
 }
 

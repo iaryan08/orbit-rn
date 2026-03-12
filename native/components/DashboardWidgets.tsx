@@ -1,14 +1,16 @@
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Pressable, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Pressable, Dimensions, Platform, Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { Image } from 'expo-image';
-import { Navigation, Heart, Music, AlertCircle, Calendar, RefreshCcw, Wifi, Globe, MapPin, Zap, PenLine, Image as ImageIcon, Flame, Quote, Moon, Target, Sparkles, Edit2, Lock, Unlock, Camera, ChevronRight, Plus, CalendarHeart, Cake, Minus, Thermometer, Droplets, Wind, Sun, Leaf, Mail, Check, Trophy, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudLightning } from 'lucide-react-native';
+import { Navigation, Heart, Music, AlertCircle, Calendar, RefreshCcw, Wifi, Globe, MapPin, Zap, PenLine, Image as ImageIcon, Flame, Quote, Moon, Target, Sparkles, Edit2, Lock, Unlock, Camera, ChevronRight, Plus, CalendarHeart, Cake, Minus, Thermometer, Droplets, Wind, Sun, Leaf, Mail, Check, Trophy, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Clock } from 'lucide-react-native';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
 import { GlassCard } from './GlassCard';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing, LinearTransition, FadeInDown } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing, LinearTransition } from 'react-native-reanimated';
 import { Shimmer } from './Shimmer';
 import { useOrbitStore } from '../lib/store';
+import { PremiumTabLoader } from './PremiumTabLoader';
 import { updateLocation } from '../lib/location';
 import * as Haptics from 'expo-haptics';
 import { getTodayIST, parseSafeDate, getPartnerName } from '../lib/utils';
@@ -38,6 +40,31 @@ const MOOD_EMOJIS: Record<string, string> = {
     playful: '😈'
 };
 
+const parseMoodPresentation = (moodValue?: string | null) => {
+    if (!moodValue) return { emoji: '✨', label: '' };
+    if (moodValue.startsWith('CUSTOM:')) {
+        const [, emoji, label] = moodValue.split(':');
+        return { emoji: emoji || '✨', label: label || 'Custom' };
+    }
+    return {
+        emoji: MOOD_EMOJIS[moodValue] || moodValue,
+        label: moodValue,
+    };
+};
+
+const getMoodTimestamp = (mood: any) => {
+    const updated = mood?.updated_at;
+    if (typeof updated === 'number') return updated;
+    if (updated?.toMillis && typeof updated.toMillis === 'function') return updated.toMillis();
+    const created = mood?.created_at;
+    if (typeof created === 'number') return created;
+    if (created?.toMillis && typeof created.toMillis === 'function') return created.toMillis();
+    const parsedUpdated = Date.parse(updated);
+    if (Number.isFinite(parsedUpdated)) return parsedUpdated;
+    const parsedCreated = Date.parse(created);
+    return Number.isFinite(parsedCreated) ? parsedCreated : 0;
+};
+
 interface RelationshipStatsProps {
     couple: any;
     lettersCount: number;
@@ -58,21 +85,7 @@ export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCou
     const scale = useSharedValue(1);
 
     React.useEffect(() => {
-        if (!isActive) {
-            scale.value = withTiming(1);
-            return;
-        }
-        // Dual-pulse organic heartbeat (Systole & Diastole)
-        scale.value = withRepeat(
-            withSequence(
-                withTiming(1.2, { duration: 150, easing: Easing.out(Easing.quad) }),
-                withTiming(1.1, { duration: 100, easing: Easing.inOut(Easing.quad) }),
-                withTiming(1.25, { duration: 150, easing: Easing.out(Easing.quad) }),
-                withTiming(1, { duration: 1200, easing: Easing.bezier(0.4, 0, 0.2, 1) })
-            ),
-            -1,
-            false
-        );
+        scale.value = 1;
     }, [isActive]);
 
     const { isLiteMode } = useOrbitStore();
@@ -96,7 +109,7 @@ export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCou
     });
 
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(100)}>
+        <Animated.View>
             <GlassCard style={styles.statsCard} intensity={12}>
                 <View style={styles.statsRow}>
                     <View style={styles.statMini}>
@@ -125,19 +138,46 @@ export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCou
 });
 
 export const ConnectionBoard = React.memo(({ profile, partnerProfile, cycleLogs }: any) => {
-    const { setMoodDrawerOpen, moods, loading, sendHeartbeatOptimistic, idToken } = useOrbitStore();
+    const { setMoodDrawerOpen, moods, loading, sendHeartbeatOptimistic, idToken, setMoodHistoryOpen } = useOrbitStore();
     const today = getTodayIST();
     const myId = profile?.id;
     const partnerId = partnerProfile?.id;
 
-    const myLatestMood = moods.find(m => m.user_id === myId && m.mood_date === today);
-    const partnerLatestMood = moods.find(m => m.user_id === partnerId && m.mood_date === today);
+    const myLatestMood = useMemo(
+        () =>
+            moods
+                .filter(m => m.user_id === myId && m.mood_date === today)
+                .sort((a, b) => getMoodTimestamp(b) - getMoodTimestamp(a))[0],
+        [moods, myId, today]
+    );
+    const partnerLatestMood = useMemo(
+        () =>
+            moods
+                .filter(m => m.user_id === partnerId && m.mood_date === today)
+                .sort((a, b) => getMoodTimestamp(b) - getMoodTimestamp(a))[0],
+        [moods, partnerId, today]
+    );
 
-    const myMoodEmoji = myLatestMood ? [myLatestMood.emoji] : (cycleLogs[myId]?.[today]?.symptoms || []);
-    const partnerMoodEmoji = partnerLatestMood ? [partnerLatestMood.emoji] : (cycleLogs[partnerId]?.[today]?.symptoms || []);
+    const myMoodDisplay = parseMoodPresentation(myLatestMood?.emoji);
+    const partnerMoodDisplay = parseMoodPresentation(partnerLatestMood?.emoji);
+
+    // Partner's menstrual state detection
+    const partnerIsFemale = partnerProfile?.gender === 'female';
+    const partnerLogsToday = (partnerId && cycleLogs[partnerId]) ? cycleLogs[partnerId][today] : null;
+    const partnerIsOnPeriod = partnerIsFemale && (partnerLogsToday?.is_period === true || partnerLogsToday?.flow);
+
+    // Prioritize manual mood, but if on period, we can show a special indicator or use it as fallback
+    const myMoodEmoji = myLatestMood ? [myMoodDisplay.emoji] : (cycleLogs[myId]?.[today]?.symptoms || []);
+
+    // Partner: manual mood > biological highlight (if on period) > symptoms
+    const partnerMoodEmoji = partnerLatestMood
+        ? [partnerMoodDisplay.emoji]
+        : (partnerIsOnPeriod ? ['🩸'] : (cycleLogs[partnerId]?.[today]?.symptoms || []));
 
     const myNote = myLatestMood?.mood_text || cycleLogs[myId]?.[today]?.note || '';
-    const partnerNote = partnerLatestMood?.mood_text || cycleLogs[partnerId]?.[today]?.note || '';
+    const partnerNote = partnerLatestMood?.mood_text
+        ? partnerLatestMood.mood_text
+        : (partnerIsOnPeriod ? "Currently on her period. She might need some extra care. ❤️" : (cycleLogs[partnerId]?.[today]?.note || ''));
 
     const myAvatarUrl = useMemo(() =>
         getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
@@ -149,97 +189,157 @@ export const ConnectionBoard = React.memo(({ profile, partnerProfile, cycleLogs 
 
     const myName = profile?.display_name?.split(' ')[0] || 'You';
     const partnerName = getPartnerName(profile, partnerProfile);
+    const heartbeatPulse = useSharedValue(0);
 
-    const handleStatusPress = () => {
-        // PER USER REQUEST: Dashboard avatars are for Heartbeat/Mood only.
+    const handleHeartbeatHold = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        heartbeatPulse.value = 0;
+        heartbeatPulse.value = withSequence(
+            withTiming(1, { duration: 120 }),
+            withTiming(0, { duration: 180 })
+        );
         sendHeartbeatOptimistic();
     };
+
+    const heartbeatPulseStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: 1 + heartbeatPulse.value * 0.025 }],
+    }));
 
     if (loading && moods.length === 0) {
         return (
             <GlassCard style={styles.connCard} intensity={10}>
-                <View style={styles.connHeader}>
+                <View style={styles.connHeaderRedesign}>
                     <Shimmer width={120} height={24} />
                     <Shimmer width={60} height={24} borderRadius={12} />
                 </View>
-                <View style={styles.connGrid}>
-                    <Shimmer width="48%" height={100} borderRadius={16} />
-                    <Shimmer width="48%" height={100} borderRadius={16} />
-                </View>
+                <Shimmer width="100%" height={200} borderRadius={16} />
             </GlassCard>
         );
     }
 
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(200)}>
+        <Animated.View>
             <GlassCard style={styles.connCard} intensity={10}>
-                <View style={styles.connHeader}>
+                <View style={styles.connHeaderRedesign}>
                     <View style={styles.connTitleGroup}>
                         <Sparkles size={18} color={Colors.dark.indigo[400]} />
-                        <Text style={styles.connTitle}>Connections</Text>
+                        <Text style={styles.connTitle}>Vibe Sync</Text>
                     </View>
-                    <TouchableOpacity
-                        style={styles.connUpdateBtn}
-                        onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            setMoodDrawerOpen(true);
-                        }}
-                    >
-                        <Text style={styles.connUpdateText}>Update</Text>
-                    </TouchableOpacity>
+                    <View style={styles.connActions}>
+                        <TouchableOpacity
+                            style={styles.connHistoryBtn}
+                            onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                if (setMoodHistoryOpen) setMoodHistoryOpen(true);
+                            }}
+                        >
+                            <Clock size={16} color="rgba(255,255,255,0.7)" />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
-                <View style={styles.connGrid}>
-                    <View style={[styles.connBlock, styles.connBlockPartner]}>
-                        <TouchableOpacity style={styles.connUserRow} onPress={handleStatusPress}>
-                            <ProfileAvatar
-                                url={partnerAvatarUrl}
-                                fallbackText={partnerName}
-                                size={24}
-                                borderWidth={0}
-                            />
-                            <Text style={styles.connUserLabel}>{partnerName}</Text>
-                        </TouchableOpacity>
-                        <View style={styles.connTags}>
+                {/* Partner Mood Block - Highlighted */}
+                <Animated.View style={[styles.connBlockPartnerRedesign, heartbeatPulseStyle]}>
+                    <TouchableOpacity style={styles.connUserRowRedesign} onLongPress={handleHeartbeatHold} delayLongPress={220}>
+                        <ProfileAvatar
+                            url={partnerAvatarUrl}
+                            fallbackText={partnerName}
+                            size={38}
+                            borderWidth={0}
+                        />
+                        <View style={{ marginLeft: 14, flex: 1 }}>
+                            <Text style={styles.connUserLabelRedesign} numberOfLines={1}>{partnerName}</Text>
                             {partnerMoodEmoji.length > 0 ? (
-                                <View style={styles.connEmojiTag}>
-                                    <Emoji symbol={MOOD_EMOJIS[partnerMoodEmoji[partnerMoodEmoji.length - 1]] || '✨'} size={22} />
-                                    <View style={{ marginLeft: 6, flex: 1 }}>
-                                        <Text style={styles.connTagText} numberOfLines={1}>{partnerMoodEmoji[partnerMoodEmoji.length - 1]}</Text>
+                                <View style={styles.connMoodInline}>
+                                    <Emoji symbol={partnerMoodEmoji[partnerMoodEmoji.length - 1] || '✨'} size={14} />
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Text style={styles.connMoodLabelInline} numberOfLines={1}>
+                                            {partnerMoodDisplay.label || (partnerIsOnPeriod && !partnerLatestMood ? 'Period' : partnerMoodEmoji[partnerMoodEmoji.length - 1])}
+                                        </Text>
+                                        {partnerIsOnPeriod && (
+                                            <View style={styles.biologicalBadge}>
+                                                <Sparkles size={8} color="#fb7185" style={{ marginRight: 2 }} />
+                                                <Text style={styles.biologicalBadgeText}>Lunara Highlight</Text>
+                                            </View>
+                                        )}
                                     </View>
                                 </View>
                             ) : (
-                                <Text style={styles.connEmptyText}>Waiting for {partnerName}...</Text>
+                                <Text style={styles.connEmptyTextRedesign}>Waiting for vibe...</Text>
                             )}
                         </View>
-                        {partnerNote ? <Text style={styles.connNote} numberOfLines={2}>"{partnerNote}"</Text> : null}
-                    </View>
+                    </TouchableOpacity>
 
-                    <View style={styles.connBlock}>
-                        <TouchableOpacity style={styles.connUserRow} onPress={handleStatusPress}>
+                    {partnerNote ? (
+                        <View style={styles.connNoteBoxRedesign}>
+                            <Quote size={16} color="rgba(129, 140, 248, 0.4)" style={{ marginRight: 8, marginTop: 2 }} />
+                            <Text style={styles.connNoteTextRedesign}>"{partnerNote}"</Text>
+                        </View>
+                    ) : (
+                        partnerMoodEmoji.length === 0 && (
+                            <View style={styles.connNoteBoxEmpty}>
+                                <Text style={styles.connNoteEmptyText}>No updates yet today.</Text>
+                            </View>
+                        )
+                    )}
+                </Animated.View>
+
+                {/* Vertical Separator */}
+                <View style={styles.connDividerShape}>
+                    <View style={styles.connDividerLine} />
+                    <Heart size={14} color="rgba(255,255,255,0.15)" fill="rgba(255,255,255,0.05)" style={{ paddingHorizontal: 8, backgroundColor: 'rgba(5, 5, 10, 0.8)' }} />
+                    <View style={styles.connDividerLine} />
+                </View>
+
+                {/* User Mood Block */}
+                <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setMoodDrawerOpen(true);
+                    }}
+                >
+                    <Animated.View style={[styles.connBlockSelfRedesign, heartbeatPulseStyle]}>
+                        <View style={styles.connUserRowRedesign}>
                             <ProfileAvatar
                                 url={myAvatarUrl}
                                 fallbackText={myName}
-                                size={24}
+                                size={38}
                                 borderWidth={0}
                             />
-                            <Text style={styles.connUserLabel}>You</Text>
-                        </TouchableOpacity>
-                        <View style={styles.connTags}>
-                            {myMoodEmoji.length > 0 ? (
-                                <View style={styles.connEmojiTag}>
-                                    <Emoji symbol={MOOD_EMOJIS[myMoodEmoji[myMoodEmoji.length - 1]] || '✨'} size={22} />
-                                    <View style={{ marginLeft: 6, flex: 1 }}>
-                                        <Text style={styles.connTagText} numberOfLines={1}>{myMoodEmoji[myMoodEmoji.length - 1]}</Text>
+                            <View style={{ marginLeft: 14, flex: 1 }}>
+                                <View style={styles.connUserLabelRow}>
+                                    <Text style={styles.connUserLabelRedesign} numberOfLines={1}>You</Text>
+                                    <Edit2 size={10} color="rgba(255,255,255,0.3)" style={{ marginLeft: 4 }} />
+                                </View>
+                                {myMoodEmoji.length > 0 ? (
+                                    <View style={styles.connMoodInline}>
+                                        <Emoji symbol={myMoodEmoji[myMoodEmoji.length - 1] || '✨'} size={14} />
+                                        <Text style={styles.connMoodLabelInlineSelf} numberOfLines={1}>{myMoodDisplay.label || myMoodEmoji[myMoodEmoji.length - 1]}</Text>
+                                    </View>
+                                ) : (
+                                    <Text style={styles.connEmptyTextRedesign}>How are you?</Text>
+                                )}
+                            </View>
+                        </View>
+
+                        {myNote ? (
+                            <View style={styles.connNoteBoxSelfRedesign}>
+                                <Quote size={16} color="rgba(251, 113, 133, 0.4)" style={{ marginRight: 8, marginTop: 2 }} />
+                                <Text style={styles.connNoteTextRedesign}>"{myNote}"</Text>
+                            </View>
+                        ) : (
+                            myMoodEmoji.length === 0 && (
+                                <View style={styles.connNoteBoxEmpty}>
+                                    <View style={styles.connUpdateHint}>
+                                        <Sparkles size={12} color={Colors.dark.rose[400]} style={{ marginRight: 6 }} />
+                                        <Text style={styles.connNoteEmptyText}>Tap to share your mood</Text>
                                     </View>
                                 </View>
-                            ) : (
-                                <Text style={styles.connEmptyText}>How are you?</Text>
-                            )}
-                        </View>
-                        {myNote ? <Text style={styles.connNote} numberOfLines={2}>"{myNote}"</Text> : null}
-                    </View>
-                </View>
+                            )
+                        )}
+                    </Animated.View>
+                </TouchableOpacity>
             </GlassCard>
         </Animated.View>
     );
@@ -251,7 +351,7 @@ export const MusicHeartbeat = React.memo(() => {
     if (!isPlaying || !track) return null;
 
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(300)} layout={LinearTransition}>
+        <Animated.View>
             <GlassCard style={styles.musicCard} intensity={20}>
                 <View style={styles.musicInfo}>
                     <View style={styles.musicIconWrapper}>
@@ -307,45 +407,30 @@ export const IntimacyAlert = React.memo(({ profile, partnerProfile, cycleLogs, i
         };
 
     useEffect(() => {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }, []);
-
-    useEffect(() => {
-        pulse.value = withRepeat(
-            withSequence(
-                withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.quad) }),
-                withTiming(0, { duration: 1600, easing: Easing.inOut(Easing.quad) })
-            ),
-            -1,
-            false
-        );
-        shimmer.value = withRepeat(
-            withSequence(
-                withTiming(1, { duration: 2400, easing: Easing.inOut(Easing.quad) }),
-                withTiming(0, { duration: 2400, easing: Easing.inOut(Easing.quad) })
-            ),
-            -1,
-            false
-        );
+        pulse.value = 0;
+        shimmer.value = 0;
     }, [isActive]);
 
     const { isLiteMode } = useOrbitStore();
+    const isAndroidPerformanceMode = Platform.OS === 'android' || isLiteMode;
     const iconPulseStyle = useAnimatedStyle(() => ({
-        transform: [{ scale: 1 + pulse.value * (isLiteMode ? 0.04 : 0.08) }],
-        opacity: isLiteMode ? 1 : 0.6 + pulse.value * 0.4
+        transform: [{ scale: 1 + pulse.value * (isAndroidPerformanceMode ? 0.02 : 0.08) }],
+        opacity: isAndroidPerformanceMode ? 1 : 0.6 + pulse.value * 0.4
     }));
 
     const auraStyle = useAnimatedStyle(() => ({
-        opacity: isLiteMode ? 0 : 0.14 + shimmer.value * 0.22,
-        transform: [{ scale: 0.92 + shimmer.value * 0.12 }],
+        opacity: isAndroidPerformanceMode ? 0 : 0.14 + shimmer.value * 0.22,
+        transform: [{ scale: isAndroidPerformanceMode ? 1 : 0.92 + shimmer.value * 0.12 }],
     }));
 
     return (
         <TouchableOpacity activeOpacity={0.9} style={styles.passionWrapper}>
             <GlassCard style={[styles.passionCard, { backgroundColor: alertConfig.gradientBg, borderColor: alertConfig.border }]} intensity={24}>
-                <View pointerEvents="none" style={styles.passionFxLayer}>
-                    <Animated.View style={[styles.passionAura, { backgroundColor: alertConfig.accent }, auraStyle]} />
-                </View>
+                {!isAndroidPerformanceMode && (
+                    <View pointerEvents="none" style={styles.passionFxLayer}>
+                        <Animated.View style={[styles.passionAura, { backgroundColor: alertConfig.accent }, auraStyle]} />
+                    </View>
+                )}
                 <View style={styles.passionRow}>
                     <Animated.View style={[styles.passionIconBox, iconPulseStyle, { backgroundColor: `${alertConfig.accent}24`, borderColor: `${alertConfig.accent}66` }]}>
                         <Flame size={22} color={alertConfig.accent} fill={alertConfig.accent} strokeWidth={1.5} />
@@ -544,27 +629,8 @@ export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile,
     }, [isActive]);
 
     useEffect(() => {
-        if (!isActive) {
-            cardGlow.value = 0.55;
-            sparkFloat.value = 0;
-            return;
-        }
-        cardGlow.value = withRepeat(
-            withSequence(
-                withTiming(0.9, { duration: 2200, easing: Easing.inOut(Easing.quad) }),
-                withTiming(0.55, { duration: 2200, easing: Easing.inOut(Easing.quad) })
-            ),
-            -1,
-            false
-        );
-        sparkFloat.value = withRepeat(
-            withSequence(
-                withTiming(1, { duration: 3600, easing: Easing.inOut(Easing.quad) }),
-                withTiming(0, { duration: 3600, easing: Easing.inOut(Easing.quad) })
-            ),
-            -1,
-            false
-        );
+        cardGlow.value = 0.55;
+        sparkFloat.value = 0;
     }, [isActive, cardGlow, sparkFloat]);
 
     const cardGlowStyle = useAnimatedStyle(() => ({
@@ -583,6 +649,7 @@ export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile,
     }));
 
     const { isLiteMode } = useOrbitStore();
+    const showCountdownFx = Platform.OS !== 'android' && !isLiteMode;
 
     if (upcomingEvents.length === 0) return null;
 
@@ -600,9 +667,9 @@ export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile,
     const secondaryEvent = upcomingEvents.length > 1 ? upcomingEvents[1] : null;
     const secondaryDiff = secondaryEvent ? getDiff(secondaryEvent.date) : null;
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(400)} layout={LinearTransition}>
+        <Animated.View>
             <GlassCard style={styles.countdownCardRedesign} intensity={8}>
-                {!isLiteMode && (
+                {showCountdownFx && (
                     <View pointerEvents="none" style={styles.countdownFxLayer}>
                         <Animated.View style={[styles.countdownGlow, cardGlowStyle]} />
                         <Animated.View style={[styles.countdownSpark, styles.countdownSparkA, sparkStyleA]} />
@@ -707,8 +774,10 @@ export const MarqueeText = ({ children, style, isActive = true }: { children: st
     const [containerWidth, setContainerWidth] = useState(0);
     const [textWidth, setTextWidth] = useState(0);
 
+    const shouldAnimateMarquee = Platform.OS !== 'android' && !isLiteMode && isActive;
+
     useEffect(() => {
-        if (isLiteMode || !isActive) {
+        if (!shouldAnimateMarquee) {
             translateX.value = 0;
             return;
         }
@@ -727,7 +796,7 @@ export const MarqueeText = ({ children, style, isActive = true }: { children: st
         } else {
             translateX.value = 0;
         }
-    }, [textWidth, containerWidth, isActive]); // Added isActive
+    }, [textWidth, containerWidth, shouldAnimateMarquee, translateX]);
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: translateX.value }]
@@ -757,16 +826,16 @@ export const MarqueeText = ({ children, style, isActive = true }: { children: st
 
             <View style={{
                 flexDirection: 'row',
-                width: textWidth > containerWidth ? 5000 : '100%',
+                width: shouldAnimateMarquee && textWidth > containerWidth ? 5000 : '100%',
                 justifyContent: (isRightAligned && textWidth <= containerWidth) ? 'flex-end' : 'flex-start'
             }}>
                 <Animated.Text
-                    style={[style, animatedStyle, { paddingRight: textWidth > (containerWidth + 2) ? 120 : 0 }]}
+                    style={[style, animatedStyle, { paddingRight: shouldAnimateMarquee && textWidth > (containerWidth + 2) ? 120 : 0 }]}
                     numberOfLines={1}
                 >
                     {children}
                 </Animated.Text>
-                {textWidth > (containerWidth + 2) && (
+                {shouldAnimateMarquee && textWidth > (containerWidth + 2) && (
                     <Animated.Text
                         style={[style, animatedStyle, { paddingRight: 120 }]}
                         numberOfLines={1}
@@ -784,8 +853,12 @@ export const LocationWidget = React.memo(({ profile, partnerProfile, couple, isA
 
     useEffect(() => {
         if (!isActive) return;
+        // Update time once a minute
         const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-        updateLocation().catch(console.error);
+
+        // 🚀 Optimization: Dashboard should NOT poll GPS constantly.
+        // It's already fetched once in the main App/Dashboard boot (hasBootLoaded).
+        // Only force an update here if it's the first time this widget is actually visible.
         return () => clearInterval(timer);
     }, [isActive]);
 
@@ -815,7 +888,7 @@ export const LocationWidget = React.memo(({ profile, partnerProfile, couple, isA
     };
 
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(500)}>
+        <Animated.View>
             <GlassCard style={styles.locationCardRedesign} intensity={10}>
                 {/* Modern subtle overlay for high-end feel */}
                 <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.01)' }]} />
@@ -879,35 +952,53 @@ export const LocationWidget = React.memo(({ profile, partnerProfile, couple, isA
 });
 
 export const DailyInspirationWidget = React.memo(({ variant = 'card' }: { variant?: 'card' | 'banner' }) => {
+    const { dailyInspiration, loadDailyInspiration, isLoadingInspiration } = useOrbitStore();
     const [activeTab, setActiveTab] = React.useState<'quote' | 'challenge' | 'tip'>('quote');
-    const [notifEnabled, setNotifEnabled] = React.useState(false);
+
+    useEffect(() => {
+        loadDailyInspiration();
+    }, []);
 
     const content = useMemo(() => {
+        const data = dailyInspiration || {
+            quote: "Love is not a destination we reach, but the quiet rhythm of our shadows walking in perfect sync.",
+            challenge: "Write a small note of appreciation and leave it somewhere they'll find it today.",
+            tip: "Practicing active listening means hearing the emotions behind the words, not just the words themselves."
+        };
+
         switch (activeTab) {
             case 'challenge':
                 return {
                     title: "GENTLE CHALLENGE",
-                    text: "Write a small note of appreciation and leave it somewhere they'll find it today.",
+                    text: data.challenge,
                     icon: <Target size={18} color={Colors.dark.rose[400]} />
                 };
             case 'tip':
                 return {
                     title: "RELATIONSHIP TIP",
-                    text: "Practicing active listening means hearing the emotions behind the words, not just the words themselves.",
+                    text: data.tip,
                     icon: <Sparkles size={18} color={Colors.dark.emerald[400]} />
                 };
             default:
                 return {
                     title: "DAILY QUOTE",
-                    text: "Love is not a destination we reach, but the quiet rhythm of our shadows walking in perfect sync.",
+                    text: data.quote,
                     icon: <Quote size={18} color={Colors.dark.rose[400]} />
                 };
         }
-    }, [activeTab]);
+    }, [activeTab, dailyInspiration]);
+
+    if (isLoadingInspiration && variant === 'card') {
+        return (
+            <GlassCard style={[styles.inspirationCard, { justifyContent: 'center', height: 280 }]} intensity={10}>
+                <PremiumTabLoader color={Colors.dark.indigo[400]} message="Curating Inspiration..." />
+            </GlassCard>
+        );
+    }
 
     if (variant === 'banner') {
         return (
-            <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(300)}>
+            <Animated.View>
                 <View style={styles.morningInsightBanner}>
                     <View style={styles.morningInsightHeader}>
                         <Sparkles size={16} color={Colors.dark.indigo[400]} />
@@ -928,7 +1019,7 @@ export const DailyInspirationWidget = React.memo(({ variant = 'card' }: { varian
     }
 
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(600)} renderToHardwareTextureAndroid={true}>
+        <Animated.View>
             <GlassCard style={styles.inspirationCard} intensity={10}>
                 <View style={styles.inspirationHeader}>
                     <Sparkles size={18} color={Colors.dark.indigo[400]} />
@@ -980,21 +1071,146 @@ export const DailyInspirationWidget = React.memo(({ variant = 'card' }: { varian
 });
 
 export const MenstrualPhaseWidget = React.memo(() => {
+    const { profile, partnerProfile } = useOrbitStore();
+    const isFemale = profile?.gender === 'female';
+    const cycleProfile = isFemale ? profile?.cycle_profile : partnerProfile?.cycle_profile;
+
+    let computedPhase = 'follicular';
+
+    if (cycleProfile?.last_period_start) {
+        const { getCycleDay, getPhaseForDay } = require('../lib/cycle');
+        const currentDay = getCycleDay(cycleProfile.last_period_start, cycleProfile.avg_cycle_length || 28);
+        const phaseObj = getPhaseForDay(currentDay, cycleProfile.avg_cycle_length || 28, cycleProfile.avg_period_length || 5);
+        computedPhase = phaseObj.name.toLowerCase();
+    } else {
+        const phaseContext = isFemale ? profile?.menstrual_cycle : partnerProfile?.menstrual_cycle;
+        computedPhase = (phaseContext?.current_phase || 'follicular').toLowerCase();
+    }
+    const phase = computedPhase;
+
+    const [photo, setPhoto] = useState<{ url: string; name: string; link: string } | null>(null);
+
+    useEffect(() => {
+        let isMounted = true;
+        const fetchPhoto = async () => {
+            const dateStr = new Date().toISOString().split('T')[0];
+            const cacheKey = `unsplash_v2_${phase}_${dateStr}`;
+            try {
+                const cached = await AsyncStorage.getItem(cacheKey);
+                if (cached) {
+                    if (isMounted) setPhoto(JSON.parse(cached));
+                    return;
+                }
+
+                const queries = {
+                    menstrual: "cozy,connection,comfort,hug,home",
+                    follicular: "passion,romance,couple,dating,energy",
+                    ovulatory: "intimacy,attraction,romance,embrace,glow",
+                    luteal: "gentle,calm,intimacy,support,tranquil"
+                };
+                const query = queries[phase as keyof typeof queries] || queries.follicular;
+                const accessKeyRaw = process.env.EXPO_PUBLIC_UNSPLASH_ACCESS_KEY;
+                const accessKey = accessKeyRaw?.trim();
+
+                if (!accessKey) {
+                    console.warn("[Unsplash] Access key missing. Please check .env and restart Metro.");
+                    return;
+                }
+
+                const res = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(query)}`, {
+                    headers: { 'Authorization': `Client-ID ${accessKey}` }
+                });
+                if (!res.ok) {
+                    const errorBody = await res.text();
+                    throw new Error(`Unsplash API error (${res.status}): ${errorBody}`);
+                }
+                const data = await res.json();
+
+                if (data && data.urls && isMounted) {
+                    const photoData = {
+                        url: data.urls.regular,
+                        name: data.user.name,
+                        link: data.user.links.html
+                    };
+                    setPhoto(photoData);
+                    try {
+                        await AsyncStorage.setItem(cacheKey, JSON.stringify(photoData));
+                    } catch (storageError) {
+                        console.warn("[Unsplash] Failed to cache photo:", storageError);
+                    }
+
+                    // Trigger download per Unsplash Guidelines
+                    if (data.links?.download_location) {
+                        fetch(`${data.links.download_location}`, {
+                            headers: { 'Authorization': `Client-ID ${accessKey}` }
+                        }).catch(() => { });
+                    }
+                }
+            } catch (e) {
+                console.warn("[Unsplash] fetch failed:", e);
+            }
+        };
+
+        fetchPhoto();
+        return () => { isMounted = false; };
+    }, [phase]);
+
+    const phaseTitles = {
+        menstrual: "Menstrual Phase",
+        follicular: "Follicular Phase",
+        ovulatory: "Ovulatory Phase",
+        luteal: "Luteal Phase"
+    };
+
+    const phaseTips = {
+        menstrual: "Time for deep rest and comfort.",
+        follicular: "Energy is rising. Perfect time for new experiences together.",
+        ovulatory: "Peak magnetism and confidence. Shine bright.",
+        luteal: "A gentler pace. Focus on inward calm and connection."
+    };
+
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(700)}>
-            <GlassCard style={styles.menstrualCard} intensity={10}>
-                <View style={styles.menstrualHeader}>
-                    <Moon size={20} color={Colors.dark.rose[400]} />
+        <Animated.View>
+            <GlassCard style={[styles.menstrualCard, { overflow: 'hidden', padding: 0 }]} intensity={10}>
+                {/* Dynamic Image Background via Unsplash API */}
+                {photo?.url && (
+                    <Image
+                        source={{ uri: photo.url }}
+                        style={StyleSheet.absoluteFillObject}
+                        contentFit="cover"
+                        transition={500}
+                    />
+                )}
+
+                {/* Enhanced Gradient Overlay for Text Readability */}
+                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
+
+                <View style={{ padding: 24, flex: 1, minHeight: 160, justifyContent: 'space-between' }}>
                     <View>
-                        <Text style={styles.menstrualTitle}>Follicular Phase</Text>
-                        <Text style={styles.menstrualSub}>DAY 8 OF CYCLE</Text>
+                        <View style={[styles.menstrualHeader, { marginBottom: 16 }]}>
+                            <Moon size={22} color="white" strokeWidth={2.5} />
+                            <View style={{ marginLeft: 12 }}>
+                                <Text style={[
+                                    styles.menstrualTitle,
+                                    { color: 'white', textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }
+                                ]}>
+                                    {phaseTitles[phase as keyof typeof phaseTitles]}
+                                </Text>
+                                <Text style={[
+                                    styles.menstrualSub,
+                                    { color: 'rgba(255,255,255,0.85)', letterSpacing: 1, marginTop: 2, textShadowColor: 'rgba(0, 0, 0, 0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }
+                                ]}>
+                                    Biological Intelligence
+                                </Text>
+                            </View>
+                        </View>
+                        <Text style={[
+                            styles.menstrualTip,
+                            { color: 'rgba(255,255,255,0.95)', marginTop: 16, lineHeight: 22, fontSize: 15, textShadowColor: 'rgba(0, 0, 0, 0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }
+                        ]}>
+                            {phaseTips[phase as keyof typeof phaseTips]}
+                        </Text>
                     </View>
-                </View>
-                <Text style={styles.menstrualTip}>
-                    Energy is rising. Perfect time for new experiences together.
-                </Text>
-                <View style={styles.menstrualProgress}>
-                    <View style={[styles.menstrualFill, { width: '40%' }]} />
                 </View>
             </GlassCard>
         </Animated.View>
@@ -1039,7 +1255,7 @@ export const BucketListWidget = React.memo(() => {
     };
 
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(800)}>
+        <Animated.View>
             <GlassCard style={styles.bucketCard} intensity={10}>
                 <View style={styles.bucketHeader}>
                     <View style={styles.bucketTitleRow}>
@@ -1147,7 +1363,7 @@ export const LetterPreviewWidget = React.memo(() => {
     if (!latestLetter) return null;
 
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(900)}>
+        <Animated.View>
             <GlassCard style={styles.letterPreviewCard} intensity={8}>
                 <View style={styles.letterPreviewHeader}>
                     <View style={styles.letterIconBox}>
@@ -1218,7 +1434,7 @@ export const OnThisDayWidget = React.memo(() => {
     const senderInitial = sender?.display_name?.charAt(0).toUpperCase() || '?';
 
     return (
-        <Animated.View entering={FadeInDown.springify().damping(18).stiffness(120).mass(0.8).delay(600)}>
+        <Animated.View>
             <GlassCard style={styles.onThisDayCard} intensity={10}>
                 {/* Image Backdrop with Overlay */}
                 <View style={styles.otdImageContainer}>
@@ -1275,35 +1491,21 @@ const styles = StyleSheet.create({
     musicTitle: { fontSize: 18, fontFamily: Typography.serifBold, color: 'white', letterSpacing: -0.2 },
     musicArtist: { fontSize: 12, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
 
-    connCard: {
-        margin: Spacing.sm,
-        borderRadius: Radius.xxl,
-        padding: 32,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
-    },
-    connHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 },
-    connTitleGroup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    connTitle: {
-        fontSize: 22,
-        color: 'white',
-        fontFamily: Typography.serifBold,
-        letterSpacing: -0.5,
-    },
+
     connUpdateBtn: { backgroundColor: 'rgba(255,255,255,0.03)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 100, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-    connUpdateText: { color: 'rgba(255,255,255,0.4)', fontSize: 9, fontFamily: Typography.sansBold, letterSpacing: 2 },
+    connUpdateText: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontFamily: Typography.sansBold, letterSpacing: 1.2 },
     connGrid: { flexDirection: 'row', gap: 32 },
     connBlock: { flex: 1, backgroundColor: 'rgba(255,255,255,0.01)', borderRadius: Radius.xl, padding: 32, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
     connBlockPartner: { backgroundColor: 'rgba(129, 140, 248, 0.02)', borderColor: 'rgba(129, 140, 248, 0.08)' },
     connUserRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
     connAvatar: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)' },
-    connUserLabel: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.25)', letterSpacing: 2, textTransform: 'uppercase' },
+    connUserLabel: { fontSize: 14, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.78)', letterSpacing: 1.2, textTransform: 'uppercase' },
     connTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     connEmojiTag: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.02)', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 100, maxWidth: '100%' },
     connEmojiText: { fontSize: 26 },
-    connTagText: { fontSize: 13, fontFamily: Typography.serifBold, color: 'white', textTransform: 'capitalize' },
-    connEmptyText: { fontSize: 10, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.2)', letterSpacing: 0.5 },
-    connNote: { fontSize: 15, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.45)', marginTop: 16, lineHeight: 22, fontStyle: 'italic' },
+    connTagText: { fontSize: 15, fontFamily: Typography.serifBold, color: 'rgba(255,255,255,0.96)', textTransform: 'capitalize' },
+    connEmptyText: { fontSize: 14, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.52)', letterSpacing: 0.2, lineHeight: 20 },
+    connNote: { fontSize: 16, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.72)', marginTop: 16, lineHeight: 24, fontStyle: 'italic' },
 
     alertCard: { margin: Spacing.sm, borderRadius: Radius.xl, padding: Spacing.lg, backgroundColor: 'rgba(225, 29, 72, 0.05)' },
     alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
@@ -1437,12 +1639,13 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         gap: 12,
+        marginTop: 16,
     },
     timerCell: {
         flex: 1,
     },
     timerCircle: {
-        aspectRatio: 1.2,
+        height: 96,
         backgroundColor: 'rgba(225,29,72,0.15)',
         borderRadius: 24,
         borderWidth: 1.5,
@@ -1619,10 +1822,10 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255,255,255,0.05)',
     },
     locDistanceText: {
-        fontSize: 8,
+        fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 1,
+        color: 'rgba(255,255,255,0.58)',
+        letterSpacing: 0.8,
     },
     locMainGrid: {
         flexDirection: 'row',
@@ -1633,18 +1836,18 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     locLabelText: {
-        fontSize: 14,
+        fontSize: 16,
         fontFamily: Typography.serifBold,
-        color: 'white',
+        color: 'rgba(255,255,255,0.96)',
         letterSpacing: 0.2,
-        height: 20,
+        height: 22,
     },
     locFullAddress: {
-        fontSize: 10,
+        fontSize: 12,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 0.5,
-        height: 16,
+        color: 'rgba(255,255,255,0.58)',
+        letterSpacing: 0.3,
+        height: 18,
         marginTop: 2,
         marginBottom: 8,
     },
@@ -1666,10 +1869,10 @@ const styles = StyleSheet.create({
         borderRadius: 3,
     },
     locStatusText: {
-        fontSize: 8,
+        fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.5)',
-        letterSpacing: 1,
+        color: 'rgba(255,255,255,0.62)',
+        letterSpacing: 0.8,
     },
     locTimeBridge: {
         width: 60,
@@ -1719,10 +1922,10 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(251,113,133,0.2)',
     },
     letterLabel: {
-        fontSize: 9,
+        fontSize: 11,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
-        letterSpacing: 2,
+        color: 'rgba(255,255,255,0.6)',
+        letterSpacing: 1.2,
     },
     letterPreviewTitle: {
         fontSize: 18,
@@ -1746,10 +1949,10 @@ const styles = StyleSheet.create({
         paddingTop: 16,
     },
     letterFrom: {
-        fontSize: 10,
+        fontSize: 11,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 1.5,
+        color: 'rgba(255,255,255,0.58)',
+        letterSpacing: 1.1,
     },
     readMoreBtn: {
         paddingVertical: 6,
@@ -1758,10 +1961,10 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.05)',
     },
     readMoreText: {
-        fontSize: 9,
+        fontSize: 11,
         fontFamily: Typography.sansBold,
-        color: 'white',
-        letterSpacing: 1,
+        color: 'rgba(255,255,255,0.92)',
+        letterSpacing: 0.8,
     },
 
     tabToggleContainer: {
@@ -1918,7 +2121,7 @@ const styles = StyleSheet.create({
     },
     otdOverlay: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.35)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
     },
     otdHeader: {
         flexDirection: 'row',
@@ -1936,20 +2139,26 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 18,
         fontFamily: Typography.serif,
+        textShadowColor: 'rgba(0, 0, 0, 0.75)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
     },
     otdCountBadge: {
-        backgroundColor: 'rgba(0,0,0,0.4)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 100,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
+        borderColor: 'rgba(255,255,255,0.15)',
     },
     otdCountText: {
         color: 'white',
         fontSize: 10,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
+        textShadowColor: 'rgba(0, 0, 0, 0.5)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
     },
     otdFooter: {
         position: 'absolute',
@@ -1980,10 +2189,13 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     otdDateText: {
-        color: 'rgba(255,255,255,0.6)',
+        color: 'rgba(255,255,255,0.8)',
         fontSize: 11,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
+        textShadowColor: 'rgba(0, 0, 0, 0.6)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
     },
 
     viewMoreBtn: { marginTop: 16, alignItems: 'center', paddingVertical: 8 },
@@ -2054,4 +2266,151 @@ const styles = StyleSheet.create({
         color: 'rgba(255,255,255,0.4)',
         letterSpacing: 2,
     },
+
+    // ── ConnectionBoard (Vibe Sync) ──────────────────────────────────────────
+    connCard: {
+        margin: Spacing.sm,
+        borderRadius: 24,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.07)',
+    },
+    connHeaderRedesign: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 20,
+    },
+    connTitleGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    connTitle: {
+        fontSize: 16,
+        fontFamily: Typography.sansBold,
+        color: 'white',
+        letterSpacing: 0.3,
+    },
+    connActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    connHistoryBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
+    connUpdateBtnRedesign: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 100,
+        backgroundColor: 'rgba(129,140,248,0.12)',
+        borderWidth: 1,
+        borderColor: 'rgba(129,140,248,0.3)',
+    },
+    connUpdateTextRedesign: {
+        fontSize: 11,
+        fontFamily: Typography.sansBold,
+        color: '#818cf8',
+        letterSpacing: 0.5,
+    },
+    connBlockPartnerRedesign: {
+        backgroundColor: 'rgba(129,140,248,0.05)',
+        borderRadius: 16,
+        padding: 14,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(129,140,248,0.12)',
+    },
+    connBlockSelfRedesign: {
+        backgroundColor: 'rgba(251,113,133,0.05)',
+        borderRadius: 16,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: 'rgba(251,113,133,0.12)',
+    },
+    connUserRowRedesign: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    connUserLabelRedesign: {
+        fontSize: 13,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.7)',
+        marginBottom: 4,
+    },
+    connUserLabelRow: { flexDirection: 'row', alignItems: 'center' },
+    connUpdateHint: { flexDirection: 'row', alignItems: 'center' },
+    connMoodInline: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    connMoodLabelInline: { fontSize: 13, fontFamily: Typography.sansBold, color: 'white', marginLeft: 6 },
+    biologicalBadge: {
+        flexDirection: 'row', alignItems: 'center', marginLeft: 8,
+        paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+        backgroundColor: 'rgba(251,113,133,0.1)', borderWidth: 1, borderColor: 'rgba(251,113,133,0.2)'
+    },
+    biologicalBadgeText: { fontSize: 7, fontFamily: Typography.sansBold, color: '#fb7185', letterSpacing: 0.5 },
+    connMoodLabelInlineSelf: { fontSize: 13, fontFamily: Typography.sansBold, color: 'white', marginLeft: 6 },
+    connEmptyTextRedesign: {
+        fontSize: 11,
+        fontFamily: Typography.sans,
+        color: 'rgba(255,255,255,0.25)',
+        fontStyle: 'italic',
+    },
+    connNoteBoxRedesign: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginTop: 12,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(129,140,248,0.1)',
+    },
+    connNoteBoxSelfRedesign: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginTop: 12,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(251,113,133,0.1)',
+    },
+    connNoteTextRedesign: {
+        flex: 1,
+        fontSize: 13,
+        fontFamily: Typography.serifItalic,
+        color: 'rgba(255,255,255,0.65)',
+        lineHeight: 20,
+    },
+    connNoteBoxEmpty: {
+        marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255,255,255,0.04)',
+    },
+    connNoteEmptyText: {
+        fontSize: 11,
+        fontFamily: Typography.sans,
+        color: 'rgba(255,255,255,0.18)',
+        fontStyle: 'italic',
+    },
+    connDividerShape: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginVertical: 12,
+    },
+    connDividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+    },
 });
+
