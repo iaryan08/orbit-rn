@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+﻿import React, { useMemo } from 'react';
 import { View, Dimensions, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -37,6 +37,8 @@ const Star = React.memo(({ star, starColor }: { star: any, starColor: number[] }
 });
 
 export function CelestialSky({
+    userLat,
+    userLon,
     partnerLat,
     partnerLon,
     starColor = [255, 255, 255],
@@ -48,15 +50,25 @@ export function CelestialSky({
 
     const hourTimestamp = Math.floor(Date.now() / 3600000);
 
+    const { lat, lon } = useMemo(() => {
+        if (Number.isFinite(partnerLat) && Number.isFinite(partnerLon)) {
+            return { lat: partnerLat as number, lon: partnerLon as number };
+        }
+        if (Number.isFinite(userLat) && Number.isFinite(userLon)) {
+            return { lat: userLat as number, lon: userLon as number };
+        }
+        return { lat: null, lon: null };
+    }, [partnerLat, partnerLon, userLat, userLon]);
+
     const stars = useMemo(() => {
-        if (!Number.isFinite(partnerLat) || !Number.isFinite(partnerLon)) {
+        if (!lat || !lon) {
             return [];
         }
 
         // PER USER REQUEST: Round to nearest hour for the sky calculation.
         // Stars are practically static over short windows.
-        const skyLat = partnerLat!;
-        const skyLon = partnerLon!;
+        const skyLat = lat!;
+        const skyLon = lon!;
 
         // Use the hour-slot timestamp so recalculation only happens once per hour
         const baseTime = new Date(hourTimestamp * 3600000);
@@ -112,7 +124,7 @@ export function CelestialSky({
         });
 
         return visibleStars;
-    }, [partnerLat, partnerLon, hourTimestamp, maxStars]);
+    }, [lat, lon, hourTimestamp, maxStars]);
 
     const renderedStars = useMemo(() => {
         return stars.map(star => (
@@ -120,7 +132,7 @@ export function CelestialSky({
         ));
     }, [stars, starColor]);
 
-    if (!Number.isFinite(partnerLat) || !Number.isFinite(partnerLon)) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
         return null;
     }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useOrbitStore } from '../lib/store';
 import { Typography } from '../constants/Theme';
@@ -108,13 +108,13 @@ const styles = StyleSheet.create({
         letterSpacing: 0.5,
     },
     val: {
-        color: 'rgba(255,255,255,0.7)',
+        color: 'rgba(255,255,255,0.88)',
         fontSize: 8,
         fontFamily: Typography.sans,
     },
     divider: {
         width: 1,
         height: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: 'rgba(255,255,255,0.45)',
     }
 });

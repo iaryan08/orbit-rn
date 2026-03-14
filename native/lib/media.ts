@@ -23,6 +23,19 @@ const ensureDir = async () => {
     } catch (e) { }
 };
 
+const ensureParentDir = async (path: string) => {
+    try {
+        if (!BASE_DIR) return;
+        const lastSlash = path.lastIndexOf('/');
+        if (lastSlash <= 0) return;
+        const dir = path.slice(0, lastSlash + 1);
+        const info = await FileSystem.getInfoAsync(dir);
+        if (!info.exists) {
+            await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+        }
+    } catch (e) { }
+};
+
 // In-Memory map of confirmed local files to avoid the "async check" flicker
 const knownLocalFiles = new Set<string>();
 const inFlightDownloads = new Map<string, Promise<string>>();
@@ -47,20 +60,35 @@ export const initializeMediaEngine = async () => {
 
 /**
  * Unified ID Generator: Extracts a content-stable ID from a URL (e.g., filename).
- * This ensures that the same media viewed on different screens (Dashboard vs Gallery)
- * resolves to the same local file, preventing duplicate downloads and spikes.
+ * Now supports query parameters to allow cache-busting.
  */
 export const getMediaId = (url: string | undefined): string | undefined => {
     if (!url) return undefined;
     try {
-        // Extract the core filename before any query params
-        const path = url.split('?')[0];
+        const [path, query] = url.split('?');
         const segments = path.split('/');
         const filename = segments[segments.length - 1];
-        // Remove common URL encoding artifacts
-        return decodeURIComponent(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
+        
+        // 🛡️ Collision Guard: Include the parent directory (bucket name) to avoid collisions
+        // e.g., 'memories/1.jpg' and 'polaroids/1.jpg' should be unique.
+        const parent = segments.length > 1 ? segments[segments.length - 2] : '';
+        const base = `${parent}_${filename}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+        
+        if (query) {
+            // Filter out authentication tokens from ID generation.
+            // They change frequently and shouldn't cause redundant local files.
+            const queryParams = query.split('&');
+            const stableParams = queryParams.filter(p => !p.startsWith('auth='));
+            
+            if (stableParams.length > 0) {
+                const stableQuery = stableParams.join('&');
+                const queryHash = stableQuery.replace(/[^a-zA-Z0-9]/g, '').slice(-8);
+                return `${base}_${queryHash}`;
+            }
+        }
+        return base;
     } catch {
-        return url.slice(-20); // Fallback
+        return url.slice(-20).replace(/[^a-zA-Z0-9._-]/g, '_'); // Fallback
     }
 };
 
@@ -92,6 +120,7 @@ export const persistMediaAsync = async (id: string, remoteUrl: string) => {
 
             // 2. Download to local
             console.log(`[MediaEngine] Starting download: ${id}`);
+            await ensureParentDir(localPath);
             const result = await FileSystem.downloadAsync(remoteUrl, localPath);
             if (result.status === 200) {
                 knownLocalFiles.add(id);
@@ -119,6 +148,7 @@ export const usePersistentMedia = (idOrUrl: string | undefined, remoteUrl: strin
     const [source, setSource] = useState<string | undefined>(isKnownLocal ? localPath : undefined);
 
     const hasAttemptedDownload = useRef(false);
+    const lastAttemptedUrl = useRef<string | undefined>(undefined);
     const debounceTimer = useRef<any>(null);
 
     useEffect(() => {
@@ -146,13 +176,15 @@ export const usePersistentMedia = (idOrUrl: string | undefined, remoteUrl: strin
             }
 
             // 2. TRIGGER NETWORK: Only if visible AND not already local
-            // Added 400ms Debounce: If user is just swiping through, don't trigger the 10Mbps spike!
-            if (isVisible && !hasAttemptedDownload.current) {
+            // Reset attempt if URL changed (e.g. token added)
+            const isNewUrl = remoteUrl !== lastAttemptedUrl.current;
+            if (isVisible && (isNewUrl || !hasAttemptedDownload.current)) {
                 if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
                 debounceTimer.current = setTimeout(async () => {
                     if (!isMounted) return;
                     hasAttemptedDownload.current = true;
+                    lastAttemptedUrl.current = remoteUrl;
                     const final = await persistMediaAsync(id, remoteUrl);
                     if (isMounted) setSource(final);
                 }, 400);

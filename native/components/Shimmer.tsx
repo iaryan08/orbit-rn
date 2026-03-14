@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+﻿import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
     useSharedValue,
@@ -19,7 +19,7 @@ interface ShimmerProps {
 }
 
 export const Shimmer = ({ width, height, borderRadius = 8, style, isActive = true }: ShimmerProps & { isActive?: boolean }) => {
-    const { isLiteMode } = useOrbitStore();
+    const isLiteMode = useOrbitStore(s => s.isLiteMode);
     const shimmerProgress = useSharedValue(-1);
 
     useEffect(() => {

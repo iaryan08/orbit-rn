@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+﻿import React, { useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Dimensions, ScrollView, TouchableOpacity } from 'react-native';
 import Animated, {
     useAnimatedStyle,
@@ -41,7 +41,11 @@ const formatTime = (ts: number) => {
 
 export function MoodHistoryDrawer() {
     const insets = useSafeAreaInsets();
-    const { isMoodHistoryOpen, setMoodHistoryOpen, profile, partnerProfile, moods } = useOrbitStore();
+    const isMoodHistoryOpen = useOrbitStore(s => s.isMoodHistoryOpen);
+    const setMoodHistoryOpen = useOrbitStore(s => s.setMoodHistoryOpen);
+    const profile = useOrbitStore(s => s.profile);
+    const partnerProfile = useOrbitStore(s => s.partnerProfile);
+    const moods = useOrbitStore(s => s.moods);
 
     const translateY = useSharedValue(SCREEN_HEIGHT);
 
@@ -178,19 +182,19 @@ const styles = StyleSheet.create({
         backgroundColor: 'transparent',
     },
     handleContainer: { height: 32, alignItems: 'center', justifyContent: 'center' },
-    handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)' },
+    handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.45)' },
     header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 20 },
     title: { fontSize: 28, fontFamily: Typography.serif, color: 'white' },
-    subtitle: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.4)', letterSpacing: 2, marginTop: 4 },
+    emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: 13, fontFamily: Typography.sans },
     closeBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center' },
     scrollContent: { paddingHorizontal: 24, paddingBottom: 60 },
     emptyContainer: { alignItems: 'center', marginTop: 40 },
-    emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: 13, fontFamily: Typography.sans },
+    emptyText: { color: 'rgba(255,255,255,0.65)', fontSize: 13, fontFamily: Typography.sans },
     historyRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 20 },
     historyRowMe: { justifyContent: 'flex-start' }, // Changed to flex-end logic inside the renderer if we wanted alternating, but column list is fine
     historyRowPartner: {},
     historyTimeSection: { width: 60, flexDirection: 'row', alignItems: 'center', marginTop: 12 },
-    historyTime: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.5)' },
+    historyTime: { fontSize: 14, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.75)' },
     historyBubble: {
         flex: 1,
         padding: 16,
@@ -208,6 +212,6 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 4,
     },
     bubbleHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    bubbleUser: { fontSize: 12, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: 1 },
+    bubbleUser: { fontSize: 12, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.92)', textTransform: 'uppercase', letterSpacing: 1 },
     bubbleNote: { fontSize: 14, fontFamily: Typography.serifItalic, color: 'white', marginTop: 8, lineHeight: 20, opacity: 0.9 },
 });

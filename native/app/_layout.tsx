@@ -1,6 +1,6 @@
-import { Stack, usePathname } from "expo-router";
+﻿import { Stack, usePathname } from "expo-router";
 import { ThemeProvider, DarkTheme } from "@react-navigation/native";
-import { useColorScheme, View, Platform, KeyboardAvoidingView, ActivityIndicator } from "react-native";
+import { useColorScheme, View, Platform, KeyboardAvoidingView, ActivityIndicator, StyleSheet } from "react-native";
 import { Colors } from "../constants/Theme";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -17,9 +17,7 @@ import { AppLockOverlay } from "../components/AppLockOverlay";
 import { PerfChip, usePerfMonitor } from "../components/PerfChip";
 import {
     useFonts,
-    Syne_400Regular,
-    Syne_700Bold,
-} from '@expo-google-fonts/syne';
+} from 'expo-font'; // Simplified font loading if needed, or just remove Syne from current imports
 import {
     BodoniModa_400Regular,
     BodoniModa_700Bold,
@@ -57,6 +55,7 @@ function RootLayoutNav() {
     const mediaViewerState = useOrbitStore(state => state.mediaViewerState);
     const loading = useOrbitStore(state => state.loading);
     const activeTabIndex = useOrbitStore(state => state.activeTabIndex);
+    const isAppLocked = useOrbitStore(state => state.isAppLocked);
 
 
     const pathname = usePathname();
@@ -72,7 +71,7 @@ function RootLayoutNav() {
 
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, (user) => {
-            setAuthUser(user ?? null);
+            setAuthUser(user ? user : null);
         });
         return unsub;
     }, []);
@@ -96,8 +95,6 @@ function RootLayoutNav() {
     }, [!!authUser]);
 
     const [fontsLoaded, fontError] = useFonts({
-        Syne_400Regular,
-        Syne_700Bold,
         BodoniModa_400Regular,
         BodoniModa_700Bold,
         BodoniModa_400Regular_Italic,
@@ -135,8 +132,8 @@ function RootLayoutNav() {
         ...DarkTheme,
         colors: {
             ...DarkTheme.colors,
-            background: Colors.dark.background,
-            card: Colors.dark.card,
+            background: 'transparent',
+            card: 'transparent',
             text: Colors.dark.foreground,
             border: Colors.dark.border,
             primary: Colors.dark.rose[500],
@@ -148,36 +145,42 @@ function RootLayoutNav() {
     const isAuthenticated = !!authUser;
     const isAppLoading = loading && isAuthenticated;
     const hideDock = pathname === '/login' || pathname === '/settings' || !isAuthenticated || isAppLoading || activeTabIndex === 0;
-    const shouldRenderDynamicBackground = isAuthenticated && !hideDock && [1, 5, 6, 7].includes(activeTabIndex);
+    const canMountDynamicBackground = isAuthenticated && !isAppLoading && pathname !== '/login';
+    const hideDynamicBackground = isAppLocked || activeTabIndex === 0;
 
 
     return (
 
         <GestureHandlerRootView style={{ flex: 1 }}>
             <ThemeProvider value={CustomDarkTheme}>
-                {shouldRenderDynamicBackground && (
-                    <DynamicBackground
-                        isPaused={isOverlayOpen}
-                    />
+                {canMountDynamicBackground && (
+                    <View
+                        style={{ ...StyleSheet.absoluteFillObject, zIndex: 0, opacity: hideDynamicBackground ? 0 : 1 }}
+                        pointerEvents="none"
+                    >
+                        <DynamicBackground isPaused={isOverlayOpen || hideDynamicBackground} />
+                    </View>
                 )}
-                <Stack
-                    screenOptions={{
-                        headerShown: false,
-                        contentStyle: { backgroundColor: 'transparent' },
-                    }}
-                >
-                    <Stack.Screen name="index" />
-                </Stack>
-                {/* Only render global UI when authenticated */}
-                {isAuthenticated && !hideDock && <NavbarDock />}
-                {isAuthenticated && <NotificationDrawer />}
-                {isAuthenticated && <MoodLoggerDrawer />}
-                {isAuthenticated && <MoodHistoryDrawer />}
-                {isAuthenticated && <MediaViewer />}
-                {isAuthenticated && <SearchPalette />}
-                {/* Global Intimacy Layer: Always at the Top Z-Index */}
-                {isAuthenticated && activeTabIndex !== 0 && <ConnectionSync />}
-                {isAuthenticated && <AppLockOverlay />}
+                <View style={{ flex: 1, zIndex: 1, backgroundColor: 'transparent' }}>
+                    <Stack
+                        screenOptions={{
+                            headerShown: false,
+                            contentStyle: { backgroundColor: 'transparent' },
+                        }}
+                    >
+                        <Stack.Screen name="index" />
+                    </Stack>
+                    {/* Only render global UI when authenticated */}
+                    {isAuthenticated && !hideDock && <NavbarDock />}
+                    {isAuthenticated && isNotificationDrawerOpen && <NotificationDrawer />}
+                    {isAuthenticated && mediaViewerState.isOpen && <MediaViewer />}
+                    {isAuthenticated && <MoodLoggerDrawer />}
+                    {isAuthenticated && <MoodHistoryDrawer />}
+                    {isAuthenticated && <SearchPalette />}
+                    {/* Global Intimacy Layer: Always at the Top Z-Index */}
+                    {isAuthenticated && activeTabIndex !== 0 && <ConnectionSync />}
+                    {isAuthenticated && <AppLockOverlay />}
+                </View>
                 <StatusBar style="light" />
                 {isDebugMode && (
                     <View style={{ position: 'absolute', top: insets.top + 4, right: 204, zIndex: 10002 }}>

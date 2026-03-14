@@ -1,8 +1,9 @@
 import { db_local } from './db/db';
 import { db as firebaseDb } from './firebase';
 import { collection, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore';
-import { memories, letters, moods, bucketList, syncMetadata, polaroids, musicState, profiles, couples } from './db/schema';
+import { memories, letters, moods, bucketList, syncMetadata, polaroids, musicState, profiles, couples, cycleLogs } from './db/schema';
 import { eq, sql } from 'drizzle-orm';
+import { normalizeDate } from './utils';
 
 class Repository {
     // Profiling & Personalization Caching
@@ -47,13 +48,10 @@ class Repository {
             bio: data.bio || null,
             location_city: data.location_city || (data.location?.city) || null,
             location_json: data.location ? JSON.stringify(data.location) : (data.location_json || null),
+            gender: data.gender || null,
+            cycle_profile_json: data.cycle_profile ? JSON.stringify(data.cycle_profile) : (data.cycle_profile_json || null),
             is_partner: isPartner ? 1 : 0,
             updated_at: Date.now(),
-            // Add any other profile fields here if they are not already present
-            // For example, if there's a 'status' field:
-            // status: data.status || null,
-            // If there's a 'preferences' field that needs JSON stringification:
-            // preferences: data.preferences ? JSON.stringify(data.preferences) : null,
         };
         try {
             await db_local.insert(profiles).values(payload as any).onConflictDoUpdate({
@@ -76,7 +74,6 @@ class Repository {
             const ref = collection(firebaseDb, 'couples', coupleId, subPath);
 
             // Standardize on updated_at for pure delta sync.
-            // If lastSync is 0, we pull the 50 most recent items to avoid a massive 10MBPS blast.
             const deltaField = name === 'polaroids' ? 'created_at' : 'updated_at';
             const q = query(
                 ref,
@@ -111,6 +108,12 @@ class Repository {
                 // Handle specific JSON fields
                 if (data.image_urls) sanitizedData.image_urls = JSON.stringify(data.image_urls);
                 if (data.read_by) sanitizedData.read_by = JSON.stringify(data.read_by);
+                if (name === 'cycle_logs') {
+                    sanitizedData.data = JSON.stringify(data);
+                    sanitizedData.log_date = data.log_date || '';
+                    sanitizedData.id = `${data.user_id}_${data.log_date}`;
+                }
+
                 if (name === 'bucket_list') {
                     const normalizedTitle = typeof data.title === 'string' ? data.title.trim() : '';
                     if (!normalizedTitle) {
@@ -127,9 +130,8 @@ class Repository {
                 await db_local.insert(table).values({
                     id: doc.id,
                     ...sanitizedData,
-                    created_at: data.created_at?.toMillis() || null,
+                    created_at: normalizeDate(data.created_at).getTime(),
                     updated_at: updatedAt,
-                    // Booleans for SQLite
                     is_read: data.is_read ? 1 : 0,
                     is_scheduled: data.is_scheduled ? 1 : 0,
                     is_vanish: data.is_vanish ? 1 : 0,
@@ -140,6 +142,7 @@ class Repository {
                     target: table.id,
                     set: {
                         ...sanitizedData,
+                        created_at: normalizeDate(data.created_at).getTime(),
                         updated_at: updatedAt
                     } as any
                 });
@@ -213,7 +216,6 @@ class Repository {
     }
 
     async deleteBucketItem(id: string) {
-        // Physical delete is handled by sync cleaner, logical delete for now
         await db_local.update(bucketList)
             .set({ deleted: 1, updated_at: Date.now() } as any)
             .where(eq(bucketList.id, id));
@@ -234,7 +236,6 @@ class Repository {
             updated_at: Date.now(),
             deleted: 0,
         };
-
         await db_local.insert(polaroids).values(payload).onConflictDoUpdate({
             target: polaroids.id,
             set: payload,
@@ -245,6 +246,12 @@ class Repository {
         await db_local.update(memories)
             .set({ deleted: 1, updated_at: Date.now() } as any)
             .where(eq(memories.id, id));
+    }
+
+    async deletePolaroid(id: string) {
+        await db_local.update(polaroids)
+            .set({ deleted: 1, updated_at: Date.now() } as any)
+            .where(eq(polaroids.id, id));
     }
 
     async saveLetterLocal(letter: any) {
@@ -299,6 +306,34 @@ class Repository {
         }
     }
 
+    async getCycleLogs() {
+        const rows = await db_local.select().from(cycleLogs).all();
+        const result: Record<string, any> = {};
+        rows.forEach(r => {
+            if (!result[r.user_id]) result[r.user_id] = {};
+            if (r.data) result[r.user_id][r.log_date] = JSON.parse(r.data);
+        });
+        return result;
+    }
+
+    async saveCycleLogLocal(userId: string, logDate: string, data: any) {
+        try {
+            const payload = {
+                id: `${userId}_${logDate}`,
+                user_id: userId,
+                log_date: logDate,
+                data: JSON.stringify(data),
+                updated_at: Date.now()
+            };
+            await db_local.insert(cycleLogs).values(payload as any).onConflictDoUpdate({
+                target: cycleLogs.id,
+                set: { data: JSON.stringify(data), updated_at: Date.now() }
+            });
+        } catch (e) {
+            console.warn("[Repo] saveCycleLogLocal failed:", e);
+        }
+    }
+
     async saveBucketItemLocal(item: any) {
         try {
             const payload = {
@@ -318,7 +353,6 @@ class Repository {
         }
     }
 
-    // Music State Persistence
     async getMusicState(id: string) {
         const row = await db_local.select().from(musicState).where(eq(musicState.id, id)).get();
         if (!row) return null;
@@ -332,7 +366,6 @@ class Repository {
 
     async saveMusicState(id: string, state: Partial<any>) {
         const existing = await db_local.select().from(musicState).where(eq(musicState.id, id)).get();
-
         const data: any = {
             id,
             current_track: state.current_track ? JSON.stringify(state.current_track) : (existing?.current_track || null),
@@ -343,12 +376,12 @@ class Repository {
             last_updated: Date.now(),
             updated_at: Date.now()
         };
-
         await db_local.insert(musicState).values(data).onConflictDoUpdate({
             target: musicState.id,
             set: data
         });
     }
+
     async wipeAll() {
         try {
             await db_local.delete(profiles);
@@ -360,7 +393,7 @@ class Repository {
             await db_local.delete(polaroids);
             await db_local.delete(musicState);
             await db_local.delete(syncMetadata);
-            console.log("[Repo] All local data wiped.");
+            await db_local.delete(cycleLogs);
         } catch (e) {
             console.warn("[Repo] Wipe all failed:", e);
         }

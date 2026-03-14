@@ -75,6 +75,7 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
     }
 
     const [partnerInCinema, setPartnerInCinema] = useState(false)
+    const [partnerStatus, setPartnerStatus] = useState<'online' | 'cinema' | 'offline'>('offline')
     const [incomingNav, setIncomingNav] = useState<{ name: string; type: string } | null>(null)
 
     const safeSetIncomingReaction = (next: { type: ReactionType; emoji?: string; senderName?: string; senderId?: string } | null, duration = 1200) => {
@@ -144,14 +145,30 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
         await sendCustomEmojiPreset(emoji)
     }
 
-    // Handle scroll lock and cinema mode flag
     // Presence tracking for cinema
     useCoupleChannel({
         coupleId: coupleId || '',
         userId: currentUserId || '',
         onPresenceChange: (_onlineIds: string[], rawData: Record<string, any>) => {
             if (partnerId && rawData[partnerId]) {
-                setPartnerInCinema(!!rawData[partnerId].in_cinema)
+                const presence = rawData[partnerId];
+                const now = Date.now();
+                const lastChanged = typeof presence.last_changed === 'number' ? presence.last_changed : (typeof presence.online_at === 'number' ? presence.online_at : 0);
+                const isFresh = lastChanged > 0 && (now - lastChanged) < 300000; // 5 min freshness
+
+                if (presence.in_cinema && isFresh) {
+                    setPartnerInCinema(true);
+                    setPartnerStatus('cinema');
+                } else if (presence.is_online && isFresh) {
+                    setPartnerInCinema(false);
+                    setPartnerStatus('online');
+                } else {
+                    setPartnerInCinema(false);
+                    setPartnerStatus('offline');
+                }
+            } else {
+                setPartnerInCinema(false);
+                setPartnerStatus('offline');
             }
         }
     })
@@ -162,8 +179,8 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
         const presenceRef = ref(rtdb, `presence/${coupleId}/${currentUserId}`)
 
         // Mark as entering cinema (Merge with existing global presence)
-        update(presenceRef, { in_cinema: true, last_changed: rtdbTimestamp() })
-        onDisconnect(presenceRef).update({ in_cinema: null, last_changed: rtdbTimestamp() })
+        update(presenceRef, { in_cinema: true, is_online: true, last_changed: rtdbTimestamp() })
+        onDisconnect(presenceRef).update({ in_cinema: null, is_online: false, last_changed: rtdbTimestamp() })
 
         return () => {
             update(presenceRef, { in_cinema: null, last_changed: rtdbTimestamp() }).catch(() => { })
@@ -463,9 +480,14 @@ export function SyncCinema({ coupleId, partnerId, userId, isActive, onClose }: S
                                 </div>
                             )}
                         </div>
-                        {partnerInCinema && (
+                        {partnerStatus === 'cinema' && (
                             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20 fake-blur">
                                 {partnerName} in Cinema
+                            </span>
+                        )}
+                        {partnerStatus === 'online' && (
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-2 py-1 rounded-full border border-amber-500/20 fake-blur">
+                                {partnerName} is Active
                             </span>
                         )}
                     </div>

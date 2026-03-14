@@ -1,5 +1,5 @@
 import { Platform, StyleSheet } from 'react-native';
-import { Radius, Spacing, Typography } from '../../constants/Theme';
+import { Radius, Spacing, Typography, Colors } from '../../constants/Theme';
 // Android-only app: entering/exiting layout animations crash at module-level
 // Set all to undefined; useAnimatedStyle + scroll animations still work fine
 export const FADE_IN = undefined;
@@ -52,30 +52,39 @@ export const tab = StyleSheet.create({
     empty: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40, gap: 14 },
     emptyTitle: { fontSize: 20, fontFamily: Typography.serifItalic, color: 'rgba(255,255,255,0.5)', textAlign: 'center' },
     emptySub: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 20 },
+    emptyBtn: {
+        marginTop: 10,
+        backgroundColor: Colors.dark?.rose?.[500] || '#e11d48', // Fallback to avoid crash
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        borderRadius: 100,
+    },
+    emptyBtnText: {
+        fontSize: 14,
+        fontFamily: Typography.sansBold,
+        color: 'white',
+    },
 
     // Intimacy & AI
     aiBadge: { backgroundColor: 'rgba(168,85,247,0.15)', borderRadius: 100, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: 'rgba(168,85,247,0.3)' },
-    aiBadgeText: { fontSize: 8, fontFamily: Typography.sansBold, color: '#d8b4fe', letterSpacing: 1 },
+    aiBadgeText: { fontSize: 12, fontFamily: Typography.sansBold, color: '#d8b4fe', letterSpacing: 1 },
 
     // Cycle Specific
     phaseGuide: {
         marginHorizontal: Spacing.md, marginTop: Spacing.md, marginBottom: Spacing.md, padding: 20, borderRadius: 24,
         backgroundColor: 'rgba(0,0,0,0.85)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)'
     },
-    phaseGuideLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 16 },
+    predDate: { fontSize: 28, fontFamily: Typography.sansBold, color: 'white', marginBottom: 8 },
     phaseRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
     phaseDot: { width: 8, height: 8, borderRadius: 4 },
-    phaseRowName: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.7)', flex: 1 },
-    phaseRowDays: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.35)' },
+    phaseRowName: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.88)', flex: 1 },
+    phaseRowDays: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.6)' },
     irregWarn: { backgroundColor: 'rgba(251,191,36,0.08)', borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: 'rgba(251,191,36,0.2)' },
     irregText: { fontSize: 12, fontFamily: Typography.sans, color: '#fbbf24', lineHeight: 18 },
     predCard: {
         marginHorizontal: Spacing.md, marginBottom: Spacing.md, padding: 22, borderRadius: 24, alignItems: 'center',
         backgroundColor: 'rgba(0,0,0,0.85)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)'
     },
-    predLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 10 },
-    predDate: { fontSize: 28, fontFamily: Typography.sansBold, color: 'white', marginBottom: 8 },
-    predSub: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.35)', textAlign: 'center' },
 
     // Body & Libido
     bodyCard: {
@@ -83,18 +92,49 @@ export const tab = StyleSheet.create({
         borderRadius: 28, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)',
         backgroundColor: 'rgba(0,0,0,0.85)',
     },
-    bodyCardLabel: { fontSize: 8, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 6 },
-    bodyCardTitle: { fontSize: 20, fontFamily: Typography.serifItalic, color: 'white', marginBottom: 20 },
+    bodyCardLabel: { fontSize: 12, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.55)', letterSpacing: 1.5, marginBottom: 6 },
+    bodyCardTitle: { fontSize: 20, fontFamily: Typography.serifBold, color: 'white', marginBottom: 20 },
+    phaseNoteText: { fontSize: 12, fontFamily: Typography.serifItalic, lineHeight: 20 },
     chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 100, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(255,255,255,0.03)' },
-    chipText: { fontSize: 12, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.3 },
+    chipText: { fontSize: 12, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.7)', letterSpacing: 0.3 },
     libidoHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
     libidoTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     hotBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: '#ef4444' },
-    hotBadgeText: { fontSize: 8, fontFamily: Typography.sansBold, color: 'white' },
+    hotBadgeText: { fontSize: 12, fontFamily: Typography.sansBold, color: 'white' },
     meterContainer: { alignItems: 'center', marginBottom: 24, marginTop: -10 },
-    meterSub: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 2, marginTop: -6 },
+    meterSub: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.55)', letterSpacing: 1.5, marginTop: -6 },
     sliderWrapper: { marginTop: 10 },
     phaseNote: { marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)' },
-    phaseNoteText: { fontSize: 12, fontFamily: Typography.serifItalic, lineHeight: 20 },
+    // Grid-based Micro Actions
+    microActionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 10 },
+    microActionCard: { width: '48%', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+    microActionEmoji: { fontSize: 24, marginBottom: 8 },
+    microActionTitle: { fontSize: 13, fontFamily: Typography.sansBold, color: '#FFFFFF', marginBottom: 4 },
+    microActionDesc: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.6)', lineHeight: 16 },
+
+    // Visual Recommendation Badge
+    recBadge: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 16, borderWidth: 1 },
+    recIconContainer: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' },
+    recContent: { flex: 1 },
+    recTitle: { fontSize: 11, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.2, marginBottom: 2 },
+
+    // Reintegrated Hero Data
+    dataRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 16 },
+    confidenceBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100, borderWidth: 1, backgroundColor: 'rgba(255,255,255,0.03)' },
+    confidenceText: { fontSize: 10, fontFamily: Typography.sansBold, letterSpacing: 1 },
+    miniLogBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100, backgroundColor: 'rgba(251,113,133,0.1)', borderWidth: 1, borderColor: 'rgba(251,113,133,0.25)' },
+    miniLogText: { fontSize: 10, fontFamily: Typography.sansBold, color: '#fb7185', letterSpacing: 0.8 },
+
+    // Nutrition & Rituals
+    foodRow: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16 },
+    foodEmoji: { fontSize: 28 },
+    foodName: { fontSize: 14, fontFamily: Typography.sansBold, color: '#FFFFFF', marginBottom: 2 },
+    foodBenefit: { fontSize: 12, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.6)', lineHeight: 18 },
+
+    // Mini items for Today & Lists
+    miniChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+    miniChipText: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.7)', letterSpacing: 0.5, textTransform: 'uppercase' },
+    miniAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100, backgroundColor: 'rgba(251,113,133,0.1)', borderWidth: 1, borderColor: 'rgba(251,113,133,0.25)' },
+    miniAddBtnText: { fontSize: 10, fontFamily: Typography.sansBold, color: '#fb7185', letterSpacing: 0.8 },
 });

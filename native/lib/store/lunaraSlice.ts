@@ -1,8 +1,10 @@
 import { StateCreator } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getDailyInsightLocal } from '../cycle';
-import { getTodayIST } from '../cycle';
+import { getDailyInsightLocal, getTodayIST } from '../cycle';
 import { AI_CONFIG } from '../aiConfig';
+import { stringToHash } from '../utils';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase';
 
 export interface DailyInsight {
     date: string;
@@ -31,6 +33,7 @@ export interface IntimacyIntelligence {
     energyForecast: string;        // Predicted energy level
     // Partner guidance
     partnerIntimacyGuide: string;  // What partner should know about intimacy now
+    conditionAssessment?: string;  // AI analysis of current symptoms vs phase
     source: 'ai' | 'local';
 }
 
@@ -73,17 +76,17 @@ export interface LunaraSlice {
     // Daily Insight
     dailyInsight: DailyInsight | null;
     isLoadingInsight: boolean;
-    loadDailyInsight: (phase: string, cycleDay: number) => Promise<void>;
+    loadDailyInsight: (phase: string, cycleDay: number, coupleHash?: number) => Promise<void>;
 
     // Intimacy Intelligence (AI-powered per phase)
     intimacyIntel: IntimacyIntelligence | null;
     isLoadingIntimacy: boolean;
-    loadIntimacyIntelligence: (phase: string, cycleDay: number, periodHistory: string[]) => Promise<void>;
+    loadIntimacyIntelligence: (phase: string, cycleDay: number, periodHistory: string[], coupleId?: string, symptoms?: string[], libido?: string | null) => Promise<void>;
 
     // Partner Intelligence (AI-generated, gender-aware, daily cached)
     partnerIntel: PartnerIntel | null;
     isLoadingPartnerIntel: boolean;
-    loadPartnerIntelligence: (phase: string, cycleDay: number, viewerGender: 'male' | 'female', partnerName: string) => Promise<void>;
+    loadPartnerIntelligence: (phase: string, cycleDay: number, viewerGender: 'male' | 'female', partnerName: string, coupleId?: string) => Promise<void>;
 
     // Gemini Forecast (keep for backward compat)
     intimacyForecast: any[];
@@ -107,7 +110,7 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
     partnerIntel: null,
     isLoadingPartnerIntel: false,
 
-    loadPartnerIntelligence: async (phase: string, cycleDay: number, viewerGender: 'male' | 'female', partnerName: string) => {
+    loadPartnerIntelligence: async (phase: string, cycleDay: number, viewerGender: 'male' | 'female', partnerName: string, coupleId?: string) => {
         const today = getTodayIST();
         const existing = (get() as any).partnerIntel as PartnerIntel | null;
         // Return immediately if cached for today + same gender + same phase
@@ -139,62 +142,62 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
             },
             Follicular: {
                 male: {
-                    headline: `${partnerName}'s confidence is rising — match her energy.`,
-                    primaryAdvice: `Estrogen is climbing and she's at her most open to new things. This is the best week to suggest adventures, have important conversations, or plan something she's mentioned wanting. Her communication is clear and her mood stable.`,
+                    headline: `${partnerName} is rising — let's have an adventure.`,
+                    primaryAdvice: `Her energy and confidence are building. This is her most curious and social week. Suggest something new, plan a creative date, or tackle a shared project. She's open and ready.`,
                     microActions: [
-                        { emoji: '✨', title: 'Plan something new', desc: 'New restaurant, activity, or experience she mentioned' },
-                        { emoji: '🧠', title: 'Have the important talk', desc: 'Her cognition and emotional stability are at peak' },
-                        { emoji: '💃', title: 'Be spontaneous', desc: 'Surprise her — it lands exceptionally well this week' },
+                        { emoji: '✨', title: 'Plan something new', desc: 'A new restaurant, a hidden trail, or a surprise activity' },
+                        { emoji: '🚀', title: 'Encourage her ideas', desc: 'She has focus and drive this week — be her sounding board' },
+                        { emoji: '📸', title: 'Capture the glow', desc: 'She likely feels her most magnetic now — take the photo' },
                     ],
-                    intimacyNote: 'Her body is primed for exploration. She appreciates novelty and boldness now more than any other phase.',
+                    intimacyNote: 'Desire is building. Intellectual connection and playful novelty are your best gateways right now.',
                 },
                 female: {
-                    headline: 'Your energy and confidence are blooming.',
-                    primaryAdvice: "Estrogen's rise is giving you clarity, social energy, and optimism. Use this window for the things that require your sharpest self — conversations, plans, and new experiences.",
+                    headline: 'Your energy and clarity are peaking.',
+                    primaryAdvice: 'Your brain is sharp and your mood is stable. This is your power week. Use it for complex tasks, social planning, and initiating the changes you want to see.',
                     microActions: [
-                        { emoji: '🌱', title: 'Start the new thing', desc: 'Gym habit, creative project, or difficult conversation' },
-                        { emoji: '💫', title: 'Mirror affirmation', desc: 'Find 3 things you love about your reflection today' },
-                        { emoji: '📍', title: 'Plan with your partner', desc: 'Your communication is at its most effective right now' },
+                        { emoji: '⚡', title: 'Tackle the big stuff', desc: 'Hard conversations or projects feel easier now' },
+                        { emoji: '🌱', title: 'Start a new habit', desc: 'Your brain is most receptive to novelty this week' },
+                        { emoji: '🥂', title: 'Say yes to plans', desc: 'You have the social capacity to enjoy the night' },
                     ],
-                    intimacyNote: 'Rising estrogen increases sensitivity and lubrication. Your body is ready to explore.',
+                    intimacyNote: 'You may feel more open to exploration. Trust your curiosity and communicate your desires.',
                 },
             },
             Ovulatory: {
                 male: {
-                    headline: `${partnerName} is at her peak — 48-hour window.`,
-                    primaryAdvice: 'LH surge has triggered ovulation. Her testosterone briefly spikes, driving libido to its monthly peak. She is at her most magnetic, social, and deeply desirous of genuine connection — not just physical. Eye contact and presence are as important as any gesture.',
+                    headline: `${partnerName} at her peak — be present.`,
+                    primaryAdvice: `She is at her most magnetic and expressive. This is a 48-hour window of peak connection. Give her your full attention. Eye contact and physical closeness matter more today than any other day.`,
                     microActions: [
-                        { emoji: '🌟', title: 'Plan a date out', desc: 'She is at her social peak — go somewhere together' },
-                        { emoji: '👁️', title: 'Be fully present', desc: 'Put the phone down. She notices absolutely everything' },
-                        { emoji: '💫', title: 'Say what you feel', desc: 'Genuine compliments and vulnerability land deeply now' },
+                        { emoji: '🔥', title: 'Be fully present', desc: 'Put the phone away — she is at her absolute peak' },
+                        { emoji: '🌹', title: 'Lean into romance', desc: 'Deep connection, touch, and presence are everything now' },
+                        { emoji: '🫂', title: 'Hold her close', desc: 'Long hugs and physical steadying are highly valued' },
                     ],
-                    intimacyNote: 'Peak fertility window. Use protection if avoiding pregnancy. This is the 48-hour peak of her monthly desire cycle.',
+                    intimacyNote: 'Biologically, desire and connection are at their monthly apex. Honor this brief, powerful window.',
                 },
                 female: {
-                    headline: 'You are at your biological apex today.',
-                    primaryAdvice: "You're radiating. Your confidence, social magnetism, and desire for deep connection are at their monthly peak. Lean into it — this window is 48 hours. Use it for connection, bold moves, and things that require your full energy.",
+                    headline: 'You are magnetic, confident, and radiant.',
+                    primaryAdvice: 'You are at your social and biological peak. You feel your most confident and desirable. Enjoy this window of high energy and deep connection with those around you.',
                     microActions: [
-                        { emoji: '🔥', title: 'Lead the way', desc: 'Suggest the plans — he will follow your magnetic lead' },
-                        { emoji: '🌹', title: 'Dress for yourself', desc: 'Your self-image is at its highest — honor that' },
-                        { emoji: '💎', title: 'Express your desires', desc: 'Your communication is boldest. Say what you want' },
+                        { emoji: '💎', title: 'Shine in public', desc: 'Great day for pitches, photos, or hosting' },
+                        { emoji: '💖', title: 'Deepen the bond', desc: 'Connect heart-to-heart with your partner' },
+                        { emoji: '💃', title: 'Active movement', desc: 'Your body is primed for physical expression' },
                     ],
-                    intimacyNote: 'Peak fertility. If trying to conceive, this is the optimal window. You will likely feel desire more strongly than any other day.',
+                    intimacyNote: 'Your desire is likely at its monthly peak. Seize this window for intimacy and connection.',
                 },
             },
             Luteal: {
                 male: {
-                    headline: `${partnerName} needs steadiness — not solutions.`,
-                    primaryAdvice: 'Progesterone dominates and her nervous system is more sensitive. She may oscillate between introspection and irritability. The single most important thing: do not problem-solve when she vents. Listen, validate, then ask what she needs.',
+                    headline: `${partnerName} is turning inward — be her anchor.`,
+                    primaryAdvice: `Progesterone is rising, making her more sensitive and introverted. She needs to feel understood, not fixed. Offer patience, pick up the extra slack at home, and provide comfort without expectation.`,
                     microActions: [
-                        { emoji: '⚓', title: 'Be the anchor', desc: 'Your calmness is her regulation. Stay steady' },
-                        { emoji: '👂', title: 'Listen — don\'t fix', desc: '"That sounds really hard" beats any solution' },
-                        { emoji: '🎬', title: 'Low-key quality time', desc: 'Movies, cooking together, quiet walks beat loud nights' },
+                        { emoji: '🧘', title: 'Lower the volume', desc: 'She may be sensitive to noise, light, or chaos today' },
+                        { emoji: '🧸', title: 'Provide comfort', desc: 'Blankets, favorite snacks, and a "safe" environment' },
+                        { emoji: '🧸', title: 'Handle the chores', desc: 'Reducing her mental load is the ultimate "I love you" now' },
                     ],
-                    intimacyNote: 'Drive may be low, but emotional closeness matters more than ever. Non-sexual physical touch — holding, warmth — is often more valued.',
+                    intimacyNote: 'Sensitivity is high. Emotional intimacy and "no-agenda" closeness are far more connecting than sex right now.',
                 },
                 female: {
-                    headline: 'Honor your sensitivity — it is not weakness.',
-                    primaryAdvice: "Progesterone's sedating effect is real. Your energy is declining and your emotional sensitivity elevated. This isn't a flaw — it's biological. Communicate your needs clearly to your partner and protect your sleep ruthlessly.",
+                    headline: 'Turning inward — honor the slow down.',
+                    primaryAdvice: 'Your body is preparing to reset. You may feel more reactive, tired, or craving solitude. This is not a failure — it is biological wisdom. Protect your peace and lower your expectations for today.',
                     microActions: [
                         { emoji: '🌙', title: 'Prioritize sleep', desc: 'Your body needs 30-60 min more sleep than usual' },
                         { emoji: '⚓', title: 'Name what you feel', desc: 'Tell him "I need quiet" or "I need to be held"' },
@@ -209,18 +212,33 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
         const localIntel: PartnerIntel = {
             date: today, phase, viewerGender, source: 'local', ...localData,
         };
-        set({ partnerIntel: localIntel });
+        set({ partnerIntel: localIntel, isLoadingPartnerIntel: true });
 
-        // Background AI enhancement — same pattern as intimacyIntel
+        // Background AI enhancement — Always re-fetch if not cached for TODAY
         try {
+            const cacheKey = `orbit_partner_intel_${viewerGender}_${today}`;
+            const cached = await AsyncStorage.getItem(cacheKey);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed.date === today && parsed.phase === phase) {
+                    set({ partnerIntel: parsed, isLoadingPartnerIntel: false });
+                    return;
+                }
+            }
+
             const debugApiUrl = (get() as any).debugApiUrl;
             const API_URL = debugApiUrl || process.env.EXPO_PUBLIC_API_URL || 'https://orbit-rn-beta.vercel.app';
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 12000);
+
             const res = await fetch(`${API_URL}/api/lunara/partner-intel`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phase, cycleDay, viewerGender, partnerName, model: AI_CONFIG.LUMARA_MODEL }),
+                body: JSON.stringify({
+                    phase, cycleDay, viewerGender, partnerName,
+                    coupleId: coupleId ? stringToHash(coupleId).toString() : undefined,
+                    model: AI_CONFIG.LUMARA_MODEL,
+                }),
                 signal: controller.signal,
             });
             clearTimeout(timeout);
@@ -234,10 +252,13 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
                     microActions: data.microActions || localData.microActions,
                     intimacyNote: data.intimacyNote || localData.intimacyNote,
                 };
-                await AsyncStorage.setItem(`orbit_partner_intel_${viewerGender}_${phase}`, JSON.stringify(aiIntel)).catch(() => { });
+                await AsyncStorage.setItem(cacheKey, JSON.stringify(aiIntel)).catch(() => { });
                 set({ partnerIntel: aiIntel });
             }
         } catch (_) { /* local intel already shown */ }
+        finally {
+            set({ isLoadingPartnerIntel: false });
+        }
     },
 
     // Active content tab — NavbarDock drives this, LunaraScreen consumes
@@ -250,6 +271,20 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
             if (saved) {
                 const data: LunaraOnboardingData = JSON.parse(saved);
                 set({ lunaraOnboarding: data, lunaraOnboardingComplete: data.completed });
+            } else {
+                // FALLBACK: Sync from Firestore profile if local storage is missing
+                const profile = get().profile;
+                if (profile?.cycle_profile?.completed || profile?.last_period_start) {
+                    const recovered: LunaraOnboardingData = {
+                        lastPeriodDate: profile.last_period_start || '',
+                        cycleLength: profile.avg_cycle_length || 28,
+                        periodLength: profile.avg_period_length || 5,
+                        goals: [],
+                        symptoms: [],
+                        completed: true,
+                    };
+                    set({ lunaraOnboarding: recovered, lunaraOnboardingComplete: true });
+                }
             }
         } catch (e) {
             console.warn('[LunaraSlice] Failed to load onboarding:', e);
@@ -260,8 +295,25 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
 
     setLunaraOnboarding: async (data: LunaraOnboardingData) => {
         try {
+            const profile = get().profile;
+            // 1. Local Cache
             await AsyncStorage.setItem('orbit_lunara_onboarding', JSON.stringify(data));
             set({ lunaraOnboarding: data, lunaraOnboardingComplete: data.completed });
+
+            // 2. Firestore Sync
+            if (profile?.id) {
+                const userRef = doc(db, 'users', profile.id);
+                await updateDoc(userRef, {
+                    'cycle_profile.completed': data.completed,
+                    'cycle_profile.last_period_start': data.lastPeriodDate || null,
+                    'cycle_profile.avg_cycle_length': data.cycleLength || 28,
+                    'cycle_profile.avg_period_length': data.periodLength || 5,
+                    'last_period_start': data.lastPeriodDate || null,
+                    'avg_cycle_length': data.cycleLength || 28,
+                    'avg_period_length': data.periodLength || 5,
+                    updated_at: serverTimestamp()
+                });
+            }
         } catch (e) {
             console.warn('[LunaraSlice] Failed to save onboarding:', e);
         }
@@ -275,7 +327,7 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
     intimacyIntel: null,
     isLoadingIntimacy: false,
 
-    loadIntimacyIntelligence: async (phase: string, cycleDay: number, periodHistory: string[]) => {
+    loadIntimacyIntelligence: async (phase: string, cycleDay: number, periodHistory: string[], coupleId?: string, symptoms: string[] = [], libido: string | null = null) => {
         const today = getTodayIST();
         const inMem = get().intimacyIntel;
         if (inMem && inMem.date === today && inMem.phase === phase) return;
@@ -330,21 +382,35 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
         };
         set({ intimacyIntel: localIntel });
 
-        // AI enhancement in background
+        // AI enhancement in background — with Daily Rotation Cache
         try {
+            const cacheKey = `orbit_intimacy_intel_${today}`;
+            const cached = await AsyncStorage.getItem(cacheKey);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed.date === today && parsed.phase === phase) {
+                    set({ intimacyIntel: parsed });
+                    return;
+                }
+            }
+
             const debugApiUrl = get().debugApiUrl;
             const API_URL = debugApiUrl || process.env.EXPO_PUBLIC_API_URL || 'https://orbit-rn-beta.vercel.app';
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 12000);
+            const timeout = setTimeout(() => controller.abort(), 15000);
 
             const res = await fetch(`${API_URL}/api/lunara/intimacy-intel`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     phase, cycleDay,
-                    periodHistory: periodHistory.slice(0, 6), // last 6 periods
+                    coupleId: coupleId ? stringToHash(coupleId).toString() : undefined,
+                    periodHistory: periodHistory.slice(0, 6),
                     goals: get().lunaraOnboarding?.goals || [],
-                    model: AI_CONFIG.LUMARA_MODEL, // Centralized model control
+                    symptoms,
+                    libido,
+                    includeRealTime: true, // Signal for Gemini to generate real-time positions/coaching
+                    model: AI_CONFIG.LUMARA_MODEL,
                 }),
                 signal: controller.signal,
             });
@@ -364,14 +430,15 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
                     moodForecast: data.moodForecast || localData.moodForecast,
                     energyForecast: data.energyForecast || localData.energyForecast,
                     partnerIntimacyGuide: data.partnerIntimacyGuide || localData.partnerIntimacyGuide,
+                    conditionAssessment: data.conditionAssessment,
                 };
-                await AsyncStorage.setItem('orbit_intimacy_intel', JSON.stringify(aiIntel)).catch(() => { });
+                await AsyncStorage.setItem(cacheKey, JSON.stringify(aiIntel)).catch(() => { });
                 set({ intimacyIntel: aiIntel });
             }
         } catch (_) { /* local intel already displayed */ }
     },
 
-    loadDailyInsight: async (phase: string, cycleDay: number) => {
+    loadDailyInsight: async (phase: string, cycleDay: number, coupleHash = 0) => {
         const today = getTodayIST();
 
         // ① Check in-memory first (zero cost)
@@ -392,7 +459,7 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
         } catch (_) { }
 
         // ③ Show local fallback immediately so UI never blocks
-        const local = getDailyInsightLocal(phase, cycleDay);
+        const local = getDailyInsightLocal(phase, cycleDay, coupleHash);
         const localInsight: DailyInsight = {
             date: today, phase, cycleDay,
             ...local, source: 'local', generatedAt: Date.now(),
@@ -432,6 +499,27 @@ export const createLunaraSlice: StateCreator<LunaraSlice & any> = (set, get) => 
                 };
                 // Write to cache so next session is instant
                 AsyncStorage.setItem('orbit_lunara_daily', JSON.stringify(aiInsight)).catch(() => { });
+                set({ dailyInsight: aiInsight });
+
+                // PRUNING: Wipe old irrelevant caches from previous sessions if they exist
+                const allKeys = await AsyncStorage.getAllKeys();
+                const staleKeys = allKeys.filter(k => k.startsWith('unsplash_libido_'));
+                if (staleKeys.length > 5) {
+                    // Keep only the last 2 libido photos
+                    const toDelete = staleKeys.sort().slice(0, staleKeys.length - 2);
+                    await AsyncStorage.multiRemove(toDelete);
+                }
+
+                // 🚀 Memory Hygiene: Clear stale AI context from OTHER dates/phases to keep state light
+                const currentIntimate = get().intimacyIntel;
+                if (currentIntimate && currentIntimate.date !== today) {
+                    set({ intimacyIntel: null });
+                }
+                const currentPartner = get().partnerIntel;
+                if (currentPartner && currentPartner.date !== today) {
+                    set({ partnerIntel: null });
+                }
+
                 set({ dailyInsight: aiInsight });
             }
         } catch (_) {

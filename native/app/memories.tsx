@@ -1,2 +1,2 @@
-import { MemoriesScreen } from '../components/screens/MemoriesScreen';
+﻿import { MemoriesScreen } from '../components/screens/MemoriesScreen';
 export default MemoriesScreen;

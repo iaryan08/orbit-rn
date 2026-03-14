@@ -15,16 +15,28 @@ import { getPartnerName } from '../lib/utils';
 interface PartnerHeaderProps {
     profile: any;
     partnerProfile: any;
-    coupleId: string;
+    coupleId?: string;
     isActive?: boolean;
 }
 
 export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = true }: PartnerHeaderProps) {
-    const { sendHeartbeatOptimistic, idToken } = useOrbitStore();
+    const sendHeartbeatOptimistic = useOrbitStore(s => s.sendHeartbeatOptimistic);
+    const idToken = useOrbitStore(s => s.idToken);
     const resolvedPartnerName = getPartnerName(profile, partnerProfile);
     const pulseAnim = useRef(new Animated.Value(1)).current;
     const heartbeatFlashAnim = useRef(new Animated.Value(0)).current;
-    const [isPartnerActive, setIsPartnerActive] = useState(false);
+    const [partnerPresence, setPartnerPresence] = useState<{ isOnline: boolean; inCinema: boolean; isFresh: boolean } | null>(null);
+    const [serverOffset, setServerOffset] = useState(0);
+
+    // ─── Server Time Correction ───────────────────────────────────────────────
+    useEffect(() => {
+        const offsetRef = ref(rtdb, '.info/serverTimeOffset');
+        const unsub = onValue(offsetRef, (snap) => {
+            setServerOffset(snap.val() || 0);
+        });
+        return () => unsub();
+    }, []);
+
     // Dashboard header should stay idle when the screen is idle.
     useEffect(() => {
         if (!isActive || !coupleId || !profile?.id) return;
@@ -32,20 +44,33 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
         const presenceRef = ref(rtdb, `presence/${coupleId}`);
         const unsub = onValue(presenceRef, (snapshot) => {
             const allPresence = snapshot.val() || {};
-            const partnerEntry = Object.entries(allPresence).find(([userId]) => userId !== profile.id);
-            const data = partnerEntry?.[1] as any;
-            const isOnline = !!data?.is_online || !!data?.in_cinema;
+
+            // Prefer direct ID lookup if partnerProfile is available
+            const pId = partnerProfile?.id || Object.keys(allPresence).find(uid => uid !== profile.id);
+            const data = pId ? allPresence[pId] : null;
+
+            if (!data) {
+                setPartnerPresence(null); // Clear presence if no data
+                return;
+            }
+
+            const isOnline = !!data?.is_online;
+            const inCinema = !!data?.in_cinema;
             const lastChanged = typeof data?.last_changed === 'number'
                 ? data.last_changed
-                : (isOnline ? Date.now() : 0);
-            const isFresh = Date.now() - lastChanged < 300_000;
-            setIsPartnerActive(isOnline && isFresh);
+                : ((isOnline || inCinema) ? (Date.now() + serverOffset) : 0);
+
+            // A bit more relaxed freshness check (15 mins) to account for background battery saving
+            const isFresh = (Date.now() + serverOffset) - lastChanged < 900_000;
+
+            console.log(`[Presence] ${profile.id} watching ${pId}. Online: ${isOnline}, Cinema: ${inCinema}, Fresh: ${isFresh}`);
+            setPartnerPresence({ isOnline, inCinema, isFresh });
         });
 
         return () => {
             unsub();
         };
-    }, [coupleId, isActive, profile?.id]);
+    }, [coupleId, isActive, profile?.id, serverOffset]);
 
     const userAvatarUrl = useMemo(() =>
         getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
@@ -150,7 +175,13 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
                                 fallbackText={resolvedPartnerName}
                                 size={80}
                                 borderWidth={2}
-                                borderColor={isPartnerActive ? 'rgba(16, 185, 129, 0.88)' : 'rgba(255,255,255,0.08)'}
+                                borderColor={
+                                    (partnerPresence?.isFresh && partnerPresence?.inCinema)
+                                        ? Colors.dark.emerald[400]
+                                        : (partnerPresence?.isFresh && partnerPresence?.isOnline)
+                                            ? Colors.dark.amber[400]
+                                            : 'rgba(255,255,255,0.08)'
+                                }
                             />
                         </TouchableOpacity>
                     </Animated.View>
@@ -161,15 +192,20 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
             {/* Name & Location below Avatars */}
             <View style={[styles.contentRow, { width: '100%', marginTop: 16 }]}>
                 <View style={styles.nameHeaderGroup}>
-                    <Text style={styles.connectedText}>Connected With • </Text>
-                    <View style={{ flex: 1, minHeight: 28, justifyContent: 'center' }}>
-                        <Text style={styles.partnerName} numberOfLines={1} ellipsizeMode="tail">
+                    <Text style={styles.connectedText}>Connected with</Text>
+                    <View style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
+                        <Text
+                            style={styles.partnerName}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit={true}
+                            minimumFontScale={0.5}
+                        >
                             {resolvedPartnerName}
                         </Text>
                     </View>
                 </View>
 
-                <View style={[styles.locationCityRow, { marginTop: 4 }]}>
+                <View style={[styles.locationCityRow, { marginTop: 0 }]}>
                     <View style={{ flexShrink: 1, minHeight: 16, justifyContent: 'center', marginRight: 8 }}>
                         <Text style={styles.locationCityText} numberOfLines={1}>
                             {partnerCity}
@@ -180,14 +216,8 @@ export function PartnerHeader({ profile, partnerProfile, coupleId, isActive = tr
                         {getWeatherIcon(partnerProfile?.location?.temp || 27, partnerProfile?.location?.condition)}
                         <Text style={styles.tempText}>{Math.round(partnerProfile?.location?.temp || 27)}°C</Text>
                     </View>
-                </View>
 
-                {isPartnerActive && (
-                    <View style={styles.activePill}>
-                        <View style={styles.activeDot} />
-                        <Text style={styles.activeText}>Active Now</Text>
-                    </View>
-                )}
+                </View>
             </View>
         </View>
     );
@@ -221,38 +251,12 @@ const styles = StyleSheet.create({
         right: -4,
         bottom: -4,
         borderRadius: 48,
-        borderWidth: 1,
-        borderColor: 'rgba(244, 63, 94, 0.55)',
-        backgroundColor: 'rgba(244, 63, 94, 0.08)',
+        borderWidth: 1.2,
+        borderColor: 'rgba(244, 63, 94, 0.4)',
+        backgroundColor: 'transparent', // Removed tint to fix "ring outside border" issue
     },
     partnerAvatarOverlap: {
         // Style applied to the avatar itself
-    },
-    activePill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-        paddingHorizontal: 12,
-        paddingVertical: 5,
-        borderRadius: 100,
-        marginTop: 10,
-        alignSelf: 'flex-start',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-    },
-    activeDot: {
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: Colors.dark.emerald[400],
-        marginRight: 8,
-    },
-    activeText: {
-        color: 'rgba(255,255,255,0.7)',
-        fontSize: 9,
-        fontFamily: Typography.sansBold,
-        letterSpacing: 1.5,
-        textTransform: 'uppercase',
     },
     contentRow: {
         flex: 1,
@@ -263,30 +267,33 @@ const styles = StyleSheet.create({
         alignItems: 'baseline',
     },
     connectedText: {
-        color: 'rgba(255,255,255,0.92)',
-        fontSize: 14,
-        fontFamily: Typography.serifItalic,
-        letterSpacing: 0.8,
+        color: 'rgba(255,255,255,0.7)', // Softer blush
+        fontSize: 13,
+        fontFamily: Typography.serifItalic, // Bodoni Italic
+        letterSpacing: 0.5,
+        marginBottom: -6, // Tighten vertical rhythm
     },
     partnerName: {
         color: 'white',
-        fontFamily: Typography.script,
-        fontSize: 40,
-        lineHeight: 46,
-        letterSpacing: -0.4,
-        marginTop: -12,
+        fontFamily: Typography.script, // MeaCulpa
+        fontSize: 48, // Larger for shorter names
+        lineHeight: 56,
+        letterSpacing: -0.5,
+        marginTop: -4,
         includeFontPadding: false,
     },
     locationCityRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
+        gap: 8,
+        marginTop: -2,
     },
     locationCityText: {
-        color: 'rgba(255,255,255,0.96)',
-        fontSize: 15,
-        fontFamily: Typography.serif,
-        letterSpacing: 0.2,
+        color: 'rgba(255,255,255,0.85)',
+        fontSize: 13,
+        fontFamily: Typography.sansBold, // Outfit for high-tracking clarity
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
     },
     dividerDot: {
         width: 3,
@@ -295,9 +302,10 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.15)',
     },
     tempText: {
-        color: 'rgba(255,255,255,0.96)',
-        fontSize: 15,
-        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.85)',
+        fontSize: 13,
+        fontFamily: Typography.sansBold, // Outfit
+        letterSpacing: 1,
     },
     weatherGroup: {
         flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+﻿import React, { useState, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, Dimensions,
     Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform
@@ -15,6 +15,7 @@ import { useOrbitStore } from '../../lib/store';
 import { LunaraOnboardingData } from '../../lib/store/lunaraSlice';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
+import { PagerLockGesture } from '../../components/PagerLockGesture';
 
 const ONBOARD_FADE = undefined; // Android-only: entering animations crash at module-level
 
@@ -26,9 +27,9 @@ const { width, height } = Dimensions.get('window');
 const CYCLE_LENGTHS = [21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35];
 const PERIOD_LENGTHS = [2, 3, 4, 5, 6, 7, 8];
 const GOALS = [
-    { id: 'track_cycle', label: 'Track my cycle', icon: '📅' },
+    { id: 'track_cycle', label: 'Track my cycle', icon: '📊' },
     { id: 'understand_phases', label: 'Understand my phases', icon: '🌙' },
-    { id: 'partner_awareness', label: 'Partner awareness', icon: '💑' },
+    { id: 'partner_awareness', label: 'Partner awareness', icon: '💍' },
     { id: 'manage_symptoms', label: 'Manage symptoms', icon: '🌿' },
     { id: 'fertility_awareness', label: 'Fertility awareness', icon: '✨' },
     { id: 'conceive', label: 'Planning to conceive', icon: '🍼' },
@@ -109,31 +110,35 @@ function StepCycleLength({ cycleLength, periodLength, onChangeCycle, onChangePer
                 <Calendar size={28} color="#818cf8" />
             </View>
             <Text style={step.title}>Your typical cycle</Text>
-            <Text style={step.subtitle}>Most cycles are 21–35 days. Day 1 is the first day of your period.</Text>
+            <Text style={step.subtitle}>Most cycles are 21-35 days. Day 1 is the first day of your period.</Text>
 
             <Text style={step.rowLabel}>CYCLE LENGTH</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 24 }}>
-                <View style={step.numberRow}>
-                    {CYCLE_LENGTHS.map(n => (
-                        <Pressable key={n} onPress={() => { onChangeCycle(n); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                            style={[step.numChip, cycleLength === n && step.numChipActive]}>
-                            <Text style={[step.numChipText, cycleLength === n && step.numChipTextActive]}>{n}</Text>
-                        </Pressable>
-                    ))}
-                </View>
-            </ScrollView>
+            <PagerLockGesture>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 24 }}>
+                    <View style={step.numberRow}>
+                        {CYCLE_LENGTHS.map(n => (
+                            <Pressable key={n} onPress={() => { onChangeCycle(n); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                                style={[step.numChip, cycleLength === n && step.numChipActive]}>
+                                <Text style={[step.numChipText, cycleLength === n && step.numChipTextActive]}>{n}</Text>
+                            </Pressable>
+                        ))}
+                    </View>
+                </ScrollView>
+            </PagerLockGesture>
 
             <Text style={step.rowLabel}>PERIOD DURATION (DAYS)</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={step.numberRow}>
-                    {PERIOD_LENGTHS.map(n => (
-                        <Pressable key={n} onPress={() => { onChangePeriod(n); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                            style={[step.numChip, periodLength === n && step.numChipActive]}>
-                            <Text style={[step.numChipText, periodLength === n && step.numChipTextActive]}>{n}</Text>
-                        </Pressable>
-                    ))}
-                </View>
-            </ScrollView>
+            <PagerLockGesture>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={step.numberRow}>
+                        {PERIOD_LENGTHS.map(n => (
+                            <Pressable key={n} onPress={() => { onChangePeriod(n); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                                style={[step.numChip, periodLength === n && step.numChipActive]}>
+                                <Text style={[step.numChipText, periodLength === n && step.numChipTextActive]}>{n}</Text>
+                            </Pressable>
+                        ))}
+                    </View>
+                </ScrollView>
+            </PagerLockGesture>
         </Animated.View>
     );
 }
@@ -190,7 +195,9 @@ function StepSymptoms({ selected, onToggle }: { selected: string[]; onToggle: (s
 
 function LunaraOnboardingBase({ onComplete }: { onComplete: () => void }) {
     const insets = useSafeAreaInsets();
-    const { setLunaraOnboarding, couple, profile } = useOrbitStore();
+    const setLunaraOnboarding = useOrbitStore(s => s.setLunaraOnboarding);
+    const couple = useOrbitStore(s => s.couple);
+    const profile = useOrbitStore(s => s.profile);
     const user = auth.currentUser;
 
     const [step, setStep] = useState(0);
@@ -339,46 +346,46 @@ const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: '#05050a', paddingHorizontal: Spacing.lg },
     progressBar: { height: 2, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 1, marginBottom: 16 },
     progressFill: { height: 2, backgroundColor: '#c084fc', borderRadius: 1 },
-    stepCounter: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 2, marginBottom: 8, textAlign: 'right' },
+    stepCounter: { fontSize: 14, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.55)', letterSpacing: 1.5, marginBottom: 8, textAlign: 'right' },
     navRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 20 },
     backBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.04)', alignItems: 'center', justifyContent: 'center' },
     nextBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#7c3aed', paddingHorizontal: 28, paddingVertical: 16, borderRadius: 100 },
     nextBtnDisabled: { opacity: 0.35 },
-    nextBtnText: { color: 'white', fontFamily: Typography.sansBold, fontSize: 15 },
+    subtitle: { fontSize: 14, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.45)', lineHeight: 22, marginBottom: 32 },
 });
 
 const step = StyleSheet.create({
     container: { paddingTop: 24, paddingBottom: 20 },
     iconCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.04)', alignItems: 'center', justifyContent: 'center', marginBottom: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
     title: { fontSize: 30, fontFamily: Typography.serif, color: 'white', marginBottom: 10, lineHeight: 38 },
-    subtitle: { fontSize: 14, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.45)', lineHeight: 22, marginBottom: 32 },
+    orText: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, textAlign: 'center', marginBottom: 14 },
 
     presetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 24 },
     presetChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
     presetChipActive: { backgroundColor: 'rgba(192,132,252,0.2)', borderColor: '#c084fc' },
-    presetChipLabel: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.5)' },
+    presetChipLabel: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.75)' },
     presetChipLabelActive: { color: '#c084fc', fontFamily: Typography.sansBold },
-    orText: { fontSize: 11, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, textAlign: 'center', marginBottom: 14 },
+    numChipText: { fontSize: 16, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.4)' },
     dateInput: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: Radius.lg, padding: 16, color: 'white', fontFamily: Typography.sans, fontSize: 16, backgroundColor: 'rgba(255,255,255,0.03)', textAlign: 'center' },
 
-    rowLabel: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.35)', letterSpacing: 2, marginBottom: 14 },
+    rowLabel: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.6)', letterSpacing: 1.5, marginBottom: 14 },
     numberRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 4 },
     numChip: { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.04)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
     numChipActive: { backgroundColor: 'rgba(129,140,248,0.2)', borderColor: '#818cf8' },
-    numChipText: { fontSize: 16, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.4)' },
+    goalLabel: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.5)', lineHeight: 18 },
     numChipTextActive: { color: '#818cf8' },
 
     goalGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
     goalCard: { width: (width - Spacing.lg * 2 - 12) / 2, padding: 18, borderRadius: Radius.xl, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
     goalCardActive: { backgroundColor: 'rgba(192,132,252,0.1)', borderColor: 'rgba(192,132,252,0.4)' },
     goalEmoji: { fontSize: 24, marginBottom: 10 },
-    goalLabel: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.5)', lineHeight: 18 },
+    sympText: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.45)' },
     goalLabelActive: { color: 'white' },
     checkBadge: { position: 'absolute', top: 10, right: 10, width: 18, height: 18, borderRadius: 9, backgroundColor: '#7c3aed', alignItems: 'center', justifyContent: 'center' },
 
     chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     symp: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
     sympActive: { backgroundColor: 'rgba(192,132,252,0.15)', borderColor: '#c084fc' },
-    sympText: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.45)' },
+    sympText: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.7)' },
     sympTextActive: { color: '#c084fc' },
 });

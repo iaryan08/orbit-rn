@@ -109,18 +109,34 @@ export function PolaroidDetailModal({ polaroid, title, isOpen, onClose }: Polaro
         )
 
         const unsub = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
-            const data = snapshot.docs.map(doc => ({
-                ...doc.data(),
+            const subcollectionComments = snapshot.docs.map(doc => ({
                 id: doc.id,
+                ...doc.data(),
                 profiles: (doc.data() as any).profiles || { display_name: 'User', avatar_url: null }
             }))
 
-            // Client-side sort: latest on top
-            const sorted = data.sort((a: any, b: any) =>
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            )
+            // Orbit Integration: Merge with native-style embedded comments if they exist
+            const embeddedComments = (polaroid as any)?.comments || [];
+            const allCommentsRaw = [...subcollectionComments, ...embeddedComments];
 
-            setComments(sorted as any)
+            // Filter out duplicates by ID
+            const uniqueComments = Array.from(new Map(allCommentsRaw.map(c => [c.id, c])).values());
+
+            // Map profiles for embedded comments using existing context if possible
+            const formatted = uniqueComments.map(c => ({
+                ...c,
+                profiles: (c as any).profiles || { 
+                    display_name: (c as any).user_name || 'User', 
+                    avatar_url: (c as any).user_avatar_url || null 
+                }
+            }));
+
+            // Client-side sort: latest on top
+            formatted.sort((a: any, b: any) =>
+                new Date((b as any).created_at).getTime() - new Date((a as any).created_at).getTime()
+            );
+
+            setComments(formatted as any)
         }, (err: Error) => {
             console.warn('[PolaroidComments] Listener error:', err)
         })

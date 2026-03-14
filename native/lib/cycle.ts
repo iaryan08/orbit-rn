@@ -9,6 +9,30 @@ export function getTodayIST(): string {
     return ist.toISOString().split('T')[0];
 }
 
+export function getYesterdayIST(): string {
+    const now = new Date();
+    const offset = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(now.getTime() + offset - (24 * 60 * 60 * 1000));
+    return ist.toISOString().split('T')[0];
+}
+
+/**
+ * Returns logs from today if they exist, otherwise checks yesterday.
+ * This ensures "Rolling 24h Visibility" so data isn't lost at midnight.
+ */
+export function getRolling24hLogs(userId: string, cycleLogs: Record<string, any>): any {
+    const today = getTodayIST();
+    const yesterday = getYesterdayIST();
+    const userLogs = cycleLogs[userId] || {};
+
+    // If today has symptoms or sex_drive, use today
+    if (userLogs[today] && (userLogs[today].symptoms?.length > 0 || userLogs[today].sex_drive)) {
+        return userLogs[today];
+    }
+    // Otherwise fallback to yesterday (Rolling 24h)
+    return userLogs[yesterday] || {};
+}
+
 export function getCycleDay(lastPeriodStart: string, avgCycleLength = 28): number {
     if (!lastPeriodStart) return 1;
     const last = new Date(lastPeriodStart);
@@ -165,8 +189,22 @@ export function predictNextPeriod(history: string[], defaultLength = 28, avgPeri
     };
 }
 
-export function getPhaseWindows(avgCycleLength: number, avgPeriodLength: number): PhaseWindow[] {
+export function getPhaseWindows(avgCycleLength: number, avgPeriodLength: number, lastPeriodStart?: string, lastPeriodEnd?: string): PhaseWindow[] {
     const ovulationDay = Math.max(1, avgCycleLength - 14);
+
+    // Determine actual period length for this cycle if ended
+    let actualPeriodLength = avgPeriodLength;
+    if (lastPeriodStart && lastPeriodEnd) {
+        const start = new Date(lastPeriodStart);
+        const end = new Date(lastPeriodEnd);
+        // Only count it if the end is for the CURRENT cycle
+        if (end >= start) {
+            const diff = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            actualPeriodLength = Math.min(Math.max(diff, 1), 12);
+        }
+    }
+
+    const follicularStart = Math.max(actualPeriodLength + 1, 5); // Safeguard: Menstrual phase is at least 4 days for UI clarity unless heavily overridden
     const follicularEnd = ovulationDay - 1;
     const lutealStart = ovulationDay + 2;
 
@@ -174,17 +212,17 @@ export function getPhaseWindows(avgCycleLength: number, avgPeriodLength: number)
         {
             name: 'Menstrual',
             startDay: 1,
-            endDay: avgPeriodLength,
+            endDay: actualPeriodLength,
             color: '#fb7185',
             gradient: ['#be123c', '#4c0519'],
-            advice: "Honor your body's need for rest.Warmth, hydration, and gentle movement are your allies.",
+            advice: "Honor your body's need for rest. Warmth, hydration, and gentle movement are your allies.",
             partnerAdvice: "She needs warmth, her favorite comfort food, and quiet presence. Now is not the time for plans.",
             energy: 'Low',
             hormones: 'Estrogen and progesterone are at their lowest. The uterine lining sheds.',
         },
         {
             name: 'Follicular',
-            startDay: avgPeriodLength + 1,
+            startDay: actualPeriodLength + 1,
             endDay: follicularEnd,
             color: '#34d399',
             gradient: ['#0d9488', '#064e3b'],
@@ -218,13 +256,35 @@ export function getPhaseWindows(avgCycleLength: number, avgPeriodLength: number)
     ];
 }
 
-export function getPhaseForDay(day: number, avgCycleLength: number, avgPeriodLength: number): PhaseWindow {
-    const phases = getPhaseWindows(avgCycleLength, avgPeriodLength);
+export function getPhaseForDay(
+    day: number,
+    avgCycleLength: number,
+    avgPeriodLength: number,
+    lastPeriodStart?: string,
+    lastPeriodEnd?: string,
+    symptoms: string[] = []
+): PhaseWindow {
+    const phases = getPhaseWindows(avgCycleLength, avgPeriodLength, lastPeriodStart, lastPeriodEnd);
+
+    // 🚀 Biological Intelligence: Symptoms override dates
+    const hasFlow = symptoms.some(s => ['Heavy', 'Medium', 'Light', 'Spotting'].includes(s) || s.toLowerCase().includes('period'));
+    const hasOvulationMucus = symptoms.includes('CM_Egg White') || symptoms.includes('CM_Creamy');
+    
+    // If logging period signals, force Menstrual phase if within first half of cycle
+    if (hasFlow && day < 15) {
+        return phases[0]; // Menstrual
+    }
+
+    // If ovulation mucus present, shift to Ovulatory
+    if (hasOvulationMucus && day > 7 && day < 22) {
+        return phases[2]; // Ovulatory
+    }
+
     return phases.find(p => day >= p.startDay && day <= p.endDay)
         || phases[phases.length - 1];
 }
 
-export function getDailyInsightLocal(phase: string, cycleDay: number): {
+export function getDailyInsightLocal(phase: string, cycleDay: number, coupleHash = 0): {
     insight: string;
     recommendation: string;
     hormoneContext: string;
@@ -249,7 +309,13 @@ export function getDailyInsightLocal(phase: string, cycleDay: number): {
     };
 
     const phaseInsights = insights[phase] || insights['Follicular'];
-    return phaseInsights[cycleDay % phaseInsights.length];
+
+    // Twice daily logic + couple offset
+    const hour = new Date().getHours();
+    const isPM = hour >= 12;
+    const seed = (cycleDay * 2) + (isPM ? 1 : 0) + coupleHash;
+
+    return phaseInsights[seed % phaseInsights.length];
 }
 
 export const VIBE_COLORS: Record<string, string> = {

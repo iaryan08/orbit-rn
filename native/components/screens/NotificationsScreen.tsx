@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255,255,255,0.05)',
     },
     cardText: {
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.65)',
         fontSize: 15,
         fontFamily: Typography.sans,
         lineHeight: 24,

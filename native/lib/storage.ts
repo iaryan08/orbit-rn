@@ -27,7 +27,13 @@ export function getPublicStorageUrl(path: string | null | undefined, bucket: str
     if (path.startsWith('data:')) return path;
     if (path.startsWith('file://')) return path;
 
-    const cacheKey = `${bucket}|${authToken || ''}|${path}`;
+    let lastUpdate = 0;
+    try {
+        const { useOrbitStore } = require('./store');
+        lastUpdate = useOrbitStore.getState().lastAvatarUpdate || 0;
+    } catch { }
+
+    const cacheKey = `${bucket}|${authToken || ''}|${path}|${bucket === 'avatars' ? lastUpdate : ''}`;
     const cached = STORAGE_URL_CACHE.get(cacheKey);
     if (cached) return cached;
 
@@ -35,18 +41,31 @@ export function getPublicStorageUrl(path: string | null | undefined, bucket: str
     const cleanPath = path.replace(/^\/+/, '');
 
     // Prevent double bucket prefixes (e.g. avatars/avatars/...)
-    const startsWithAnyBucket = ['avatars/', 'memories/', 'bucket_list/', 'letters/', 'polaroids/'].some(p => cleanPath.startsWith(p));
+    const startsWithAnyBucket = [
+        'avatars/',
+        'memories/',
+        'bucket_list/',
+        'letters/',
+        'polaroids/',
+        'wallpapers/',
+    ].some(p => cleanPath.startsWith(p));
     const finalPath = startsWithAnyBucket ? cleanPath : `${bucket}/${cleanPath}`;
     const cleanFinalPath = finalPath.replace(/\/\//g, '/');
 
     const apiBase = getApiBase();
-    // Use development IP for stability on Wi-Fi
     const isLocal = apiBase.includes('192.168.') || apiBase.includes('10.') || apiBase.includes('localhost');
-    const authParam = authToken ? `?auth=${encodeURIComponent(authToken)}` : '';
+    const authParam = authToken ? `auth=${encodeURIComponent(authToken)}` : '';
+    const timeParam = (bucket === 'avatars' && lastUpdate) ? `t=${lastUpdate}` : '';
+    
+    // Combine params
+    let query = '';
+    if (authParam && timeParam) query = `?${authParam}&${timeParam}`;
+    else if (authParam) query = `?${authParam}`;
+    else if (timeParam) query = `?${timeParam}`;
 
     const resolvedUrl = (isLocal || !CDN_BASE)
-        ? `${apiBase}/api/media/view/${cleanFinalPath}${authParam}`
-        : `${CDN_BASE}/${cleanFinalPath}${authParam}`;
+        ? `${apiBase}/api/media/view/${cleanFinalPath}${query}`
+        : `${CDN_BASE}/${cleanFinalPath}${query}`;
 
     STORAGE_URL_CACHE.set(cacheKey, resolvedUrl);
     if (STORAGE_URL_CACHE.size > STORAGE_URL_CACHE_MAX) {

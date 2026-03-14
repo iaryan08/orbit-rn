@@ -1,2 +1,2 @@
-import { SettingsScreen } from '../components/screens/SettingsScreen';
+﻿import { SettingsScreen } from '../components/screens/SettingsScreen';
 export default SettingsScreen;

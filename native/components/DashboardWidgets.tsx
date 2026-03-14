@@ -32,7 +32,7 @@ const MOOD_EMOJIS: Record<string, string> = {
     tired: '😴',
     grateful: '🙏',
     flirty: '😉',
-    'missing you badly': '🥹',
+    'missing you badly': '🥺',
     cuddly: '🫂',
     romantic: '🌹',
     passionate: '❤️‍🔥',
@@ -98,13 +98,7 @@ export const RelationshipStats = React.memo(({ couple, lettersCount, memoriesCou
             transform: [
                 { scale: scale.value },
                 { rotate: `${(scale.value - 1) * 5}deg` }
-            ],
-            // Only apply high-end shadows on non-lite devices (Android overhead)
-            ...(Platform.OS === 'ios' && {
-                shadowOpacity: 0.3 + glowIntensity,
-                shadowRadius: 10 + glowIntensity * 15,
-                shadowColor: Colors.dark.rose[500],
-            })
+            ]
         };
     });
 
@@ -177,7 +171,7 @@ export const ConnectionBoard = React.memo(({ profile, partnerProfile, cycleLogs 
     const myNote = myLatestMood?.mood_text || cycleLogs[myId]?.[today]?.note || '';
     const partnerNote = partnerLatestMood?.mood_text
         ? partnerLatestMood.mood_text
-        : (partnerIsOnPeriod ? "Currently on her period. She might need some extra care. ❤️" : (cycleLogs[partnerId]?.[today]?.note || ''));
+        : (partnerIsOnPeriod ? "Currently on her period. She might need some extra care. â¤ï¸" : (cycleLogs[partnerId]?.[today]?.note || ''));
 
     const myAvatarUrl = useMemo(() =>
         getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
@@ -223,7 +217,7 @@ export const ConnectionBoard = React.memo(({ profile, partnerProfile, cycleLogs 
                 <View style={styles.connHeaderRedesign}>
                     <View style={styles.connTitleGroup}>
                         <Sparkles size={18} color={Colors.dark.indigo[400]} />
-                        <Text style={styles.connTitle}>Vibe Sync</Text>
+                        <Text style={styles.connTitle}>Moods</Text>
                     </View>
                     <View style={styles.connActions}>
                         <TouchableOpacity
@@ -412,7 +406,7 @@ export const IntimacyAlert = React.memo(({ profile, partnerProfile, cycleLogs, i
     }, [isActive]);
 
     const { isLiteMode } = useOrbitStore();
-    const isAndroidPerformanceMode = Platform.OS === 'android' || isLiteMode;
+    const isAndroidPerformanceMode = true; // Android-only focus
     const iconPulseStyle = useAnimatedStyle(() => ({
         transform: [{ scale: 1 + pulse.value * (isAndroidPerformanceMode ? 0.02 : 0.08) }],
         opacity: isAndroidPerformanceMode ? 1 : 0.6 + pulse.value * 0.4
@@ -649,7 +643,7 @@ export const ImportantDatesCountdown = React.memo(({ milestones, partnerProfile,
     }));
 
     const { isLiteMode } = useOrbitStore();
-    const showCountdownFx = Platform.OS !== 'android' && !isLiteMode;
+    const showCountdownFx = false; // Disabled for Android performance
 
     if (upcomingEvents.length === 0) return null;
 
@@ -774,7 +768,7 @@ export const MarqueeText = ({ children, style, isActive = true }: { children: st
     const [containerWidth, setContainerWidth] = useState(0);
     const [textWidth, setTextWidth] = useState(0);
 
-    const shouldAnimateMarquee = Platform.OS !== 'android' && !isLiteMode && isActive;
+    const shouldAnimateMarquee = false; // Disabled for Android performance
 
     useEffect(() => {
         if (!shouldAnimateMarquee) {
@@ -856,7 +850,7 @@ export const LocationWidget = React.memo(({ profile, partnerProfile, couple, isA
         // Update time once a minute
         const timer = setInterval(() => setCurrentTime(new Date()), 60000);
 
-        // 🚀 Optimization: Dashboard should NOT poll GPS constantly.
+        // ðŸš€ Optimization: Dashboard should NOT poll GPS constantly.
         // It's already fetched once in the main App/Dashboard boot (hasBootLoaded).
         // Only force an update here if it's the first time this widget is actually visible.
         return () => clearInterval(timer);
@@ -1009,9 +1003,7 @@ export const DailyInspirationWidget = React.memo(({ variant = 'card' }: { varian
                         activeTab === 'quote' && styles.quoteItalicStyle,
                         { fontSize: 15, color: 'rgba(255,255,255,0.9)' }
                     ]}>
-                        {activeTab === 'quote' && <Text style={styles.quoteMark}>"</Text>}
-                        {content.text}
-                        {activeTab === 'quote' && <Text style={styles.quoteMark}>"</Text>}
+                        {activeTab === 'quote' ? `"${content.text}"` : content.text}
                     </Text>
                 </View>
             </Animated.View>
@@ -1058,11 +1050,10 @@ export const DailyInspirationWidget = React.memo(({ variant = 'card' }: { varian
                 <View style={styles.inspirationContent}>
                     <Text style={[
                         styles.inspirationCardText,
-                        activeTab === 'quote' && styles.quoteItalicStyle
+                        activeTab === 'quote' && styles.quoteItalicStyle,
+                        { fontSize: 18 }
                     ]}>
-                        {activeTab === 'quote' && <Text style={styles.quoteMark}>"</Text>}
-                        {content.text}
-                        {activeTab === 'quote' && <Text style={styles.quoteMark}>"</Text>}
+                        {activeTab === 'quote' ? `"${content.text}"` : content.text}
                     </Text>
                 </View>
             </GlassCard>
@@ -1075,22 +1066,25 @@ export const MenstrualPhaseWidget = React.memo(() => {
     const isFemale = profile?.gender === 'female';
     const cycleProfile = isFemale ? profile?.cycle_profile : partnerProfile?.cycle_profile;
 
-    let computedPhase: string;
+    let computedPhase: string = '';
+    const phaseContext = isFemale ? profile?.menstrual_cycle : partnerProfile?.menstrual_cycle;
+
     if (cycleProfile?.last_period_start) {
         const { getCycleDay, getPhaseForDay } = require('../lib/cycle');
         const currentDay = getCycleDay(cycleProfile.last_period_start, cycleProfile.avg_cycle_length || 28);
         const phaseObj = getPhaseForDay(currentDay, cycleProfile.avg_cycle_length || 28, cycleProfile.avg_period_length || 5);
         computedPhase = phaseObj.name.toLowerCase();
+    } else if (phaseContext && typeof phaseContext === 'object') {
+        computedPhase = (phaseContext.current_phase || 'follicular').toLowerCase();
     } else {
-        const phaseContext = isFemale ? profile?.menstrual_cycle : partnerProfile?.menstrual_cycle;
-        // Don't hardcode 'follicular' — show nothing rather than wrong data
-        computedPhase = (phaseContext?.current_phase || '').toLowerCase();
+        computedPhase = 'follicular';
     }
-    const phase = computedPhase;
-    // Return null instead of permanently showing hardcoded Follicular
-    if (!phase) return null;
 
     const [photo, setPhoto] = useState<{ url: string; name: string; link: string } | null>(null);
+    const phase = computedPhase;
+
+    // Early return AFTER hooks
+    if (!phase) return null;
 
     useEffect(() => {
         let isMounted = true;
@@ -1207,7 +1201,7 @@ export const MenstrualPhaseWidget = React.memo(() => {
                             </View>
                         </View>
                         <Text style={[
-                            styles.menstrualTip,
+                            styles.menstrualTitle,
                             { color: 'rgba(255,255,255,0.95)', marginTop: 16, lineHeight: 22, fontSize: 15, textShadowColor: 'rgba(0, 0, 0, 0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }
                         ]}>
                             {phaseTips[phase as keyof typeof phaseTips]}
@@ -1543,7 +1537,7 @@ const styles = StyleSheet.create({
         width: 4,
         height: 4,
         borderRadius: 2,
-        backgroundColor: 'rgba(255,255,255,0.45)',
+        backgroundColor: 'rgba(255,255,255,0.7)',
     },
     countdownSparkA: {
         right: 56,
@@ -1613,7 +1607,7 @@ const styles = StyleSheet.create({
     eventSubText: {
         fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
+        color: 'rgba(255,255,255,0.55)',
         marginTop: 1,
         letterSpacing: 0.5,
     },
@@ -1667,8 +1661,8 @@ const styles = StyleSheet.create({
     timerLabel: {
         fontSize: 8,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.25)',
-        letterSpacing: 2,
+        color: 'rgba(255,255,255,0.5)',
+        letterSpacing: 1.5,
         textTransform: 'uppercase',
         marginTop: -4,
     },
@@ -1714,7 +1708,7 @@ const styles = StyleSheet.create({
     },
     secondaryTimerValue: {
         marginTop: 6,
-        color: 'rgba(255,255,255,0.65)',
+        color: 'rgba(255,255,255,0.85)',
         fontSize: 11,
         fontFamily: Typography.sans,
         letterSpacing: 0.6,
@@ -1767,6 +1761,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 2,
+    },
+    inspirationCardText: {
+        fontSize: 18,
+        lineHeight: 26,
+        fontFamily: Typography.sans,
+        color: 'rgba(255,255,255,0.95)',
     },
     passionTitle: {
         color: 'white',
@@ -1826,7 +1826,7 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255,255,255,0.05)',
     },
     locDistanceText: {
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.58)',
         letterSpacing: 0.8,
@@ -1873,7 +1873,7 @@ const styles = StyleSheet.create({
         borderRadius: 3,
     },
     locStatusText: {
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.62)',
         letterSpacing: 0.8,
@@ -1926,13 +1926,13 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(251,113,133,0.2)',
     },
     letterLabel: {
-        fontSize: 11,
+        fontSize: 18,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.6)',
+        color: 'rgba(255,255,255,0.82)',
         letterSpacing: 1.2,
     },
     letterPreviewTitle: {
-        fontSize: 18,
+        fontSize: 15,
         fontFamily: Typography.serif,
         color: 'white',
         marginTop: 2,
@@ -1940,7 +1940,7 @@ const styles = StyleSheet.create({
     letterSnippet: {
         fontSize: 15,
         fontFamily: Typography.serifItalic,
-        color: 'rgba(255,255,255,0.7)',
+        color: 'rgba(255,255,255,0.88)',
         lineHeight: 24,
         marginBottom: 24,
     },
@@ -2007,7 +2007,7 @@ const styles = StyleSheet.create({
     },
     headerActivateText: {
         color: Colors.dark.rose[400],
-        fontSize: 8.5,
+        fontSize: 12.5,
         fontFamily: Typography.sansBold,
         letterSpacing: 0.8,
     },
@@ -2019,9 +2019,9 @@ const styles = StyleSheet.create({
         marginRight: 5,
     },
     tabToggleText: {
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
+        color: 'rgba(255,255,255,0.55)',
         letterSpacing: 1,
     },
     tabToggleTextActive: {
@@ -2036,13 +2036,6 @@ const styles = StyleSheet.create({
         fontSize: 24,
         fontFamily: Typography.serifBold,
     },
-    inspirationCardText: {
-        color: 'rgba(255,255,255,0.85)',
-        fontSize: 15,
-        fontFamily: Typography.serif,
-        lineHeight: 24,
-        textAlign: 'left',
-    },
     quoteItalicStyle: {
         fontFamily: Typography.serifItalic,
     },
@@ -2051,7 +2044,6 @@ const styles = StyleSheet.create({
     menstrualHeader: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 20 },
     menstrualTitle: { color: 'white', fontSize: 20, fontFamily: Typography.serifBold, letterSpacing: -0.5 },
     menstrualSub: { color: 'rgba(255,255,255,0.4)', fontSize: 9, fontFamily: Typography.sansBold, letterSpacing: 1.5 },
-    menstrualTip: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontFamily: Typography.serifItalic, marginBottom: 24, lineHeight: 22 },
     menstrualProgress: { height: 4, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' },
     menstrualFill: { height: '100%', backgroundColor: Colors.dark.rose[400], borderRadius: 2 },
 
@@ -2060,14 +2052,13 @@ const styles = StyleSheet.create({
     bucketTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
     bucketIconContainer: { width: 40, height: 40, borderRadius: 10, backgroundColor: 'rgba(225, 29, 72, 0.05)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(225, 29, 72, 0.1)' },
     bucketTitle: { color: 'white', fontSize: 20, fontFamily: Typography.serifBold, letterSpacing: -0.5 },
-    bucketSubtitle: { color: 'rgba(255,255,255,0.3)', fontSize: 8, fontFamily: Typography.sansBold, letterSpacing: 1.5, marginTop: 2 },
-
+    bucketSubtitle: { color: 'rgba(255,255,255,0.4)', fontSize: 9, fontFamily: Typography.sansBold, letterSpacing: 1 },
     progressContainer: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
     progressSvg: { transform: [{ rotate: '-90deg' }] },
     progressTextContainer: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-    progressCompleted: { color: 'white', fontSize: 9, fontFamily: Typography.sansBold, lineHeight: 9 },
-    progressDivider: { width: 6, height: 1, backgroundColor: 'rgba(255,255,255,0.2)', marginVertical: 0.5 },
-    progressTotal: { color: 'rgba(255,255,255,0.3)', fontSize: 7, fontFamily: Typography.sansBold, lineHeight: 7 },
+    progressCompleted: { color: 'white', fontSize: 13, fontFamily: Typography.sansBold, lineHeight: 9 },
+    progressDivider: { width: 6, height: 1, backgroundColor: 'rgba(255,255,255,0.45)', marginVertical: 0.5 },
+    progressTotal: { color: 'rgba(255,255,255,0.55)', fontSize: 12, fontFamily: Typography.sansBold, lineHeight: 7 },
 
     bucketInputContainer: {
         flexDirection: 'row',
@@ -2102,10 +2093,10 @@ const styles = StyleSheet.create({
         marginBottom: 4
     },
     bucketItemCompleted: { opacity: 0.6, backgroundColor: 'rgba(225, 29, 72, 0.03)', borderColor: 'rgba(225, 29, 72, 0.05)' },
-    itemCheck: { width: 18, height: 18, borderRadius: Radius.full, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+    itemCheck: { width: 18, height: 18, borderRadius: Radius.full, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.45)', alignItems: 'center', justifyContent: 'center' },
     itemCheckActive: { backgroundColor: Colors.dark.rose[500], borderColor: Colors.dark.rose[500] },
-    itemText: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontFamily: Typography.sansBold, flex: 1 },
-    itemTextCompleted: { color: 'rgba(255,255,255,0.3)', textDecorationLine: 'line-through' },
+    itemText: { color: 'rgba(255,255,255,0.92)', fontSize: 13, fontFamily: Typography.sansBold, flex: 1 },
+    itemTextCompleted: { color: 'rgba(255,255,255,0.55)', textDecorationLine: 'line-through' },
 
     onThisDayCard: {
         margin: Spacing.sm,
@@ -2157,7 +2148,7 @@ const styles = StyleSheet.create({
     },
     otdCountText: {
         color: 'white',
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
         textShadowColor: 'rgba(0, 0, 0, 0.5)',
@@ -2193,7 +2184,7 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     otdDateText: {
-        color: 'rgba(255,255,255,0.8)',
+        color: 'rgba(255,255,255,0.92)',
         fontSize: 11,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
@@ -2203,7 +2194,7 @@ const styles = StyleSheet.create({
     },
 
     viewMoreBtn: { marginTop: 16, alignItems: 'center', paddingVertical: 8 },
-    viewMoreText: { color: 'rgba(255,255,255,0.4)', fontSize: 9, fontFamily: Typography.sansBold, letterSpacing: 1.5 },
+    viewMoreText: { color: 'rgba(255,255,255,0.65)', fontSize: 13, fontFamily: Typography.sansBold, letterSpacing: 1.5 },
     notifBadgeDot: {
         width: 4,
         height: 4,
@@ -2222,7 +2213,7 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     notifDesc: {
-        color: 'rgba(255,255,255,0.5)',
+        color: 'rgba(255,255,255,0.75)',
         fontSize: 13,
         fontFamily: Typography.sans,
         lineHeight: 18,
@@ -2243,7 +2234,7 @@ const styles = StyleSheet.create({
     },
     notifBtnText: {
         color: 'white',
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
     },
@@ -2265,13 +2256,13 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     morningInsightLabel: {
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
-        letterSpacing: 2,
+        color: 'rgba(255,255,255,0.65)',
+        letterSpacing: 1.5,
     },
 
-    // ── ConnectionBoard (Vibe Sync) ──────────────────────────────────────────
+    // ── ConnectionBoard (Moods) ──────────────────────────────────────────
     connCard: {
         margin: Spacing.sm,
         borderRadius: 24,
@@ -2347,7 +2338,7 @@ const styles = StyleSheet.create({
     connUserLabelRedesign: {
         fontSize: 13,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.7)',
+        color: 'rgba(255,255,255,0.88)',
         marginBottom: 4,
     },
     connUserLabelRow: { flexDirection: 'row', alignItems: 'center' },
@@ -2358,17 +2349,17 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     connMoodLabelInline: { fontSize: 13, fontFamily: Typography.sansBold, color: 'white', marginLeft: 6 },
+    connMoodLabelInlineSelf: { fontSize: 13, fontFamily: Typography.sansBold, color: '#fb7185', marginLeft: 6 },
     biologicalBadge: {
         flexDirection: 'row', alignItems: 'center', marginLeft: 8,
         paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
         backgroundColor: 'rgba(251,113,133,0.1)', borderWidth: 1, borderColor: 'rgba(251,113,133,0.2)'
     },
-    biologicalBadgeText: { fontSize: 7, fontFamily: Typography.sansBold, color: '#fb7185', letterSpacing: 0.5 },
-    connMoodLabelInlineSelf: { fontSize: 13, fontFamily: Typography.sansBold, color: 'white', marginLeft: 6 },
+    biologicalBadgeText: { fontSize: 8, fontFamily: Typography.sansBold, color: '#fb7185', letterSpacing: 0.5 },
     connEmptyTextRedesign: {
         fontSize: 11,
         fontFamily: Typography.sans,
-        color: 'rgba(255,255,255,0.25)',
+        color: 'rgba(255,255,255,0.5)',
         fontStyle: 'italic',
     },
     connNoteBoxRedesign: {
@@ -2391,7 +2382,7 @@ const styles = StyleSheet.create({
         flex: 1,
         fontSize: 13,
         fontFamily: Typography.serifItalic,
-        color: 'rgba(255,255,255,0.65)',
+        color: 'rgba(255,255,255,0.85)',
         lineHeight: 20,
     },
     connNoteBoxEmpty: {
@@ -2417,4 +2408,5 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.06)',
     },
 });
+
 

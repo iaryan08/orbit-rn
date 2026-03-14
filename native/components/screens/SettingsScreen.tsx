@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Switch, Alert, KeyboardAvoidingView, Platform, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Switch, Alert, KeyboardAvoidingView, Platform, Modal, ActivityIndicator } from 'react-native';
 import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
 import {
@@ -39,29 +39,33 @@ const FADE_OUT_ANIM = undefined; // Android-only: layout animations crash at mod
 export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const {
-        profile,
-        partnerProfile,
-        couple,
-        idToken,
-        appMode,
-        setAppMode,
-        wallpaperConfig,
-        setWallpaperConfig,
-        settingsTargetTab,
-        setSettingsTargetTab,
-        debugApiUrl,
-        setDebugApiUrl,
-        isAppLockEnabled,
-        setAppLockEnabled,
-        isBiometricEnabled,
-        setBiometricEnabled,
-        appPinCode,
-        setAppPinCode,
-        memories,
-        polaroids,
-        syncNow
-    } = useOrbitStore();
+    const profile = useOrbitStore(s => s.profile);
+    const partnerProfile = useOrbitStore(s => s.partnerProfile);
+    const couple = useOrbitStore(s => s.couple);
+    const idToken = useOrbitStore(s => s.idToken);
+    const appMode = useOrbitStore(s => s.appMode);
+    const setAppMode = useOrbitStore(s => s.setAppMode);
+    const wallpaperConfig = useOrbitStore(s => s.wallpaperConfig);
+    const setWallpaperConfig = useOrbitStore(s => s.setWallpaperConfig);
+    const settingsTargetTab = useOrbitStore(s => s.settingsTargetTab);
+    const setSettingsTargetTab = useOrbitStore(s => s.setSettingsTargetTab);
+    const debugApiUrl = useOrbitStore(s => s.debugApiUrl);
+    const setDebugApiUrl = useOrbitStore(s => s.setDebugApiUrl);
+    const isAppLockEnabled = useOrbitStore(s => s.isAppLockEnabled);
+    const setAppLockEnabled = useOrbitStore(s => s.setAppLockEnabled);
+    const isBiometricEnabled = useOrbitStore(s => s.isBiometricEnabled);
+    const setBiometricEnabled = useOrbitStore(s => s.setBiometricEnabled);
+    const appPinCode = useOrbitStore(s => s.appPinCode);
+    const setAppPinCode = useOrbitStore(s => s.setAppPinCode);
+    const memories = useOrbitStore(s => s.memories);
+    const polaroids = useOrbitStore(s => s.polaroids);
+    const isLiteMode = useOrbitStore(s => s.isLiteMode);
+    const isAndroidPerformanceMode = true; // Android-only focus
+    const notifications = useOrbitStore(s => s.notifications);
+
+    const isFemale = profile?.gender?.toLowerCase() === 'female';
+    const isCurrentTab = useOrbitStore(s => s.activeTabIndex === (isFemale ? 10 : 9));
+    const isFocused = isCurrentTab && isActive;
 
     // Local scroll tracking
     const scrollRef = useRef<Animated.ScrollView>(null);
@@ -88,6 +92,7 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
     }));
     const [activeTab, setActiveTab] = useState<TabId>(settingsTargetTab || 'profile');
     const [saving, setSaving] = useState(false);
+    const [isWallpaperUploading, setIsWallpaperUploading] = useState(false);
     const [copied, setCopied] = useState(false);
     const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const wallpaperWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -269,6 +274,11 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
         scheduleWallpaperPersist({ wallpaper_aesthetic: aesthetic });
     };
 
+    const handleOverlayStyleChange = (style: AppSlice['wallpaperConfig']['overlayStyle']) => {
+        pulseHaptic();
+        setWallpaperConfig({ overlayStyle: style });
+    };
+
     const validateAndSavePin = () => {
         if (!/^\d{4}$/.test(pinInput)) {
             Alert.alert('Invalid PIN', 'PIN must be exactly 4 digits.');
@@ -301,7 +311,7 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
             });
 
             if (!result.canceled && result.assets[0].uri) {
-                setSaving(true);
+                setIsWallpaperUploading(true);
                 const uploadResult = await uploadWallpaper(result.assets[0].uri);
                 if (uploadResult.error) {
                     Alert.alert('Upload Failed', uploadResult.error);
@@ -313,7 +323,7 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
         } catch (e: any) {
             Alert.alert('Error', e.message || 'Failed to pick image');
         } finally {
-            setSaving(false);
+            setIsWallpaperUploading(false);
         }
     };
 
@@ -419,6 +429,7 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                                 style={styles.input}
                                 value={displayName}
                                 onChangeText={setDisplayName}
+                                placeholder="YOUR NAME"
                                 placeholderTextColor="rgba(255,255,255,0.3)"
                             />
                         </View>
@@ -447,19 +458,19 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                 return (
                     <Animated.View entering={FADE_IN_ANIM} exiting={FADE_OUT_ANIM} style={styles.tabContent}>
                         <View style={styles.formGroup}>
-                            <Text style={styles.label}>Partner Nickname</Text>
+                            <Text style={styles.label}>PARTNER NICKNAME</Text>
                             <TextInput
                                 style={styles.input}
                                 value={partnerNickname}
                                 onChangeText={setPartnerNickname}
-                                placeholder="My Love, Bubba..."
+                                placeholder="MY LOVE, BUBBA..."
                                 placeholderTextColor="rgba(255,255,255,0.3)"
                             />
-                            <Text style={styles.hint}>This is private to you.</Text>
+                            <Text style={styles.hint}>THIS IS PRIVATE TO YOU.</Text>
                         </View>
 
                         <View style={styles.formGroup}>
-                            <Text style={styles.label}>Space Name</Text>
+                            <Text style={styles.label}>SPACE NAME</Text>
                             <TextInput
                                 style={styles.input}
                                 value={coupleName}
@@ -469,7 +480,7 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                         </View>
 
                         <View style={styles.formGroup}>
-                            <Text style={styles.label}>Anniversary Date</Text>
+                            <Text style={styles.label}>ANNIVERSARY DATE</Text>
                             <TextInput
                                 style={styles.input}
                                 value={anniversaryDate}
@@ -477,7 +488,7 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                                 placeholder="DD/MM/YYYY"
                                 placeholderTextColor="rgba(255,255,255,0.3)"
                             />
-                            <Text style={styles.hint}>Used for milestone countdowns.</Text>
+                            <Text style={styles.hint}>USED FOR MILESTONE COUNTDOWNS.</Text>
                         </View>
 
                         <TouchableOpacity
@@ -492,8 +503,8 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
             case 'atmosphere':
                 return (
                     <Animated.View entering={FADE_IN_ANIM} exiting={FADE_OUT_ANIM} style={styles.tabContent}>
-                        <Text style={styles.sectionTitle}>Atmosphere</Text>
-                        <Text style={styles.sectionSub}>Personalize the private celestial space</Text>
+                        <Text style={styles.sectionTitle}>ATMOSPHERE</Text>
+                        <Text style={styles.sectionSub}>PERSONALIZE YOUR PRIVATE CELESTIAL SPACE</Text>
 
                         <View style={styles.bgGrid}>
                             <TouchableOpacity
@@ -523,17 +534,23 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                                 )}
                                 {profile?.custom_wallpaper_url && <View style={styles.bgOverlay} />}
                                 {profile?.custom_wallpaper_url && <Text style={[styles.bgOptionLabel, styles.bgOptionOverlayText]}>Custom</Text>}
+
+                                {isWallpaperUploading && (
+                                    <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 10 }]}>
+                                        <ActivityIndicator color="white" size="small" />
+                                    </View>
+                                )}
                             </TouchableOpacity>
 
                             {/* Shared/Mirror Option */}
                             <TouchableOpacity
                                 style={[styles.bgOption, wallpaperConfig.mode === 'shared' && styles.activeBg, { overflow: 'hidden', padding: 0 }, !partnerProfile?.custom_wallpaper_url && { opacity: 0.5 }]}
                                 onPress={() => handleWallpaperChange('shared')}
-                                disabled={!partnerProfile?.custom_wallpaper_url}
+                                disabled={!(partnerProfile?.custom_wallpaper_url || partnerProfile?.wallpaper_url)}
                             >
-                                {partnerProfile?.custom_wallpaper_url ? (
+                                {(partnerProfile?.custom_wallpaper_url || partnerProfile?.wallpaper_url) ? (
                                     <ExpoImage
-                                        source={{ uri: getPublicStorageUrl(partnerProfile.custom_wallpaper_url, 'wallpapers', idToken) || undefined }}
+                                        source={{ uri: getPublicStorageUrl(partnerProfile.custom_wallpaper_url || partnerProfile.wallpaper_url, 'wallpapers', idToken) || undefined }}
                                         style={StyleSheet.absoluteFillObject}
                                         contentFit="cover"
                                         transition={0} // Instant thumbnail
@@ -545,8 +562,8 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                                         <Text style={styles.bgOptionLabel}>Mirror</Text>
                                     </>
                                 )}
-                                {partnerProfile?.custom_wallpaper_url && <View style={styles.bgOverlay} />}
-                                {partnerProfile?.custom_wallpaper_url && <Text style={[styles.bgOptionLabel, styles.bgOptionOverlayText]}>Mirror</Text>}
+                                {(partnerProfile?.custom_wallpaper_url || partnerProfile?.wallpaper_url) && <View style={styles.bgOverlay} />}
+                                {(partnerProfile?.custom_wallpaper_url || partnerProfile?.wallpaper_url) && <Text style={[styles.bgOptionLabel, styles.bgOptionOverlayText]}>Mirror</Text>}
                             </TouchableOpacity>
                         </View>
 
@@ -598,10 +615,10 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                             <Text style={styles.label}>Aesthetic Customization</Text>
                             <View style={styles.filterGrid}>
                                 {[
-                                    { key: 'Natural', icon: Circle, color: '#fff', sub: 'Pure' },
-                                    { key: 'Obsidian', icon: Moon, color: Colors.dark.amber[400], sub: 'Deep' },
-                                    { key: 'Glass', icon: Wind, color: Colors.dark.indigo[400], sub: 'Frost' },
-                                    { key: 'Cinema', icon: Sparkles, color: '#A855F7', sub: 'Action' },
+                                    { key: 'Natural', label: 'Soft', icon: Circle, color: '#fff', sub: 'Balanced' },
+                                    { key: 'Obsidian', label: 'Noir', icon: Moon, color: Colors.dark.amber[400], sub: 'Contrast' },
+                                    { key: 'Glass', label: 'Frost', icon: Wind, color: Colors.dark.indigo[400], sub: 'Cool' },
+                                    { key: 'Cinema', label: 'Glow', icon: Sparkles, color: '#A855F7', sub: 'Warm' },
                                 ].map((item) => (
                                     <TouchableOpacity
                                         key={item.key}
@@ -609,8 +626,30 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                                         onPress={() => handleAestheticChange(item.key as any)}
                                     >
                                         <item.icon size={18} color={wallpaperConfig.aesthetic === item.key ? item.color : 'rgba(255,255,255,0.4)'} />
-                                        <Text style={[styles.filterText, wallpaperConfig.aesthetic === item.key && { color: 'white' }]}>{item.key}</Text>
+                                        <Text style={[styles.filterText, wallpaperConfig.aesthetic === item.key && { color: 'white' }]}>{item.label}</Text>
                                         <Text style={styles.filterSubText}>{item.sub}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+
+                        <View style={[styles.filterSection, (wallpaperConfig.grayscale || wallpaperConfig.mode === 'stars') && { opacity: 0.3 }]} pointerEvents={(wallpaperConfig.grayscale || wallpaperConfig.mode === 'stars') ? 'none' : 'auto'}>
+                            <Text style={styles.label}>Overlay Style</Text>
+                            <View style={styles.overlayGrid}>
+                                {[
+                                    { key: 'default', label: 'Soft', sub: 'Balanced' },
+                                    { key: 'A', label: 'Cinema', sub: 'Moody' },
+                                    { key: 'B', label: 'Deep', sub: 'Contrast' },
+                                    { key: 'AB', label: 'Blend', sub: 'Smooth' },
+                                ].map((item) => (
+                                    <TouchableOpacity
+                                        key={item.key}
+                                        style={[styles.overlayButton, wallpaperConfig.overlayStyle === item.key && styles.activeOverlay]}
+                                        onPress={() => handleOverlayStyleChange(item.key as any)}
+                                    >
+                                        <Layers size={16} color={wallpaperConfig.overlayStyle === item.key ? Colors.dark.rose[400] : 'rgba(255,255,255,0.45)'} />
+                                        <Text style={[styles.overlayText, wallpaperConfig.overlayStyle === item.key && { color: 'white' }]}>{item.label}</Text>
+                                        <Text style={styles.overlaySubText}>{item.sub}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
@@ -712,8 +751,8 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
             case 'security':
                 return (
                     <Animated.View entering={FADE_IN_ANIM} exiting={FADE_OUT_ANIM} style={styles.tabContent}>
-                        <Text style={styles.sectionTitle}>Privacy & Security</Text>
-                        <Text style={styles.sectionSub}>Protect your private celestial space</Text>
+                        <Text style={styles.sectionTitle}>PRIVACY & SECURITY</Text>
+                        <Text style={styles.sectionSub}>PROTECT YOUR PRIVATE CELESTIAL SPACE</Text>
 
                         <GlassCard style={styles.protectionCard} intensity={15}>
                             <View style={styles.settingRow}>
@@ -862,8 +901,12 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                 }}
             >
                 <View style={GlobalStyles.centeredHeader}>
-                    <Animated.Text style={[GlobalStyles.centeredTitle, titleAnimatedStyle]}>Settings</Animated.Text>
-                    <Animated.Text style={[GlobalStyles.centeredSubtitle, sublineAnimatedStyle]}>Identity · Space · Atmosphere</Animated.Text>
+                    <Animated.Text style={[GlobalStyles.standardTitle, !isAndroidPerformanceMode && titleAnimatedStyle]}>
+                        Settings
+                    </Animated.Text>
+                    <Animated.Text style={[GlobalStyles.standardSubtitle, !isAndroidPerformanceMode && sublineAnimatedStyle]}>
+                        CELESTIAL · PORTAL
+                    </Animated.Text>
                 </View>
 
                 {/* Profile Card Summary */}
@@ -875,8 +918,8 @@ export function SettingsScreen({ isActive = true }: { isActive?: boolean }) {
                             size={64}
                         />
                         <View>
-                            <Text style={styles.summaryName}>{profile?.display_name?.split(' ')[0] || "User"}</Text>
-                            <Text style={styles.summarySub}>{profile?.email?.split('@')[0] || "Verified account"}</Text>
+                            <Text style={styles.summaryName}>{profile?.display_name || 'YOU'}</Text>
+                            <Text style={styles.summarySub}>ACCOUNT ECOSYSTEM</Text>
                         </View>
                     </View>
                     <TouchableOpacity
@@ -1027,9 +1070,10 @@ const styles = StyleSheet.create({
         gap: Spacing.md,
     },
     summaryName: {
-        fontSize: 22,
+        fontSize: 26,
         color: 'white',
-        fontFamily: Typography.serif,
+        fontFamily: Typography.sansBold, // Syne for unique feel
+        letterSpacing: -1,
     },
     summarySub: {
         fontSize: 11,
@@ -1071,9 +1115,10 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     tabLabel: {
-        fontSize: 15,
-        color: 'rgba(255,255,255,0.4)',
-        fontFamily: Typography.serif,
+        fontSize: 10,
+        color: 'rgba(255,255,255,0.65)',
+        fontFamily: Typography.sansBold, // Outfit
+        letterSpacing: 0.5,
     },
     tabLabelActive: {
         color: 'white',
@@ -1108,27 +1153,29 @@ const styles = StyleSheet.create({
     },
     label: {
         fontSize: 10,
-        fontFamily: Typography.serifItalic,
+        fontFamily: Typography.sansBold, // Outfit technical labels
         color: 'rgba(255,255,255,0.4)',
-        letterSpacing: 4,
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+        marginBottom: 8,
         marginLeft: 4,
     },
     input: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
+        backgroundColor: 'rgba(255,255,255,0.03)',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 30,
-        height: 56,
+        borderColor: 'rgba(255,255,255,0.06)',
+        borderRadius: 20,
         paddingHorizontal: 20,
+        height: 60,
         color: 'white',
         fontSize: 16,
-        fontFamily: Typography.sans,
+        fontFamily: Typography.sans, // Outfit
+        letterSpacing: 0.5,
     },
     hint: {
-        fontSize: 10,
-        color: 'rgba(255,255,255,0.3)',
-        marginLeft: 4,
-        fontFamily: Typography.serifItalic,
+        fontSize: 13,
+        color: 'rgba(255,255,255,0.5)',
+        fontFamily: Typography.sans, // Outfit
     },
     codeCard: {
         flexDirection: 'row',
@@ -1141,7 +1188,7 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: Colors.dark.rose[400],
         fontFamily: Typography.sansBold,
-        letterSpacing: 2,
+        letterSpacing: 1.5,
     },
     copyButton: {
         width: 48,
@@ -1163,22 +1210,25 @@ const styles = StyleSheet.create({
     },
     saveButtonText: {
         color: 'white',
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
-        letterSpacing: 2,
+        letterSpacing: 1.5,
     },
     sectionTitle: {
-        fontSize: 24,
-        fontFamily: Typography.serif,
-        color: 'white',
+        fontSize: 11,
+        fontFamily: Typography.display, // Bodoni (Vogue vibes)
+        color: 'rgba(255,255,255,0.5)',
+        letterSpacing: 3,
+        textAlign: 'center',
+        marginTop: 10,
     },
     sectionSub: {
         fontSize: 11,
-        color: 'rgba(255,255,255,0.4)',
-        textTransform: 'uppercase',
-        fontFamily: Typography.sansBold,
-        letterSpacing: 1,
-        marginTop: 4,
+        fontFamily: Typography.serifItalic, // Bodoni Italic
+        color: 'rgba(255,255,255,0.35)',
+        textAlign: 'center',
+        marginBottom: 20,
+        letterSpacing: 0.5,
     },
     bgGrid: {
         flexDirection: 'row',
@@ -1201,7 +1251,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'black',
     },
     bgOptionLabel: {
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
         color: 'white',
         textTransform: 'uppercase',
@@ -1242,22 +1292,26 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     settingLabel: {
-        fontSize: 15,
         color: 'white',
-        fontFamily: Typography.serif,
+        fontSize: 15,
+        fontFamily: Typography.sans, // Outfit for clarity
+        letterSpacing: 0.2,
     },
     settingSub: {
-        fontSize: 9,
-        color: 'rgba(255,255,255,0.3)',
-        textTransform: 'uppercase',
-        fontFamily: Typography.sans,
-        letterSpacing: 1,
+        color: 'rgba(255,255,255,0.45)',
+        fontSize: 12,
+        fontFamily: Typography.serifItalic, // Bodoni Italic poetic hint
+        marginTop: 2,
     },
     filterSection: {
         marginTop: Spacing.md,
         gap: 16,
     },
     filterGrid: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    overlayGrid: {
         flexDirection: 'row',
         gap: 12,
     },
@@ -1273,20 +1327,50 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     activeFilter: {
-        borderColor: 'rgba(255,255,255,0.25)',
+        borderColor: 'rgba(255,255,255,0.5)',
         backgroundColor: 'rgba(255,255,255,0.12)',
     },
     filterText: {
-        fontSize: 8,
+        fontSize: 12,
         fontFamily: Typography.serifItalic,
-        color: 'rgba(255,255,255,0.6)',
+        color: 'rgba(255,255,255,0.82)',
         textTransform: 'uppercase',
         letterSpacing: 1,
     },
     filterSubText: {
-        fontSize: 7,
+        fontSize: 11,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.25)',
+        color: 'rgba(255,255,255,0.5)',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginTop: -4,
+    },
+    overlayButton: {
+        flex: 1,
+        height: 78,
+        borderRadius: 18,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+    },
+    activeOverlay: {
+        borderColor: 'rgba(255,255,255,0.5)',
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    overlayText: {
+        fontSize: 13,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.82)',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    overlaySubText: {
+        fontSize: 11,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.5)',
         textTransform: 'uppercase',
         letterSpacing: 0.5,
         marginTop: -4,
@@ -1314,7 +1398,7 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.dark.rose[900] + '11',
     },
     actionButtonText: {
-        fontSize: 9,
+        fontSize: 13,
         fontFamily: Typography.sansBold,
         color: 'white',
         letterSpacing: 1,
@@ -1334,9 +1418,9 @@ const styles = StyleSheet.create({
     },
     signOutText: {
         color: Colors.dark.rose[400],
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
-        letterSpacing: 2,
+        letterSpacing: 1.5,
     },
     premiumBadge: {
         backgroundColor: Colors.dark.rose[900] + '33',
@@ -1349,7 +1433,7 @@ const styles = StyleSheet.create({
     },
     premiumBadgeText: {
         color: Colors.dark.rose[400],
-        fontSize: 7,
+        fontSize: 11,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
     },
@@ -1361,7 +1445,7 @@ const styles = StyleSheet.create({
         padding: 4,
         borderRadius: 28,
         marginTop: 8,
-        backgroundColor: 'rgba(255,255,255,0.02)',
+        backgroundColor: 'rgba(0,0,0,0.15)',
     },
     protectionDivider: {
         height: 1,
@@ -1378,7 +1462,7 @@ const styles = StyleSheet.create({
     },
     pinSetBtnText: {
         color: 'white',
-        fontSize: 10,
+        fontSize: 18,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
     },
@@ -1390,8 +1474,8 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     protectionBenefitText: {
-        color: 'rgba(255,255,255,0.25)',
-        fontSize: 9,
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 13,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
         textTransform: 'uppercase',
@@ -1407,7 +1491,7 @@ const styles = StyleSheet.create({
     },
     activeBadgeText: {
         color: Colors.dark.emerald[400],
-        fontSize: 7,
+        fontSize: 11,
         fontFamily: Typography.sansBold,
     },
     securityHintBox: {
@@ -1415,7 +1499,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
     },
     securityHintText: {
-        color: 'rgba(255,255,255,0.35)',
+        color: 'rgba(255,255,255,0.6)',
         fontSize: 12,
         fontFamily: Typography.serifItalic,
         lineHeight: 18,
@@ -1441,7 +1525,7 @@ const styles = StyleSheet.create({
         fontFamily: Typography.serifBold,
     },
     pinModalSub: {
-        color: 'rgba(255,255,255,0.5)',
+        color: 'rgba(255,255,255,0.75)',
         fontSize: 12,
         fontFamily: Typography.sans,
         marginBottom: 6,
@@ -1480,7 +1564,7 @@ const styles = StyleSheet.create({
         borderColor: Colors.dark.rose[400],
     },
     pinCancelText: {
-        color: 'rgba(255,255,255,0.8)',
+        color: 'rgba(255,255,255,0.92)',
         fontSize: 13,
         fontFamily: Typography.sansBold,
     },
@@ -1490,7 +1574,7 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
     },
     placeholderText: {
-        color: 'rgba(255,255,255,0.2)',
+        color: 'rgba(255,255,255,0.45)',
         textAlign: 'center',
         marginTop: 40,
         fontFamily: Typography.serifItalic,
@@ -1499,7 +1583,7 @@ const styles = StyleSheet.create({
         padding: Spacing.xl,
         gap: 20,
         borderRadius: 32,
-        backgroundColor: 'rgba(255,255,255,0.02)',
+        backgroundColor: 'rgba(0,0,0,0.15)',
     },
     longevityHeader: {
         flexDirection: 'row',
@@ -1522,7 +1606,7 @@ const styles = StyleSheet.create({
     },
     safeBadgeText: {
         color: Colors.dark.emerald[400],
-        fontSize: 8,
+        fontSize: 12,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
     },
@@ -1544,8 +1628,8 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
     },
     statLabel: {
-        fontSize: 8,
-        color: 'rgba(255,255,255,0.3)',
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.55)',
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
     },
@@ -1556,7 +1640,7 @@ const styles = StyleSheet.create({
     },
     longevityHint: {
         fontSize: 11,
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.65)',
         lineHeight: 18,
         fontFamily: Typography.serifItalic,
     },
@@ -1573,7 +1657,7 @@ const styles = StyleSheet.create({
     },
     verifyButtonText: {
         color: 'white',
-        fontSize: 9,
+        fontSize: 13,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
     },
@@ -1582,7 +1666,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 16,
         padding: 20,
-        backgroundColor: 'rgba(255,255,255,0.03)',
+        backgroundColor: 'rgba(0,0,0,0.15)',
         borderRadius: 24,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.05)',
@@ -1593,8 +1677,8 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
     },
     migrationSub: {
-        fontSize: 10,
-        color: 'rgba(255,255,255,0.4)',
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.65)',
         fontFamily: Typography.serifItalic,
         marginTop: 2,
     }

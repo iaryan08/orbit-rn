@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+﻿import React, { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Animated, {
     useSharedValue,
@@ -92,8 +92,8 @@ const styles = StyleSheet.create({
     sublineText: {
         fontSize: 12,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
-        letterSpacing: 2,
+        color: 'rgba(255,255,255,0.65)',
+        letterSpacing: 1.5,
         textTransform: 'uppercase',
     },
 });

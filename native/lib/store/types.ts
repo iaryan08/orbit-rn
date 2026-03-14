@@ -1,3 +1,12 @@
+export interface Comment {
+    user_avatar_url?: string | null;
+    id: string;
+    user_id: string;
+    user_name?: string | null;
+    text: string;
+    created_at: any;
+}
+
 export interface PolaroidData {
     id: string;
     image_url: string;
@@ -5,6 +14,7 @@ export interface PolaroidData {
     created_at: any;
     user_id: string | null;
     polaroid_date: string | null;
+    comments?: Comment[];
 }
 
 export interface MemoryData {
@@ -22,7 +32,10 @@ export interface MemoryData {
     updated_at?: any;
     read_by?: string[] | null;
     type?: 'image' | 'video' | 'text';
+    source?: string;
+    source_polaroid_id?: string | null;
     deleted?: boolean;
+    comments?: Comment[];
 }
 
 export interface LetterData {

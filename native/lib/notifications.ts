@@ -42,14 +42,14 @@ const normalizeActorLabel = async ({
     return finalLabel;
 };
 
-const replacePartnerPhrase = (text: string | undefined, actorLabel: string) => {
+export const replacePartnerPhrase = (text: string | undefined, actorLabel: string) => {
     if (!text || typeof text !== 'string') return text;
     return text
         .replace(/\byour partner\b/gi, actorLabel)
         .replace(/\bpartner\b/gi, actorLabel);
 };
 
-const sanitizeCopy = (text: string | undefined) => {
+export const sanitizeCopy = (text: string | undefined) => {
     if (!text) return '';
     return text
         .replace(/\r\n/g, '\n')
@@ -66,41 +66,98 @@ const sanitizeCopy = (text: string | undefined) => {
         .trim();
 };
 
-const buildDefaultCopy = (type: string | undefined, actorLabel: string) => {
+export const buildDefaultCopy = (type: string | undefined, actorLabel: string) => {
     switch (type) {
         case 'heartbeat':
             return {
                 title: `${actorLabel} sent a Heartbeat`,
                 message: `${actorLabel}'s heartbeat just reached you.`,
+                titleText: `${actorLabel} sent a Heartbeat`,
+                messageText: `${actorLabel} shared a heartbeat with you.`,
             };
         case 'spark':
             return {
                 title: `${actorLabel} sent a Spark`,
                 message: `${actorLabel} is thinking about you right now.`,
+                titleText: `${actorLabel} sent a Spark`,
+                messageText: `${actorLabel} is thinking about you right now.`,
             };
         case 'letter':
             return {
                 title: `${actorLabel} sent a Letter`,
                 message: `A new letter from ${actorLabel} is waiting for you.`,
+                titleText: `${actorLabel} sent a Letter`,
+                messageText: `A new letter from ${actorLabel} is waiting for you.`,
             };
         case 'memory':
         case 'moment':
             return {
                 title: `${actorLabel} shared a Moment`,
                 message: `${actorLabel} added a new memory to your shared space.`,
+                titleText: `${actorLabel} shared a Moment`,
+                messageText: `${actorLabel} added a new memory to your shared space.`,
             };
         case 'mood':
             return {
                 title: `${actorLabel} shared a Mood`,
                 message: `${actorLabel} updated their mood.`,
+                titleText: `${actorLabel} shared a Mood`,
+                messageText: `${actorLabel} updated their mood.`,
             };
         default:
             return {
                 title: `${actorLabel} sent an update`,
                 message: `You have a new update from ${actorLabel}.`,
+                titleText: `${actorLabel} sent an update`,
+                messageText: `You have a new update from ${actorLabel}.`,
             };
     }
 };
+
+export function inferActorLabel(item: any, fallbackActor: string) {
+    const actorName = item?.actor_name;
+    if (typeof actorName === 'string' && actorName.trim()) return actorName.trim();
+
+    const title = typeof item?.title === 'string' ? item.title.replace(/\r\n/g, ' ').trim() : '';
+    const sentMatch = title.match(/^(.{1,60}?)\s+sent\b/i);
+    if (sentMatch?.[1]) {
+        let actor = sentMatch[1].replace(/\s+/g, ' ').trim();
+        const chunks = actor.split(' ').filter(Boolean) as string[];
+        if (chunks.length > 1 && chunks.length <= 3 && chunks.every((c: string) => /^[A-Za-z]+$/.test(c) && c.length <= 3)) {
+            actor = chunks.join('');
+        }
+        return actor;
+    }
+
+    return fallbackActor || 'Partner';
+}
+
+export function isLikelyBrokenText(text: string) {
+    if (!text) return true;
+    const words = text.split(' ').filter(Boolean);
+    if (words.length < 4) return false;
+    const shortWords = words.filter(w => w.length <= 3).length;
+    return shortWords / words.length > 0.65;
+}
+
+export function getDisplayCopy(item: any, fallbackActor: string) {
+    const actor = inferActorLabel(item, fallbackActor);
+    const rawTitle = sanitizeCopy(replacePartnerPhrase(item?.title, actor));
+    const rawMessage = sanitizeCopy(replacePartnerPhrase(item?.message, actor));
+    const defaults = buildDefaultCopy(item?.type || '', actor);
+
+    const titleText = isLikelyBrokenText(rawTitle) ? defaults.titleText : rawTitle || defaults.titleText;
+    let messageText = rawMessage || defaults.messageText;
+
+    if (/^partner\b/i.test(messageText)) {
+        messageText = messageText.replace(/^partner\b/i, actor);
+    }
+    if (isLikelyBrokenText(messageText)) {
+        messageText = defaults.messageText;
+    }
+
+    return { titleText, messageText };
+}
 
 export async function sendNotification({
     recipientId,

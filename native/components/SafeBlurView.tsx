@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { View, StyleSheet, Platform, ViewProps } from 'react-native';
 import { BlurView, BlurViewProps } from 'expo-blur';
 

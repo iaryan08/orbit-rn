@@ -1,30 +1,34 @@
 export const Colors = {
     dark: {
-        background: '#000000', // Pure black for OLED battery saving
-        foreground: '#FAFAFA',
-        card: 'rgba(20, 20, 20, 0.4)', // Translucent base for blurring
+        background: '#000000', // OLED Pure Black for Instagram-like contrast
+        foreground: '#E5E5E5', // Soft Snow - high contrast but easy on eyes
+        card: '#121212',
         cardForeground: '#FAFAFA',
         popover: '#0A0A0A',
         popoverForeground: '#FAFAFA',
-        primary: '#FAFAFA',
+        primary: '#f43f5e',
         primaryForeground: '#171717',
-        secondary: '#1A1A1A',
+        secondary: '#818cf8',
         secondaryForeground: '#FAFAFA',
-        muted: '#1A1A1A',
+        muted: '#8E8E93', // iOS/Instagram style muted gray
         mutedForeground: '#A3A3A3',
-        accent: '#262626',
+        accent: '#fbbf24',
         accentForeground: '#FAFAFA',
         destructive: '#7F1D1D',
         destructiveForeground: '#F87171',
-        border: 'rgba(255, 255, 255, 0.08)',
+        border: 'rgba(255, 255, 255, 0.1)',
         input: '#262626',
         ring: '#D4D4D4',
         rose: {
             50: '#fff1f2',
             100: '#ffe4e6',
+            200: '#fecdd3',
+            300: '#fda4af',
             400: '#fb7185',
             500: '#f43f5e',
             600: '#e11d48',
+            700: '#be123c',
+            800: '#9f1239',
             900: '#881337',
             950: '#4c0519',
         },
@@ -42,7 +46,6 @@ export const Colors = {
         }
     },
     light: {
-        // Light mode matches root oklch(1 0 0)
         background: '#FFFFFF',
         foreground: '#0A0A0A',
         card: '#FFFFFF',
@@ -82,37 +85,53 @@ export const Radius = {
 };
 
 export const Typography = {
-    sans: 'Outfit_400Regular',
-    sansBold: 'Outfit_700Bold',
-    serif: 'CormorantGaramond_400Regular',
+    sans: 'Outfit_400Regular', // Clean technical readability
+    sansBold: 'Outfit_700Bold', // Professional, sharp technical bold
+    sansMedium: 'Outfit_700Bold',
+    serif: 'CormorantGaramond_700Bold', // Elegant classic
     serifBold: 'CormorantGaramond_700Bold',
+    serifRegular: 'CormorantGaramond_400Regular',
     serifItalic: 'CormorantGaramond_400Regular_Italic',
+    display: 'BodoniModa_700Bold', // "Vogue" style bold for headers
+    italic: 'BodoniModa_400Regular_Italic', // Semantic Boutique Italic (Bodoni)
+    special: 'MeaCulpa_400Regular',
     script: 'MeaCulpa_400Regular',
-    emoji: 'AppleColorEmoji',
 };
 
-// --- Design System: Uniform Animations ---
+export const TypeScale = {
+    h1: { fontSize: 36, fontFamily: Typography.sansBold, letterSpacing: -1 },
+    h2: { fontSize: 28, fontFamily: Typography.sansBold, letterSpacing: -0.5 },
+    h3: { fontSize: 22, fontFamily: Typography.serif, letterSpacing: 0 },
+    title: { fontSize: 20, fontFamily: Typography.sansBold, letterSpacing: 0.5 },
+    body: { fontSize: 16, fontFamily: Typography.sans, lineHeight: 24 },
+    label: { fontSize: 14, fontFamily: Typography.sansBold, letterSpacing: 1 },
+    caption: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.6)' },
+    tiny: { fontSize: 11, fontFamily: Typography.sansBold, letterSpacing: 1.5 },
+};
+
+export const TextTones = {
+    primary: 'rgba(255,255,255,1)', // FULL WHITE
+    secondary: 'rgba(255,255,255,0.85)',
+    muted: 'rgba(255,255,255,0.72)',
+    subtle: 'rgba(255,255,255,0.55)',
+    decorative: 'rgba(255,255,255,0.3)',
+};
+
 export const Animations = {
-    // Apple-Style Fluid Spring
     springApple: {
         damping: 18,
         stiffness: 120,
         mass: 1,
     },
-    // OnePlus-Style Snappy Spring
     springSnap: {
         damping: 20,
         stiffness: 200,
         mass: 0.8,
     },
-    // Zero-Latency Timing
     timingFast: {
         duration: 250,
-        // Easing.out(Easing.exp) is best for premium feel
     },
-    // Subtle Micro-timing
     timingMicro: {
         duration: 150,
     }
 };
-

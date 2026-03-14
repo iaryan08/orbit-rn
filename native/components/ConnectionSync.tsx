@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { Heart, Sparkles, Mail } from 'lucide-react-native';
 import Animated, {
@@ -102,7 +102,10 @@ const SparkleItem = ({ delay = 0, x = 0, y = 0 }: { delay?: number; x?: number; 
 };
 
 export function ConnectionSync() {
-    const { couple, profile, partnerProfile, activeTabIndex } = useOrbitStore();
+    const couple = useOrbitStore(s => s.couple);
+    const profile = useOrbitStore(s => s.profile);
+    const partnerProfile = useOrbitStore(s => s.partnerProfile);
+    const activeTabIndex = useOrbitStore(s => s.activeTabIndex);
     const resolvedPartnerName = getPartnerName(profile, partnerProfile);
     const [interactionType, setInteractionType] = useState<'heartbeat' | 'spark' | 'connection' | 'letter' | null>(null);
     const wasOnlineRef = useRef(false);
@@ -112,7 +115,7 @@ export function ConnectionSync() {
     const heartbeatTimerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
     const latestPartnerLetter = useOrbitStore(
         useCallback(
-            (state) => state.letters.find((letter) => letter.sender_id === partnerProfile?.id) ?? null,
+            (state) => state.letters.find((letter) => letter.sender_id === partnerProfile?.id) ? null : state.letters.filter((letter) => letter.sender_id === partnerProfile?.id).sort((a, b) => b.created_at - a.created_at)[0] || null,
             [partnerProfile?.id]
         )
     );
@@ -140,7 +143,7 @@ export function ConnectionSync() {
             }
         });
 
-        return () => off(vibeRef, 'value', unsub);
+        return unsub;
     }, [couple?.id, isEnabled, profile?.id]);
 
     // Presence listener for "Connected" flash
@@ -167,7 +170,7 @@ export function ConnectionSync() {
             wasOnlineRef.current = isOnline;
         });
 
-        return () => off(partnerPresenceRef, 'value', unsub);
+        return unsub;
     }, [couple?.id, isEnabled, profile?.id]);
 
     useEffect(() => {
@@ -371,7 +374,7 @@ const styles = StyleSheet.create({
         borderRadius: 35,
         backgroundColor: 'rgba(255,255,255,0.1)',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(255,255,255,0.45)',
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 20,
@@ -380,7 +383,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     title: {
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
         letterSpacing: 4,
         color: 'white',

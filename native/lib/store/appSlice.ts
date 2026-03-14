@@ -12,6 +12,7 @@ export interface AppSlice {
     scrollOffset: any;
     setScrollOffset: (val: number) => void;
     isPagerScrollEnabled: boolean;
+    isPagerScrollEnabledSV: { value: boolean };
     setPagerScrollEnabled: (enabled: boolean) => void;
     isNotificationDrawerOpen: boolean;
     setNotificationDrawerOpen: (open: boolean) => void;
@@ -27,6 +28,7 @@ export interface AppSlice {
         mode: 'stars' | 'custom' | 'shared';
         grayscale: boolean;
         aesthetic: 'Natural' | 'Glass' | 'Ethereal' | 'Obsidian' | 'Cinema';
+        overlayStyle: 'default' | 'A' | 'B' | 'AB';
     };
     wallpaperConfigDirtyUntil: number;
     setWallpaperConfig: (config: Partial<AppSlice['wallpaperConfig']>) => void;
@@ -51,7 +53,9 @@ export interface AppSlice {
     debugApiUrl: string | null;
     setDebugApiUrl: (url: string | null) => void;
     isAppLockEnabled: boolean;
+    isAppLocked: boolean;
     setAppLockEnabled: (enabled: boolean) => void;
+    setAppLocked: (locked: boolean) => void;
     isBiometricEnabled: boolean;
     setBiometricEnabled: (enabled: boolean) => void;
     appPinCode: string | null;
@@ -70,6 +74,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         }
     },
     isPagerScrollEnabled: true,
+    isPagerScrollEnabledSV: makeMutable(true),
     isNotificationDrawerOpen: false,
     isMoodDrawerOpen: false,
     isMoodHistoryOpen: false,
@@ -78,6 +83,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         mode: 'stars',
         grayscale: false,
         aesthetic: 'Natural',
+        overlayStyle: 'default',
     },
     wallpaperConfigDirtyUntil: 0,
     isSearchOpen: false,
@@ -91,6 +97,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
     settingsTargetTab: 'profile',
     debugApiUrl: null,
     isAppLockEnabled: false,
+    isAppLocked: false,
     isBiometricEnabled: false,
     appPinCode: null,
     isDebugMode: false,
@@ -134,6 +141,9 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
                         aesthetic: (parsed.aesthetic === 'Glass' || parsed.aesthetic === 'Ethereal' || parsed.aesthetic === 'Obsidian' || parsed.aesthetic === 'Cinema')
                             ? parsed.aesthetic
                             : 'Natural',
+                        overlayStyle: (parsed.overlayStyle === 'A' || parsed.overlayStyle === 'B' || parsed.overlayStyle === 'AB')
+                            ? parsed.overlayStyle
+                            : 'default',
                     } as AppSlice['wallpaperConfig'];
                     set({ wallpaperConfig: nextWallpaper });
                 } catch { }
@@ -174,7 +184,13 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         };
     }),
     setSearchOpen: (open: boolean) => set({ isSearchOpen: open }),
-    setPagerScrollEnabled: (enabled: boolean) => set({ isPagerScrollEnabled: enabled }),
+    setPagerScrollEnabled: (enabled: boolean) => {
+        const state = get();
+        if (state.isPagerScrollEnabledSV) {
+            state.isPagerScrollEnabledSV.value = enabled;
+        }
+        set({ isPagerScrollEnabled: enabled });
+    },
     openMediaViewer: (imageUrls, initialIndex = 0, ownerId, mediaId, type) => set({
         mediaViewerState: { isOpen: true, imageUrls, initialIndex, ownerId, mediaId, type }
     }),
@@ -204,6 +220,7 @@ export const createAppSlice: StateCreator<AppSlice> = (set, get) => ({
         AsyncStorage.setItem('orbit_app_lock', enabled ? 'true' : 'false').catch(console.error);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     },
+    setAppLocked: (locked: boolean) => set({ isAppLocked: locked }),
     setBiometricEnabled: (enabled: boolean) => {
         set({ isBiometricEnabled: enabled });
         AsyncStorage.setItem('orbit_biometric_enabled', enabled ? 'true' : 'false').catch(console.error);

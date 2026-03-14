@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Pressable } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolateColor } from 'react-native-reanimated';
@@ -121,13 +121,13 @@ const styles = StyleSheet.create({
     label: {
         fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 2,
+        color: 'rgba(255,255,255,0.55)',
+        letterSpacing: 1.5,
     },
     value: {
         fontSize: 10,
         fontFamily: Typography.sansBold,
-        letterSpacing: 2,
+        letterSpacing: 1.5,
     },
     sliderContainer: {
         height: THUMB_SIZE,
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
         borderRadius: THUMB_SIZE / 2,
         backgroundColor: 'white',
         borderWidth: 4,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(255,255,255,0.45)',
         top: 0,
     },
     markers: {

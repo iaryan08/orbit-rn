@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+﻿import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import Animated, {
     useSharedValue,
@@ -114,8 +114,8 @@ const styles = StyleSheet.create({
     text: {
         fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.25)',
-        letterSpacing: 2,
+        color: 'rgba(255,255,255,0.5)',
+        letterSpacing: 1.5,
         textTransform: 'uppercase',
     },
 });

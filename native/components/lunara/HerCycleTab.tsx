@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { View, Text } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { GlassCard } from '../GlassCard';
@@ -18,19 +18,22 @@ interface HerCycleTabProps {
     onLogPeriod?: () => void;
     isLogging?: boolean;
     formatContextualText: (text: string, isFemale: boolean) => string;
+    coupleId?: string;
 }
 
 export function HerCycleTab({
     partnerPhase, partnerCycleDay, partnerPrediction, partnerName,
-    timelineDays, selectedDay, onSelectDay, onLogPeriod, isLogging, formatContextualText
+    timelineDays, selectedDay, onSelectDay, onLogPeriod, isLogging, formatContextualText, coupleId
 }: HerCycleTabProps) {
     const name = partnerName || 'Your partner';
 
     if (!partnerPhase) {
         return (
             <Animated.View entering={FADE_IN} style={tab.empty}>
-                <Text style={tab.emptyTitle}>{name} hasn't set up Lunara yet</Text>
-                <Text style={tab.emptySub}>Ask her to log her cycle data — her phase will appear here automatically.</Text>
+                <Text style={tab.emptyTitle}>She hasn't set up Lunara yet</Text>
+                <Text style={tab.emptySub}>
+                    Ask her to log her period dates in Lunara on her phone — her phase will appear here automatically for you.
+                </Text>
             </Animated.View>
         );
     }

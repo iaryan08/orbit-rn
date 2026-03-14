@@ -19,14 +19,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOrbitStore } from '../lib/store';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
-import { markAsRead, deleteNotification, clearAllNotifications } from '../lib/notifications';
+import { markAsRead, deleteNotification, clearAllNotifications, getDisplayCopy } from '../lib/notifications';
 import { getPartnerName } from '../lib/utils';
+import { FlashList } from '@shopify/flash-list';
+import { ProfileAvatar } from './ProfileAvatar';
+import { getPublicStorageUrl } from '../lib/storage';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export function NotificationDrawer() {
     const insets = useSafeAreaInsets();
-    const { isNotificationDrawerOpen, setNotificationDrawerOpen, notifications, profile, partnerProfile, couple } = useOrbitStore();
+    const isNotificationDrawerOpen = useOrbitStore(s => s.isNotificationDrawerOpen);
+    const setNotificationDrawerOpen = useOrbitStore(s => s.setNotificationDrawerOpen);
+    const notifications = useOrbitStore(s => s.notifications);
+    const profile = useOrbitStore(s => s.profile);
+    const partnerProfile = useOrbitStore(s => s.partnerProfile);
+    const idToken = useOrbitStore(s => s.idToken);
     const actorLabel = getPartnerName(profile, partnerProfile);
     const maxDrawerHeight = React.useMemo(
         () => SCREEN_HEIGHT - Math.max(insets.top, 8),
@@ -70,6 +78,7 @@ export function NotificationDrawer() {
             dragStartY.value = translateY.value;
         })
         .onUpdate((event) => {
+            // Instagram-style: if we are at the top (translateY == 0) and swiping down, unlock drawer movement
             const next = dragStartY.value + event.translationY;
             const clamped = Math.max(0, Math.min(SCREEN_HEIGHT, next));
             translateY.value = clamped;
@@ -125,7 +134,6 @@ export function NotificationDrawer() {
     }));
 
     return (
-        // Keep always rendered — pointerEvents driven by animated backdrop opacity, not state
         <View style={StyleSheet.absoluteFill} pointerEvents={isNotificationDrawerOpen ? 'auto' : 'none'}>
             {/* Backdrop */}
             <Animated.View style={[styles.backdrop, backdropStyle]}>
@@ -134,238 +142,159 @@ export function NotificationDrawer() {
 
             {/* Drawer */}
             <Animated.View style={[styles.drawer, animatedStyle, { height: maxDrawerHeight }]}>
-                    {/* Static dark glass background — NOT inside BlurView to avoid shimmer during animation */}
-                    <View style={[StyleSheet.absoluteFill, styles.drawerBg]} />
+                <View style={[StyleSheet.absoluteFill, styles.drawerBg]} />
 
-                    {/* Notch Handle */}
-                    <GestureDetector gesture={gesture}>
-                        <View style={styles.handleContainer}>
-                            <View style={styles.handle} />
-                        </View>
-                    </GestureDetector>
+                {/* Notch Handle */}
+                <GestureDetector gesture={gesture}>
+                    <View style={styles.handleContainer}>
+                        <View style={styles.handle} />
+                    </View>
+                </GestureDetector>
 
-                    <GestureDetector gesture={gesture}>
-                        <View style={styles.header}>
-                            <View style={styles.headerLeft}>
-                                <View style={styles.iconContainer}>
-                                    <Bell size={22} color={Colors.dark.rose[500]} fill={Colors.dark.rose[500] + '20'} />
-                                </View>
-                                <View>
-                                    <Text style={styles.title}>Notifications</Text>
-                                    <Text style={styles.subtitle}>WHATS NEW IN ORBIT</Text>
-                                </View>
+                <GestureDetector gesture={Gesture.Race(gesture, Gesture.Native())}>
+                    <View style={styles.header}>
+                        <View style={styles.headerLeft}>
+                            <View style={styles.iconContainer}>
+                                <Bell size={22} color={Colors.dark.rose[500]} fill={Colors.dark.rose[500] + '20'} />
                             </View>
-                            <View style={styles.headerActions}>
-                                {notifications.length > 0 && (
-                                    <Pressable
-                                        onPress={() => {
-                                            if (!profile?.id) return;
-                                            Alert.alert(
-                                                'Clear all notifications?',
-                                                'This will permanently remove all notifications.',
-                                                [
-                                                    { text: 'Cancel', style: 'cancel' },
-                                                    {
-                                                        text: 'Clear',
-                                                        style: 'destructive',
-                                                        onPress: async () => {
-                                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                                            useOrbitStore.setState({ notifications: [] });
-                                                            await clearAllNotifications(profile.id);
-                                                        }
-                                                    }
-                                                ]
-                                            );
-                                        }}
-                                        style={styles.clearAllButton}
-                                    >
-                                        <Trash2 size={14} color="rgba(255,255,255,0.6)" />
-                                    </Pressable>
-                                )}
+                            <View>
+                                <Text style={styles.title}>Notifications</Text>
+                                <Text style={styles.subtitle}>WHATS NEW IN ORBIT</Text>
+                            </View>
+                        </View>
+                        <View style={styles.headerActions}>
+                            {notifications.length > 0 && (
                                 <Pressable
                                     onPress={() => {
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                        closeDrawer();
-                                    }}
-                                    style={styles.closeButton}
-                                >
-                                    <X size={20} color="rgba(255,255,255,0.4)" />
-                                </Pressable>
-                            </View>
-                        </View>
-                    </GestureDetector>
-
-                    <View style={styles.content}>
-                        {notifications.length === 0 ? (
-                            <View style={styles.emptyState}>
-                                <View style={styles.emptyIconCircle}>
-                                    <Bell size={32} color="rgba(255,255,255,0.1)" />
-                                </View>
-                                <Text style={styles.emptyText}>All caught up!</Text>
-                                <Text style={styles.emptySubtext}>You have no new notifications.</Text>
-                            </View>
-                        ) : (
-                            <FlatList
-                                data={notifications}
-                                keyExtractor={(item) => item.id}
-                                contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
-                                showsVerticalScrollIndicator={false}
-                                nestedScrollEnabled
-                                renderItem={({ item }) => {
-                                    const Icon = getNotificationIcon(item.type);
-                                    const timeStr = item.created_at ? formatDistanceToNow(item.created_at, { addSuffix: true }) : 'just now';
-                                    const { titleText, messageText } = getDisplayCopy(item, actorLabel);
-
-                                    return (
-                                        <TouchableOpacity
-                                            style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
-                                            onPress={() => {
-                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                                if (!item.is_read && profile?.id) {
-                                                    useOrbitStore.setState((state) => ({
-                                                        notifications: state.notifications.map((notification) =>
-                                                            notification.id === item.id
-                                                                ? { ...notification, is_read: true }
-                                                                : notification
-                                                        )
-                                                    }));
-                                                    markAsRead(profile.id, item.id);
+                                        if (!profile?.id) return;
+                                        Alert.alert(
+                                            'Clear all notifications?',
+                                            'This will permanently remove all notifications.',
+                                            [
+                                                { text: 'Cancel', style: 'cancel' },
+                                                {
+                                                    text: 'Clear',
+                                                    style: 'destructive',
+                                                    onPress: async () => {
+                                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                                        useOrbitStore.setState({ notifications: [] });
+                                                        await clearAllNotifications(profile.id);
+                                                    }
                                                 }
-                                                closeDrawer();
-                                            }}
-                                        >
-                                            <View style={[styles.itemIconContainer, { backgroundColor: getNotificationColor(item.type) + '20' }]}>
-                                                <Icon size={18} color={getNotificationColor(item.type)} />
-                                            </View>
-                                            <View style={styles.itemTextContainer}>
-                                                <View style={styles.itemHeader}>
-                                                    <Text style={styles.itemTitle} numberOfLines={2}>{titleText}</Text>
-                                                </View>
-                                                <Text style={styles.itemTime}>{timeStr}</Text>
-                                                <Text style={styles.itemMessage} numberOfLines={2}>{messageText}</Text>
-                                            </View>
-                                            <View style={styles.itemRightActions}>
-                                                {!item.is_read && <View style={styles.unreadDot} />}
-                                                <TouchableOpacity
-                                                    onPress={async () => {
-                                                        if (!profile?.id) return;
-                                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                                        useOrbitStore.setState((state) => ({
-                                                            notifications: state.notifications.filter((notification) => notification.id !== item.id)
-                                                        }));
-                                                        await deleteNotification(profile.id, item.id);
-                                                    }}
-                                                    style={styles.itemDeleteButton}
-                                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                                >
-                                                    <X size={14} color="rgba(255,255,255,0.5)" />
-                                                </TouchableOpacity>
-                                            </View>
-                                        </TouchableOpacity>
-                                    );
+                                            ]
+                                        );
+                                    }}
+                                    style={styles.clearAllButton}
+                                >
+                                    <Trash2 size={14} color="rgba(255,255,255,0.6)" />
+                                </Pressable>
+                            )}
+                            <Pressable
+                                onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    closeDrawer();
                                 }}
-                            />
-                        )}
+                                style={styles.closeButton}
+                            >
+                                <X size={20} color="rgba(255,255,255,0.4)" />
+                            </Pressable>
+                        </View>
                     </View>
-                </Animated.View>
+                </GestureDetector>
+
+                <View style={styles.content}>
+                    {notifications.length === 0 ? (
+                        <View style={styles.emptyState}>
+                            <View style={styles.emptyIconCircle}>
+                                <Bell size={32} color="rgba(255,255,255,0.1)" />
+                            </View>
+                            <Text style={styles.emptyText}>All caught up!</Text>
+                            <Text style={styles.emptySubtext}>You have no new notifications.</Text>
+                        </View>
+                    ) : (
+                        <FlashList
+                            // @ts-ignore - FlashList types can be finicky in some environments
+                            estimatedItemSize={100}
+                            data={notifications}
+                            keyExtractor={(item) => item.id}
+                            contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
+                            showsVerticalScrollIndicator={false}
+                            renderItem={({ item }) => {
+                                const Icon = getNotificationIcon(item.type);
+                                const timeStr = item.created_at ? formatMinimalTime(item.created_at) : '';
+                                const { titleText, messageText } = getDisplayCopy(item, actorLabel);
+
+                                const actorAvatarUrl = getPublicStorageUrl(
+                                    item.actor_avatar_url || (item.actor_id === partnerProfile?.id ? partnerProfile?.avatar_url : null),
+                                    'avatars',
+                                    idToken
+                                );
+
+                                return (
+                                    <TouchableOpacity
+                                        style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
+                                        onPress={() => {
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                            if (!item.is_read && profile?.id) {
+                                                useOrbitStore.setState((state) => ({
+                                                    notifications: state.notifications.map((notification) =>
+                                                        notification.id === item.id
+                                                            ? { ...notification, is_read: true }
+                                                            : notification
+                                                    )
+                                                }));
+                                                markAsRead(profile.id, item.id);
+                                            }
+                                            closeDrawer();
+                                        }}
+                                    >
+                                        <View style={styles.itemAvatarContainer}>
+                                            <ProfileAvatar
+                                                url={actorAvatarUrl}
+                                                size={36}
+                                                borderWidth={1.5}
+                                                borderColor={getNotificationColor(item.type) + '40'}
+                                                fallbackText={actorLabel[0]}
+                                            />
+                                            <View style={[styles.typeIconBadge, { backgroundColor: getNotificationColor(item.type) }]}>
+                                                <Icon size={10} color="white" />
+                                            </View>
+                                        </View>
+                                        <View style={styles.itemTextContainer}>
+                                            <View style={styles.itemHeader}>
+                                                <Text style={styles.itemTitle} numberOfLines={2}>{titleText}</Text>
+                                            </View>
+                                            <Text style={styles.itemMessage} numberOfLines={3}>
+                                                {messageText}{' '}
+                                                <Text style={styles.inlineTime}>{timeStr}</Text>
+                                            </Text>
+                                        </View>
+                                        <View style={styles.itemRightActions}>
+                                            {!item.is_read && <View style={styles.unreadDot} />}
+                                            <TouchableOpacity
+                                                onPress={async () => {
+                                                    if (!profile?.id) return;
+                                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                                    useOrbitStore.setState((state) => ({
+                                                        notifications: state.notifications.filter((notification) => notification.id !== item.id)
+                                                    }));
+                                                    await deleteNotification(profile.id, item.id);
+                                                }}
+                                                style={styles.itemDeleteButton}
+                                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            >
+                                                <X size={14} color="rgba(255,255,255,0.5)" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            }}
+                        />
+                    )}
+                </View>
+            </Animated.View>
         </View>
     );
-}
-
-function normalizeNotificationLine(text: any, actorLabel: string) {
-    if (!text || typeof text !== 'string') return '';
-    const replaced = text
-        .replace(/\byour partner\b/gi, actorLabel || 'Partner')
-        .replace(/\bpartner\b/gi, actorLabel || 'Partner')
-        .replace(/\r\n/g, '\n');
-    const cleaned = replaced
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line, idx, arr) => {
-            const symbolOnly = line.length <= 4 && !/[A-Za-z0-9]/.test(line);
-            if (!symbolOnly) return true;
-            return arr.length <= 1 || idx === 0;
-        })
-        .join(' ')
-        .replace(/\s{2,}/g, ' ')
-        .trim();
-    return cleaned;
-}
-
-function inferActorLabel(item: any, fallbackActor: string) {
-    const actorName = item?.actor_name;
-    if (typeof actorName === 'string' && actorName.trim()) return actorName.trim();
-
-    const title = typeof item?.title === 'string' ? item.title.replace(/\r\n/g, ' ').trim() : '';
-    const sentMatch = title.match(/^(.{1,60}?)\s+sent\b/i);
-    if (sentMatch?.[1]) {
-        let actor = sentMatch[1].replace(/\s+/g, ' ').trim();
-        const chunks = actor.split(' ').filter(Boolean) as string[];
-        if (chunks.length > 1 && chunks.length <= 3 && chunks.every((c: string) => /^[A-Za-z]+$/.test(c) && c.length <= 3)) {
-            actor = chunks.join('');
-        }
-        return actor;
-    }
-
-    return fallbackActor || 'Partner';
-}
-
-function isLikelyBrokenText(text: string) {
-    if (!text) return true;
-    const words = text.split(' ').filter(Boolean);
-    if (words.length < 4) return false;
-    const shortWords = words.filter(w => w.length <= 3).length;
-    return shortWords / words.length > 0.65;
-}
-
-function defaultCopyByType(type: string, actor: string) {
-    switch (type) {
-        case 'heartbeat':
-            return {
-                titleText: `${actor} sent a Heartbeat`,
-                messageText: `${actor} shared a heartbeat with you.`,
-            };
-        case 'spark':
-            return {
-                titleText: `${actor} sent a Spark`,
-                messageText: `${actor} is thinking about you right now.`,
-            };
-        case 'letter':
-            return {
-                titleText: `${actor} sent a Letter`,
-                messageText: `A new letter from ${actor} is waiting for you.`,
-            };
-        case 'memory':
-        case 'moment':
-            return {
-                titleText: `${actor} shared a Moment`,
-                messageText: `${actor} added a new memory to your shared space.`,
-            };
-        default:
-            return {
-                titleText: `${actor} sent an update`,
-                messageText: `You have a new update from ${actor}.`,
-            };
-    }
-}
-
-function getDisplayCopy(item: any, fallbackActor: string) {
-    const actor = inferActorLabel(item, fallbackActor);
-    const rawTitle = normalizeNotificationLine(item?.title, actor);
-    const rawMessage = normalizeNotificationLine(item?.message, actor);
-    const defaults = defaultCopyByType(item?.type || '', actor);
-
-    const titleText = isLikelyBrokenText(rawTitle) ? defaults.titleText : rawTitle || defaults.titleText;
-    let messageText = rawMessage || defaults.messageText;
-
-    if (/^partner\b/i.test(messageText)) {
-        messageText = messageText.replace(/^partner\b/i, actor);
-    }
-    if (isLikelyBrokenText(messageText)) {
-        messageText = defaults.messageText;
-    }
-
-    return { titleText, messageText };
 }
 
 const styles = StyleSheet.create({
@@ -407,14 +336,14 @@ const styles = StyleSheet.create({
         width: 40,
         height: 4,
         borderRadius: 2,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: 'rgba(255,255,255,0.45)',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 24,
-        paddingBottom: 24,
+        paddingBottom: 16,
     },
     headerLeft: {
         flexDirection: 'row',
@@ -422,9 +351,9 @@ const styles = StyleSheet.create({
         gap: 16,
     },
     iconContainer: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         backgroundColor: 'rgba(255,255,255,0.03)',
         alignItems: 'center',
         justifyContent: 'center',
@@ -432,16 +361,16 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255,255,255,0.06)',
     },
     title: {
-        fontSize: 24,
+        fontSize: 20,
         fontFamily: Typography.serif,
         color: 'white',
     },
     subtitle: {
-        fontSize: 9,
+        fontSize: 11,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
-        letterSpacing: 2,
-        marginTop: 2,
+        color: 'rgba(255,255,255,0.65)',
+        letterSpacing: 1.2,
+        marginTop: 1,
     },
     closeButton: {
         width: 36,
@@ -468,9 +397,9 @@ const styles = StyleSheet.create({
         height: 32,
     },
     clearAllText: {
-        fontSize: 9,
+        fontSize: 13,
         letterSpacing: 1.1,
-        color: 'rgba(255,255,255,0.65)',
+        color: 'rgba(255,255,255,0.85)',
         fontFamily: Typography.sansBold,
     },
     content: {
@@ -503,12 +432,12 @@ const styles = StyleSheet.create({
     emptySubtext: {
         fontSize: 14,
         fontFamily: Typography.sans,
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.65)',
     },
     notificationItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 16,
+        paddingVertical: 12,
         paddingHorizontal: 12,
         borderRadius: Radius.lg,
         marginBottom: 8,
@@ -520,13 +449,21 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.04)',
         borderColor: 'rgba(251,113,133,0.12)',
     },
-    itemIconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        alignItems: 'center',
-        justifyContent: 'center',
+    itemAvatarContainer: {
         marginRight: 16,
+        position: 'relative'
+    },
+    typeIconBadge: {
+        position: 'absolute',
+        bottom: -2,
+        right: -2,
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: '#090A10'
     },
     itemTextContainer: {
         flex: 1,
@@ -535,23 +472,28 @@ const styles = StyleSheet.create({
         marginBottom: 2,
     },
     itemTitle: {
-        fontSize: 14,
+        fontSize: 13,
         fontFamily: Typography.sansBold,
         color: 'white',
-        lineHeight: 18,
+        lineHeight: 16,
     },
     itemTime: {
-        fontSize: 11,
+        fontSize: 10,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 0.3,
-        marginBottom: 6,
+        color: 'rgba(255,255,255,0.4)',
+        letterSpacing: 0.2,
+        marginBottom: 4,
+    },
+    inlineTime: {
+        fontSize: 12,
+        fontFamily: Typography.sans,
+        color: 'rgba(255,255,255,0.4)',
     },
     itemMessage: {
-        fontSize: 13,
+        fontSize: 12,
         fontFamily: Typography.sans,
-        color: 'rgba(255,255,255,0.6)',
-        lineHeight: 18,
+        color: 'rgba(255,255,255,0.82)',
+        lineHeight: 16,
     },
     unreadDot: {
         width: 6,
@@ -604,4 +546,21 @@ function getNotificationColor(type: string) {
         case 'announcement': return '#34D399';
         default: return Colors.dark.rose[400];
     }
+}
+
+function formatMinimalTime(date: Date | string | number) {
+    const d = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    const weeks = Math.floor(days / 7);
+
+    if (seconds < 60) return 'now';
+    if (minutes < 60) return `${minutes}m`;
+    if (hours < 24) return `${hours}h`;
+    if (days < 7) return `${days}d`;
+    return `${weeks}w`;
 }

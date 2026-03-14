@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View, Text, StyleSheet, TextInput, TouchableOpacity,
     FlatList, Keyboard, Dimensions, Modal
@@ -101,7 +101,7 @@ const STATIC_ITEMS = [
 
 // ─── Dynamic Results Builder ──────────────────────────────────────────────────
 
-function buildDynamicItems(memories: any[], letters: any[], milestones: any, store: any) {
+function buildDynamicItems(memories: any[], letters: any[], milestones: any) {
     const items: any[] = [];
 
     // --- Memories ---
@@ -112,7 +112,7 @@ function buildDynamicItems(memories: any[], letters: any[], milestones: any, sto
         items.push({
             id: `memory_${m.id}`,
             title: m.title || 'Untitled Memory',
-            subtitle: `📸 Memory · ${dateStr}${m.description ? ' · ' + m.description.slice(0, 40) : ''}`,
+            subtitle: `📁¸ Memory · ${dateStr}${m.description ? ' · ' + m.description.slice(0, 40) : ''}`,
             icon: Camera,
             iconColor: '#34d399',
             group: 'Memories',
@@ -135,7 +135,7 @@ function buildDynamicItems(memories: any[], letters: any[], milestones: any, sto
         items.push({
             id: `letter_${l.id}`,
             title: preview || 'Letter',
-            subtitle: `✉️ Letter · ${dateStr}`,
+            subtitle: `âœ‰ï¸ Letter · ${dateStr}`,
             icon: Mail,
             iconColor: '#f59e0b',
             group: 'Letters',
@@ -155,7 +155,7 @@ function buildDynamicItems(memories: any[], letters: any[], milestones: any, sto
         items.push({
             id: `milestone_${key}`,
             title: val.title || key,
-            subtitle: `❤️ Milestone · ${val.date ? format(new Date(val.date), 'MMM d, yyyy') : ''}${val.my_note ? ' · ' + val.my_note.slice(0, 40) : ''}`,
+            subtitle: `â¤ï¸ Milestone · ${val.date ? format(new Date(val.date), 'MMM d, yyyy') : ''}${val.my_note ? ' · ' + val.my_note.slice(0, 40) : ''}`,
             icon: Zap,
             iconColor: '#fb923c',
             group: 'Intimacy',
@@ -197,9 +197,25 @@ const EmojiText = React.memo(({ text, style }: { text: string; style: any }) => 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function SearchPalette() {
-    const store = useOrbitStore();
-    const { isSearchOpen, setSearchOpen, memories, letters, milestones } = store;
+    const isSearchOpen = useOrbitStore(s => s.isSearchOpen);
+    const setSearchOpen = useOrbitStore(s => s.setSearchOpen);
+    const toggleTabListener = useOrbitStore(s => s.toggleTabListener);
+    const memories = useOrbitStore(s => s.memories);
+    const letters = useOrbitStore(s => s.letters);
+    const milestones = useOrbitStore(s => s.milestones);
     const insets = useSafeAreaInsets();
+
+    // ðŸš€ Phase 7: Selective Listener Lifecycle for Search
+    useEffect(() => {
+        if (isSearchOpen) {
+            // Search needs a broad view of data to be effective
+            toggleTabListener('dashboard', true);
+        } else {
+            // Note: We don't disable here because the underlying screen 
+            // will manage its own listeners via isActive prop.
+        }
+    }, [isSearchOpen, toggleTabListener]);
+
     const inputRef = useRef<TextInput>(null);
     const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -208,7 +224,7 @@ export function SearchPalette() {
 
     // Build dynamic items from store data (memoized)
     const dynamicItems = useMemo(
-        () => buildDynamicItems(memories, letters, milestones, store),
+        () => buildDynamicItems(memories, letters, milestones),
         [memories, letters, milestones]
     );
     const allItems = useMemo(() => [...STATIC_ITEMS, ...dynamicItems], [dynamicItems]);
@@ -277,7 +293,7 @@ export function SearchPalette() {
         lastNav.current = now;
 
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        item.action(store);
+        item.action(useOrbitStore.getState());
         hide();
     };
 
@@ -414,15 +430,15 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.04)',
     },
     escText: {
-        fontSize: 8, fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.25)', letterSpacing: 0.5,
+        fontSize: 12, fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5,
     },
     divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.05)' },
 
     // List
     list: { maxHeight: 440 },
     groupHeader: {
-        fontSize: 9, fontFamily: Typography.sansBold,
+        fontSize: 13, fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.22)',
         letterSpacing: 1.5, textTransform: 'uppercase',
         paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4,
@@ -441,8 +457,8 @@ const styles = StyleSheet.create({
         color: 'rgba(255,255,255,0.88)',
     },
     rowSub: {
-        fontSize: 10, fontFamily: Typography.sans,
-        color: 'rgba(255,255,255,0.3)', marginTop: 1,
+        fontSize: 14, fontFamily: Typography.sans,
+        color: 'rgba(255,255,255,0.55)', marginTop: 1,
     },
 
     // Empty

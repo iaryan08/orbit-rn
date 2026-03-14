@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TabSkeleton — Instagram-style placeholder cards shown while tab data loads.
  * Shows immediately with no blank state. One universal component for all tabs.
  * Lite Mode: renders static grey blocks (no animation) to save CPU on budget devices.

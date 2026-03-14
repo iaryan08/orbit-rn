@@ -1,31 +1,43 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+﻿import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { Flame, Heart, Sparkles } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { INTIMACY_INSIGHTS } from '../../lib/sexPositionData';
-import { Colors, Typography, Spacing } from '../../constants/Theme';
+import { Colors, Typography, Spacing, Radius } from '../../constants/Theme';
 import { GlassCard } from '../GlassCard';
 import { LinearGradient } from 'expo-linear-gradient';
+import { stringToHash } from '../../lib/utils';
+
+const { width } = Dimensions.get('window');
 
 interface IntimacyInsightCardProps {
     phaseName: string;
     cycleDay?: number | null;
     type?: 'position' | 'self-love' | 'coaching';
-    isMale?: boolean; // Shows male partner coaching instead of female self-coaching
+    isMale?: boolean;
+    coupleId?: string;
 }
 
-export function IntimacyInsightCard({ phaseName, cycleDay, type, isMale = false }: IntimacyInsightCardProps) {
+export function IntimacyInsightCard({ phaseName, cycleDay, type, isMale = false, coupleId }: IntimacyInsightCardProps) {
     const dailyInsight = useMemo(() => {
         const insights = INTIMACY_INSIGHTS[phaseName as keyof typeof INTIMACY_INSIGHTS] || [];
         const filtered = type ? insights.filter(i => i.type === type) : insights;
         if (filtered.length === 0) return null;
 
-        let seed = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-        if (cycleDay) seed = cycleDay;
+        const now = new Date();
+        const hour = now.getHours();
+        const isPM = hour >= 12;
+        const coupleHash = coupleId ? stringToHash(coupleId) : 0;
+
+        // Seed logic: (Day * 2) + (0 for AM, 1 for PM) + Couple Offset
+        let seed = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 43200000) + coupleHash;
+        if (cycleDay) {
+            seed = (cycleDay * 2) + (isPM ? 1 : 0) + coupleHash;
+        }
 
         return filtered[seed % filtered.length];
-    }, [phaseName, type, cycleDay]);
+    }, [phaseName, type, cycleDay, coupleId]);
 
     const [imageUri, setImageUri] = useState<string | null>(null);
 
@@ -33,35 +45,64 @@ export function IntimacyInsightCard({ phaseName, cycleDay, type, isMale = false 
         let isMounted = true;
         const fetchImg = async () => {
             if (!dailyInsight) return;
-            const todayStr = new Date().toISOString().split('T')[0];
-            const cacheKey = `daily_intimacy_img_${dailyInsight.name.replace(/\s+/g, '_')}_${todayStr}`;
-            const cached = await AsyncStorage.getItem(cacheKey);
+            const now = new Date();
+            const todayStr = now.toISOString().split('T')[0];
+            const isPM = now.getHours() >= 12;
+            const windowSuffix = isPM ? 'PM' : 'AM';
+            const coupleHash = coupleId ? stringToHash(coupleId) : 0;
+            const cacheKey = `daily_intimacy_img_${dailyInsight.name.replace(/\s+/g, '_')}_${todayStr}_${windowSuffix}_${coupleHash}`;
 
+            const cached = await AsyncStorage.getItem(cacheKey);
             if (cached && isMounted) {
                 setImageUri(cached);
                 return;
             }
 
             try {
-                const keyword = dailyInsight.keywords[0];
-                // Use warm/colorful terms to avoid Unsplash returning B&W editorial photos
-                const colorQuery = isMale
-                    ? `${keyword} warm golden light couple color`
-                    : `${keyword} warm vibrant natural light color`;
-                const resp = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(colorQuery)}&orientation=landscape&client_id=${process.env.EXPO_PUBLIC_UNSPLASH_ACCESS_KEY}`);
+                // Type-specific generic context (PREMIUM & INTIMATE)
+                let typeContext = 'intimate aesthetic couple';
+                if (dailyInsight.type === 'position') {
+                    typeContext = 'sensual couple embrace bedroom';
+                } else if (dailyInsight.type === 'self-love') {
+                    typeContext = 'ethereal woman morning light';
+                } else if (dailyInsight.type === 'coaching') {
+                    typeContext = 'couple deep connection eye contact';
+                }
+
+                const keyword = dailyInsight.keywords[0] || typeContext;
+
+                // Enhanced query for better aesthetics
+                const query = `${keyword} moody lighting`;
+
+                const resp = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(query)}&orientation=portrait&client_id=${process.env.EXPO_PUBLIC_UNSPLASH_ACCESS_KEY}`);
+
+                if (!resp.ok) {
+                    // Fallback to generic context if specific keyword fails
+                    const fallbackResp = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(typeContext)}&orientation=portrait&client_id=${process.env.EXPO_PUBLIC_UNSPLASH_ACCESS_KEY}`);
+                    const fallbackData = await fallbackResp.json();
+                    if (fallbackData.urls?.regular && isMounted) {
+                        const url = fallbackData.urls.regular;
+                        setImageUri(url);
+                        await AsyncStorage.setItem(cacheKey, url);
+                    }
+                    return;
+                }
+
                 const data = await resp.json();
                 if (data.urls?.regular && isMounted) {
-                    const url = data.urls.regular; // Use 'regular' for better quality on large cards
+                    const url = data.urls.regular;
                     setImageUri(url);
                     await AsyncStorage.setItem(cacheKey, url);
                 }
             } catch (e) {
                 console.warn("Image fetch error:", e);
+                // Last resort fallback
+                if (isMounted) setImageUri('https://images.unsplash.com/photo-1516589174184-c6858b16ecb0?q=80&w=1000&auto=format&fit=crop');
             }
         };
         fetchImg();
         return () => { isMounted = false; };
-    }, [dailyInsight]);
+    }, [dailyInsight?.name, isMale, coupleId]);
 
     if (!dailyInsight) return null;
 
@@ -83,8 +124,9 @@ export function IntimacyInsightCard({ phaseName, cycleDay, type, isMale = false 
         dailyInsight.type === 'self-love' ? '#818cf8' : '#fbbf24';
 
     return (
-        <GlassCard style={styles.card} intensity={0}>
-            <View style={styles.imageWrapper}>
+        <View style={styles.card}>
+            {/* Media Frame - Matches Memory style */}
+            <View style={styles.mediaFrame}>
                 {imageUri ? (
                     <Image
                         source={{ uri: imageUri }}
@@ -97,76 +139,96 @@ export function IntimacyInsightCard({ phaseName, cycleDay, type, isMale = false 
                     <View style={[styles.fullImage, { backgroundColor: 'rgba(255,255,255,0.03)' }]} />
                 )}
 
-                {/* Gentle Fade Gradient for Text Readability & Integration */}
                 <LinearGradient
-                    colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.85)']}
+                    colors={['rgba(0,0,0,0.1)', 'transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.85)']}
+                    locations={[0, 0.4, 0.6, 1]}
                     style={StyleSheet.absoluteFillObject}
                 />
 
-                <View style={styles.floatingHeader}>
-                    <Icon size={14} color={iconColor} />
-                    <Text style={[styles.typeText, { color: iconColor }]}>{dailyInsight.type.toUpperCase()}</Text>
+                {/* Floating Type Chip - Matches Memory's top-left avatar position */}
+                <View style={styles.floatingIdentity}>
+                    <GlassCard intensity={8} style={styles.identityChip}>
+                        <View style={styles.chipContent}>
+                            <Icon size={12} color={iconColor} />
+                            <Text style={[styles.typeText, { color: iconColor }]}>
+                                {dailyInsight.type.toUpperCase()}
+                            </Text>
+                        </View>
+                    </GlassCard>
+                </View>
+
+                {/* Caption Area - Now INSIDE the Media Frame */}
+                <View style={styles.captionOverlay}>
+                    <Text style={styles.captionTitle}>{dailyInsight.name}</Text>
+                    <Text style={styles.captionText}>{displayDescription}</Text>
                 </View>
             </View>
-
-            <View style={styles.content}>
-                <Text style={styles.title}>{dailyInsight.name}</Text>
-                <Text style={styles.description}>{displayDescription}</Text>
-            </View>
-        </GlassCard>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     card: {
-        marginBottom: Spacing.lg,
-        borderRadius: 28,
-        overflow: 'hidden',
-        borderWidth: 1.5,
-        borderColor: 'rgba(255,255,255,0.1)',
-        backgroundColor: 'rgba(5,5,10,0.85)',
+        marginBottom: 20,
+        backgroundColor: 'transparent',
     },
-    imageWrapper: {
-        width: '100%',
-        height: 240,
+    mediaFrame: {
+        width: width - (Spacing.md * 2),
+        aspectRatio: 0.82,
+        backgroundColor: '#050505',
         position: 'relative',
+        borderRadius: Radius.xl,
+        overflow: 'hidden',
+        marginHorizontal: Spacing.md,
     },
     fullImage: {
         width: '100%',
         height: '100%',
     },
-    floatingHeader: {
+    floatingIdentity: {
         position: 'absolute',
-        top: 20,
-        left: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        backgroundColor: 'rgba(0,0,0,0.4)',
+        top: 14,
+        left: 14,
+        zIndex: 10,
+    },
+    identityChip: {
         paddingHorizontal: 12,
         paddingVertical: 6,
-        borderRadius: 100,
+        borderRadius: 20,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+    },
+    chipContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
     },
     typeText: {
-        fontSize: 10,
+        fontSize: 11,
         fontFamily: Typography.sansBold,
-        letterSpacing: 1.2,
+        letterSpacing: 1.5,
     },
-    content: {
-        paddingHorizontal: 24,
+    captionOverlay: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        paddingHorizontal: 20,
         paddingBottom: 24,
-        paddingTop: 10, // Reduced gap from image
+        paddingTop: 40,
+        gap: 8,
     },
-    title: {
-        fontSize: 24,
-        fontFamily: Typography.serifBold,
+    captionTitle: {
         color: 'white',
-        marginBottom: 8,
+        fontSize: 26,
+        fontFamily: Typography.serifBold,
+        letterSpacing: -0.5,
     },
-    description: {
+    captionText: {
+        color: 'rgba(255,255,255,0.85)',
         fontSize: 15,
+        lineHeight: 22,
         fontFamily: Typography.sans,
-        color: 'rgba(255,255,255,0.8)',
-        lineHeight: 24,
     },
 });

@@ -265,7 +265,8 @@ export function CommentsDisplay({
                                                 )}
                                             >
                                                 <p className="text-[11.5px] leading-relaxed break-words font-medium tracking-tight">
-                                                    {comment.content}
+                                                    {/* Orbit Standardization: handle both web 'content' and native 'text' */}
+                                                    {comment.content || (comment as any).text}
                                                 </p>
                                             </div>
                                         )}

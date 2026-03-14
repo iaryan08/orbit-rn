@@ -24,71 +24,22 @@ import { GlobalStyles } from '../../constants/Styles';
 import { GlassCard } from '../GlassCard';
 import { PerfChip, usePerfMonitor } from '../PerfChip';
 
-// Optimized Marquee Component for long names
-function MarqueeText({ text, style, isActive = true }: { text: string, style: any, isActive?: boolean }) {
-    const textWidth = useSharedValue(0);
-    const containerWidth = useSharedValue(0);
-    const translateX = useSharedValue(0);
-
-    useEffect(() => {
-        if (!isActive) {
-            translateX.value = 0;
-            return;
-        }
-
-        if (textWidth.value > containerWidth.value && containerWidth.value > 0) {
-            translateX.value = 0;
-            translateX.value = withRepeat(
-                withTiming(-(textWidth.value + 20), {
-                    duration: Math.max(2000, text.length * 150),
-                    easing: Easing.linear
-                }),
-                -1,
-                false
-            );
-        } else {
-            translateX.value = 0;
-        }
-
-        // Safety: Stop animation if tab is hidden
-        return () => { translateX.value = 0; };
-    }, [text, textWidth.value, containerWidth.value, isActive]);
-
-    const animatedStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: translateX.value }],
-    }));
-
-    return (
-        <View
-            style={{ overflow: 'hidden', flex: 1 }}
-            onLayout={(e) => containerWidth.value = e.nativeEvent.layout.width}
-        >
-            <Animated.View style={[{ flexDirection: 'row' }, animatedStyle]}>
-                <Text
-                    style={style}
-                    onLayout={(e) => textWidth.value = e.nativeEvent.layout.width}
-                    numberOfLines={1}
-                >
-                    {text}
-                </Text>
-                {textWidth.value > containerWidth.value && (
-                    <Text style={[style, { marginLeft: 20 }]}>{text}</Text>
-                )}
-            </Animated.View>
-        </View>
-    );
-}
+import { MarqueeText } from '../cinema/MarqueeText';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type ReactionType = 'laugh' | 'heartbeat' | 'tap' | 'emoji-preset';
 
-const BASE_EMOJIS = ['💗', '🥺', '😘'];
+const BASE_EMOJIS = ['💗', '🥺', '😘', '🍿'];
 
 
 export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
-    const { profile, couple, activeTabIndex, partnerProfile, idToken } = useOrbitStore();
-    const isFocused = activeTabIndex === 0 && isActive;
+    const profile = useOrbitStore(s => s.profile);
+    const couple = useOrbitStore(s => s.couple);
+    const isCurrentTab = useOrbitStore(s => s.activeTabIndex === 0);
+    const isFocused = isCurrentTab && isActive;
+    const partnerProfile = useOrbitStore(s => s.partnerProfile);
+    const idToken = useOrbitStore(s => s.idToken);
     const insets = useSafeAreaInsets();
     const perfStats = usePerfMonitor('SyncCinema');
     const isDebugMode = useOrbitStore(state => state.isDebugMode);
@@ -97,6 +48,8 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
     const [partnerOnline, setPartnerOnline] = useState(false);
     const [incomingReaction, setIncomingReaction] = useState<{ type: ReactionType; emoji?: string; senderName?: string; senderId?: string } | null>(null);
     const [selectedEmoji, setSelectedEmoji] = useState(BASE_EMOJIS[0]);
+    const [sessionEmojis, setSessionEmojis] = useState(BASE_EMOJIS);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
     const isMountedRef = useRef(true);
     const lastProcessedBroadcastRef = useRef<Record<string, number>>({});
@@ -108,6 +61,8 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
 
     const reactionScale = useSharedValue(0);
     const reactionOpacity = useSharedValue(0);
+    const reactionTranslateY = useSharedValue(0);
+    const reactionRotate = useSharedValue(0);
     const energyPulse = useSharedValue(1);
 
     // Music State
@@ -250,7 +205,7 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
         trayShiftY.value = withTiming(currentSong ? -75 : 0, { duration: 400 });
     }, [currentSong]);
 
-    // 🛡️ REMOVED redundant interval to prevent CPU spikes / heating
+    // ðŸ›¡ï¸ REMOVED redundant interval to prevent CPU spikes / heating
     // useEffect(() => {
     //     const interval = setInterval(() => {
     //         if (player.playing && !isSeeking.value) {
@@ -410,7 +365,7 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
     };
 
     const handleSearch = useCallback(async (rawQuery?: string) => {
-        const queryText = (rawQuery ?? searchQuery).trim();
+        const queryText = (rawQuery ? rawQuery : searchQuery).trim();
         if (!queryText) {
             searchAbortRef.current?.abort();
             setSearchResults([]);
@@ -620,7 +575,7 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
         const unsubPresence = onValue(presenceRef, (snap) => {
             const allPresence = snap.val() || {};
             const partnerEntry = Object.entries(allPresence).find(([userId]) => userId !== profile.id);
-            lastPresenceData = partnerEntry?.[1] ?? null;
+            lastPresenceData = partnerEntry?.[1] || null;
             validatePresence();
         });
 
@@ -648,9 +603,11 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
                 if (timestamp <= (lastProcessedBroadcastRef.current[senderId] || 0)) return;
                 lastProcessedBroadcastRef.current[senderId] = timestamp;
 
-                if (data.event === 'cinema_event' && (Date.now() - timestamp < 5000)) {
-                    handleIncomingEvent(data.payload);
-                } else if (data.event === 'music_event' && (Date.now() - timestamp < 10000)) {
+                if (data.event === 'cinema_event' && (Date.now() - timestamp < 10000)) {
+                    // Check for nested web-style payload or native-style
+                    const payload = data.payload?.event ? data.payload : data.payload;
+                    handleIncomingEvent(payload);
+                } else if (data.event === 'music_event' && (Date.now() - timestamp < 15000)) {
                     handleMusicSync(data.payload);
                 } else if (data.event === 'music_control' && (Date.now() - timestamp < 5000)) {
                     handleMusicControl(data.payload);
@@ -731,22 +688,22 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
 
         setIncomingReaction({
             type,
-            emoji: event.emoji,
+            emoji: event.emoji || (type === 'heartbeat' ? '💗' : type === 'laugh' ? '😂' : '✨'),
             senderId: event.senderId,
             senderName: partnerName
         });
 
         reactionScale.value = 0;
-        reactionOpacity.value = 1;
-
-        reactionScale.value = withSequence(
-            withTiming(1.2, { duration: 200 }),
-            withTiming(1, { duration: 100 })
-        );
-
-        reactionOpacity.value = withDelay(2000, withTiming(0, { duration: 400 }, (finished) => {
+        reactionOpacity.value = withDelay(2000, withTiming(0, { duration: 600 }, (finished) => {
             if (finished) runOnJS(safeSetIncomingReaction)(null);
         }));
+
+        // Emoji Animation Drift
+        reactionTranslateY.value = withSequence(
+            withTiming(-40, { duration: 400, easing: Easing.out(Easing.back(1.5)) }),
+            withTiming(-60, { duration: 2000, easing: Easing.linear })
+        );
+        reactionRotate.value = withTiming(Math.random() > 0.5 ? 15 : -15, { duration: 2400 });
 
         Haptics.impactAsync(type === 'heartbeat' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light);
     };
@@ -816,13 +773,14 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
         });
 
         reactionScale.value = 0;
-        reactionOpacity.value = 1;
+        reactionScale.value = withSequence(withTiming(1.5, { duration: 250 }), withTiming(1, { duration: 150 }));
+        reactionOpacity.value = withDelay(2000, withTiming(0, { duration: 600 }, (f) => f && runOnJS(safeSetIncomingReaction)(null)));
 
-        // Visual feedback inside Skia Halo
-        energyPulse.value = withSequence(withTiming(1.3, { duration: 200 }), withTiming(1, { duration: 200 }));
-
-        reactionScale.value = withSequence(withTiming(1.2, { duration: 200 }), withTiming(1, { duration: 100 }));
-        reactionOpacity.value = withDelay(2000, withTiming(0, { duration: 400 }, (f) => f && runOnJS(safeSetIncomingReaction)(null)));
+        reactionTranslateY.value = withSequence(
+            withTiming(-40, { duration: 400, easing: Easing.out(Easing.back(1.5)) }),
+            withTiming(-60, { duration: 2000, easing: Easing.linear })
+        );
+        reactionRotate.value = withTiming(Math.random() > 0.5 ? 10 : -10, { duration: 2400 });
 
         const now = Date.now();
         if (couple?.id && profile?.id && (now - lastBroadcastAt.current > 1000)) {
@@ -831,7 +789,13 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
             set(broadcastRef, {
                 event: 'cinema_event',
                 timestamp: now,
-                payload: { type, emoji: emoji || null, senderId: profile.id, senderName: profile.display_name }
+                payload: {
+                    event: 'reaction', // WEBALIGN: Vital for cross-platform sync
+                    type,
+                    emoji: emoji || (type === 'heartbeat' ? '💗' : type === 'laugh' ? '😂' : '✨'),
+                    senderId: profile?.id || 'unknown',
+                    senderName: profile?.display_name || 'Partner'
+                }
             }).catch(() => { });
         }
         instructionsOpacity.value = 0;
@@ -1010,26 +974,92 @@ export function SyncCinemaScreen({ isActive = true }: { isActive?: boolean }) {
                     {/* Reaction Layer */}
                     {incomingReaction && (
                         <Animated.View style={[styles.reactionOverlay, { transform: [{ scale: reactionScale.value }], opacity: reactionOpacity.value }]} pointerEvents="none">
-                            <Emoji symbol={incomingReaction.emoji || (incomingReaction.type === 'heartbeat' ? '❤️' : '✨')} size={100} />
-                            <Text style={styles.reactionSenderText}>{incomingReaction.senderName}</Text>
+                            <Animated.Text style={[styles.reactionEmoji, { transform: [{ translateY: reactionTranslateY.value }, { rotateZ: `${reactionRotate.value}deg` }] }]}>
+                                {incomingReaction?.emoji || (incomingReaction?.type === 'heartbeat' ? '❤️' : incomingReaction?.type === 'laugh' ? '😂' : '✨')}
+                            </Animated.Text>
+                            <Animated.View style={{ opacity: interpolate(reactionOpacity.value, [0.8, 1], [0, 1]) }}>
+                                <Text style={styles.reactionSenderText}>{incomingReaction.senderName}</Text>
+                            </Animated.View>
                         </Animated.View>
                     )}
 
-                    {/* Emoji Tray — Responsive Offset */}
-                    <Animated.View style={[styles.trayContainer, { bottom: insets.bottom + (currentSong && !showMusicSearch ? 100 : 20) }, animatedTrayStyle]} pointerEvents="box-none">
+                    {/* Emoji Tray & Customizer */}
+                    <Animated.View style={[styles.trayContainer, { bottom: insets.bottom + 20, opacity: trayOpacity.value, transform: [{ translateY: trayShiftY.value }] }]} pointerEvents="box-none">
                         <View style={[styles.emojiTray, { borderColor: partnerInCinema ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.1)' }]}>
-                            {BASE_EMOJIS.map(emoji => (
+                            {sessionEmojis.map((emoji, index) => (
                                 <TouchableOpacity
-                                    testID={`emoji-btn-${emoji}`}
-                                    key={emoji}
-                                    style={styles.emojiBtn}
-                                    onPress={() => handleAction('emoji-preset', emoji)}
+                                    key={index}
+                                    style={[styles.emojiBtn, selectedEmoji === emoji && { backgroundColor: 'rgba(255,255,255,0.1)' }]}
+                                    onPress={() => {
+                                        setSelectedEmoji(emoji);
+                                        handleAction('tap', emoji);
+                                    }}
+                                    onLongPress={() => {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                        setShowEmojiPicker(true);
+                                    }}
                                 >
-                                    <Emoji symbol={emoji} size={22} />
+                                    <Text style={{ fontSize: 24 }}>{emoji}</Text>
                                 </TouchableOpacity>
                             ))}
+                            <View style={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.1)', alignSelf: 'center', marginHorizontal: 4 }} />
+                            <TouchableOpacity
+                                style={styles.emojiBtn}
+                                onPress={() => setShowEmojiPicker(true)}
+                            >
+                                <Plus size={20} color="rgba(255,255,255,0.6)" />
+                            </TouchableOpacity>
                         </View>
                     </Animated.View>
+
+                    {/* Session Emoji Picker Modal */}
+                    <Modal
+                        visible={showEmojiPicker}
+                        transparent
+                        animationType="fade"
+                        onRequestClose={() => setShowEmojiPicker(false)}
+                    >
+                        <View style={styles.modalOverlay}>
+                            <GlassCard style={styles.emojiPickerCard} intensity={20}>
+                                <Text style={styles.emojiPickerTitle}>SESSION EMOJIS</Text>
+                                <Text style={styles.emojiPickerSub}>PICK UP TO 3 ADD-ONS (TOTAL 7 MAX)</Text>
+
+                                <View style={styles.emojiGrid}>
+                                    {['💍', '🥺', '😊', '❤️', '🔥', '✨', '🌊', '🌙', '🫂', '💋', '💅', '🫦', '🧸', '🌹', '🥂'].map((emoji) => {
+                                        const isSelected = sessionEmojis.includes(emoji);
+                                        return (
+                                            <TouchableOpacity
+                                                key={emoji}
+                                                style={[styles.gridEmojiBtn, isSelected && styles.gridEmojiBtnSelected]}
+                                                onPress={() => {
+                                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                                    if (isSelected) {
+                                                        setSessionEmojis(prev => prev.filter(e => e !== emoji));
+                                                    } else if (sessionEmojis.length < 3) {
+                                                        setSessionEmojis(prev => [...prev, emoji]);
+                                                    }
+                                                }}
+                                            >
+                                                <Text style={{ fontSize: 32 }}>{emoji}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+
+                                <TouchableOpacity
+                                    style={styles.closePickerBtn}
+                                    onPress={() => {
+                                        if (sessionEmojis.length > 0) {
+                                            setSelectedEmoji(sessionEmojis[0]);
+                                        }
+                                        setShowEmojiPicker(false);
+                                    }}
+                                >
+                                    <Text style={styles.closePickerText}>DONE</Text>
+                                </TouchableOpacity>
+                            </GlassCard>
+                        </View>
+                    </Modal>
 
                     {/* Spotify-style Mini Player — Pro Swipe & Seek */}
                     {currentSong && !showMusicSearch && (
@@ -1308,20 +1338,20 @@ const styles = StyleSheet.create({
     },
     presenceText: {
         color: '#fff',
-        fontSize: 10,
+        fontSize: 14,
         fontWeight: '900',
-        letterSpacing: 2,
+        letterSpacing: 1.5,
     },
     watchingAloneText: {
-        color: 'rgba(255,255,255,0.3)',
-        fontSize: 9,
+        color: 'rgba(255,255,255,0.55)',
+        fontSize: 13,
         fontWeight: '700',
         letterSpacing: 1,
         marginTop: 2,
     },
     listeningText: {
         color: '#a855f7',
-        fontSize: 8,
+        fontSize: 12,
         fontWeight: '900',
         letterSpacing: 1,
         marginTop: 2,
@@ -1335,11 +1365,11 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 12,
         fontWeight: '900',
-        letterSpacing: 2,
+        letterSpacing: 1.5,
     },
     subInstructionText: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
+        color: 'rgba(255,255,255,0.65)',
+        fontSize: 14,
         fontWeight: '900',
         letterSpacing: 3,
         textAlign: 'center',
@@ -1349,8 +1379,13 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    reactionEmoji: {
+        fontSize: 100,
+        fontWeight: '900',
+        fontFamily: Platform.OS === 'ios' ? 'Apple Color Emoji' : undefined,
+    },
     reactionSenderText: {
-        color: 'rgba(255,255,255,0.5)',
+        color: 'rgba(255,255,255,0.75)',
         fontSize: 12,
         fontWeight: '900',
         letterSpacing: 4,
@@ -1388,7 +1423,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(255,255,255,0.45)',
     },
     miniPlayerContainer: {
         position: 'absolute',
@@ -1431,8 +1466,8 @@ const styles = StyleSheet.create({
         paddingBottom: 0,
     },
     miniArtist: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
+        color: 'rgba(255,255,255,0.65)',
+        fontSize: 14,
         fontWeight: '600',
         marginTop: -2,
         includeFontPadding: false,
@@ -1490,8 +1525,8 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255,255,255,0.1)',
     },
     loadingText: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
+        color: 'rgba(255,255,255,0.65)',
+        fontSize: 14,
         fontWeight: '900',
         letterSpacing: 3,
         textAlign: 'center',
@@ -1503,12 +1538,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     noResultsText: {
-        color: 'rgba(255,255,255,0.2)',
-        fontSize: 10,
+        color: 'rgba(255,255,255,0.45)',
+        fontSize: 14,
         fontWeight: '900',
         textAlign: 'center',
         marginTop: 40,
-        letterSpacing: 2,
+        letterSpacing: 1.5,
     },
     searchItem: {
         flexDirection: 'row',
@@ -1527,11 +1562,11 @@ const styles = StyleSheet.create({
     },
     searchTitle: {
         color: 'white',
-        fontSize: 14,
+        fontSize: 18,
         fontWeight: '700',
     },
     searchArtist: {
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.65)',
         fontSize: 11,
     },
     fullArtContainer: {
@@ -1554,14 +1589,14 @@ const styles = StyleSheet.create({
     },
     fullTitle: {
         color: 'white',
-        fontSize: 28,
+        fontSize: 12,
         fontWeight: '900',
         marginBottom: 8,
         textAlign: 'center',
         lineHeight: 34,
     },
     fullArtist: {
-        color: 'rgba(255,255,255,0.6)',
+        color: 'rgba(255,255,255,0.82)',
         fontSize: 18,
         fontWeight: '600',
         marginBottom: 40,
@@ -1588,7 +1623,7 @@ const styles = StyleSheet.create({
         marginTop: 10,
     },
     timeText: {
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.65)',
         fontSize: 12,
         fontWeight: '700',
     },
@@ -1628,8 +1663,8 @@ const styles = StyleSheet.create({
         borderColor: '#a855f7',
     },
     musicTabText: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
+        color: 'rgba(255,255,255,0.65)',
+        fontSize: 14,
         fontWeight: '900',
         letterSpacing: 1,
     },
@@ -1661,9 +1696,9 @@ const styles = StyleSheet.create({
     },
     upNextLabel: {
         color: '#a855f7',
-        fontSize: 10,
+        fontSize: 14,
         fontWeight: '900',
-        letterSpacing: 2,
+        letterSpacing: 1.5,
         marginBottom: 6,
     },
     upNextTitle: {
@@ -1691,12 +1726,12 @@ const styles = StyleSheet.create({
     },
     bgToggleText: {
         color: '#a855f7',
-        fontSize: 10,
+        fontSize: 14,
         fontWeight: '900',
         letterSpacing: 1,
     },
     bgToggleDisabledText: {
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.65)',
     },
     cinemaHeader: {
         position: 'absolute',
@@ -1715,7 +1750,7 @@ const styles = StyleSheet.create({
         opacity: 0.5,
     },
     cinemaSubtitle: {
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: Typography.sansBold,
         color: 'rgba(168, 85, 247, 0.5)',
         letterSpacing: 4,
@@ -1724,4 +1759,67 @@ const styles = StyleSheet.create({
     standardHeader: GlobalStyles.standardHeader,
     standardTitle: GlobalStyles.standardTitle,
     standardSubtitle: GlobalStyles.standardSubtitle,
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    emojiPickerCard: {
+        width: '100%',
+        maxWidth: 340,
+        padding: 24,
+        borderRadius: 32,
+        alignItems: 'center',
+    },
+    emojiPickerTitle: {
+        fontSize: 20,
+        fontFamily: Typography.serif,
+        color: 'white',
+        letterSpacing: 4,
+        marginBottom: 4,
+    },
+    emojiPickerSub: {
+        fontSize: 10,
+        fontFamily: Typography.sansBold,
+        color: 'rgba(255,255,255,0.4)',
+        letterSpacing: 1.5,
+        marginBottom: 24,
+    },
+    emojiGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        gap: 12,
+        marginBottom: 32,
+    },
+    gridEmojiBtn: {
+        width: 60,
+        height: 60,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
+    gridEmojiBtnSelected: {
+        backgroundColor: 'rgba(168, 85, 247, 0.2)',
+        borderColor: '#a855f7',
+    },
+    closePickerBtn: {
+        width: '100%',
+        height: 54,
+        borderRadius: 16,
+        backgroundColor: 'white',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    closePickerText: {
+        fontSize: 14,
+        fontFamily: Typography.sansBold,
+        color: 'black',
+        letterSpacing: 1.5,
+    },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Colors, Radius, Typography, Spacing } from '../../constants/Theme';
 import { SecurityKeyboard } from '../SecurityKeyboard';
@@ -22,12 +22,20 @@ interface AppLockScreenProps {
     onUnlock: () => void;
 }
 
-export const AppLockScreen: React.FC<AppLockScreenProps> = ({ onUnlock }) => {
-    const { appPinCode, isBiometricEnabled } = useOrbitStore();
-    const [pin, setPin] = useState('');
-    const [error, setError] = useState(false);
+import { useAppLock } from '../../lib/hooks/useAppLock';
 
-    const shake = useSharedValue(0);
+export const AppLockScreen: React.FC<AppLockScreenProps> = ({ onUnlock }) => {
+    const isBiometricEnabled = useOrbitStore(s => s.isBiometricEnabled);
+
+    const {
+        pin,
+        pinError: error,
+        isAuthenticating,
+        shake,
+        handlePinPress: onKeyPress,
+        handleDelete: onDelete,
+        authenticateBiometric: handleBiometric,
+    } = useAppLock(onUnlock);
 
     const shakeStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: shake.value }]
@@ -37,60 +45,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ onUnlock }) => {
         if (isBiometricEnabled) {
             handleBiometric();
         }
-    }, []);
-
-    const handleBiometric = async () => {
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        if (!hasHardware) return;
-
-        const supported = await LocalAuthentication.supportedAuthenticationTypesAsync();
-        if (supported.length === 0) return;
-
-        const result = await LocalAuthentication.authenticateAsync({
-            promptMessage: 'Unlock Orbit',
-            fallbackLabel: 'Use PIN',
-            disableDeviceFallback: false,
-        });
-
-        if (result.success) {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            onUnlock();
-        }
-    };
-
-    const onKeyPress = (key: string) => {
-        if (pin.length >= 4) return;
-        const nextPin = pin + key;
-        setPin(nextPin);
-
-        if (nextPin.length === 4) {
-            if (nextPin === appPinCode || !appPinCode) {
-                // If no pin set, any 4 digits work for now? No, if enabled, pin must exist.
-                // But for first-time setup we might need different logic.
-                // For this screen, we assume pin exists if we are here.
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                onUnlock();
-            } else {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                setError(true);
-                shake.value = withSequence(
-                    withTiming(-10, { duration: 50 }),
-                    withTiming(10, { duration: 50 }),
-                    withTiming(-10, { duration: 50 }),
-                    withTiming(10, { duration: 50 }),
-                    withSpring(0)
-                );
-                setTimeout(() => {
-                    setPin('');
-                    setError(false);
-                }, 1000);
-            }
-        }
-    };
-
-    const onDelete = () => {
-        setPin(pin.slice(0, -1));
-    };
+    }, [isBiometricEnabled, handleBiometric]);
 
     return (
         <View style={styles.container}>
@@ -156,7 +111,7 @@ const styles = StyleSheet.create({
     subtitle: {
         fontSize: 14,
         fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.4)',
+        color: 'rgba(255,255,255,0.65)',
         marginTop: 8,
         letterSpacing: 0.5,
     },
@@ -170,7 +125,7 @@ const styles = StyleSheet.create({
         height: 16,
         borderRadius: 8,
         borderWidth: 1.5,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(255,255,255,0.45)',
     },
     dotFilled: {
         backgroundColor: Colors.dark.indigo[400],

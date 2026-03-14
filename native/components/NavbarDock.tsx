@@ -4,6 +4,7 @@ import Animated, {
     useAnimatedStyle, withTiming, useSharedValue, withSequence, withDelay,
     useDerivedValue, interpolate, Extrapolate, runOnJS,
 } from 'react-native-reanimated';
+import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ANIM_MICRO } from '../constants/Animation';
 import { Colors, Typography } from '../constants/Theme';
 import {
@@ -22,7 +23,7 @@ const BTN_SIZE = 40;
 const BTN_GAP = 4;
 const SLOT = BTN_SIZE + BTN_GAP;
 
-// ─── Tab definitions ──────────────────────────────────────────────────────────
+// ─── Tab definitions ────────────────────────────────────────────────────────
 
 const MOON_TABS = [
     { id: 'dashboard', label: 'Home', icon: LayoutDashboard, tabIndex: 1 },
@@ -31,15 +32,13 @@ const MOON_TABS = [
     { id: 'milestones', label: 'Milestones', icon: Flame, tabIndex: 4 },
 ];
 
-// Female: she tracks herself + context about their relationship
 const LUNARA_FEMALE_TABS = [
-    { id: 'today', label: 'Today', icon: Sparkles },
-    { id: 'cycle', label: 'Cycle', icon: Calendar },
+    { id: 'today', label: 'Cycle', icon: Calendar },
     { id: 'body', label: 'Body', icon: Activity },
     { id: 'partner', label: 'Partner', icon: Heart },
+    { id: 'learn', label: 'Intimacy', icon: Sparkles },
 ] as const;
 
-// Male: he learns about her cycle, desire, care guide, and intimacy education
 const LUNARA_MALE_TABS = [
     { id: 'today', label: 'Her Cycle', icon: Moon },
     { id: 'body', label: 'Desire', icon: Flame },
@@ -49,22 +48,26 @@ const LUNARA_MALE_TABS = [
 
 type LunaraTabId = 'today' | 'cycle' | 'body' | 'partner' | 'learn';
 
-// ─── NavbarDock ──────────────────────────────────────────────────────────────
-
 export function NavbarDock() {
-    const {
-        activeTabIndex, setTabIndex, scrollOffset,
-        setNotificationDrawerOpen, appMode, toggleAppMode,
-        setSearchOpen, couple, profile, isLiteMode,
-        notifications, lunaraPhaseColor,
-        lunaraTab, setLunaraTab,
-    } = useOrbitStore();
+    const activeTabIndex = useOrbitStore(s => s.activeTabIndex);
+    const setTabIndex = useOrbitStore(s => s.setTabIndex);
+    const scrollOffset = useOrbitStore(s => s.scrollOffset);
+    const setNotificationDrawerOpen = useOrbitStore(s => s.setNotificationDrawerOpen);
+    const appMode = useOrbitStore(s => s.appMode);
+    const toggleAppMode = useOrbitStore(s => s.toggleAppMode);
+    const setSearchOpen = useOrbitStore(s => s.setSearchOpen);
+    const couple = useOrbitStore(s => s.couple);
+    const profile = useOrbitStore(s => s.profile);
+    const isLiteMode = useOrbitStore(s => s.isLiteMode);
+    const notifications = useOrbitStore(s => s.notifications);
+    const lunaraPhaseColor = useOrbitStore(s => s.lunaraPhaseColor);
+    const lunaraTab = useOrbitStore(s => s.lunaraTab);
+    const setLunaraTab = useOrbitStore(s => s.setLunaraTab);
 
     const insets = useSafeAreaInsets();
     const [isPartnerActive, setIsPartnerActive] = useState(false);
     const isDockVisible = activeTabIndex !== 0;
 
-    // ─── Partner presence ──────────────────────────────────────────────────
     useEffect(() => {
         if (!isDockVisible || !couple?.id || !profile?.id) { setIsPartnerActive(false); return; }
         const partnerRef = ref(rtdb, `presence/${couple.id}`);
@@ -79,31 +82,21 @@ export function NavbarDock() {
         return unsub;
     }, [couple?.id, isDockVisible, profile?.id]);
 
-    // ─── Mode & gender ─────────────────────────────────────────────────────
     const isLunara = activeTabIndex >= 5;
     const isFemale = profile?.gender === 'female';
     const lunaraTabs = isFemale ? LUNARA_FEMALE_TABS : LUNARA_MALE_TABS;
 
-    // Active lunara tab index within the current tab array
-    const activeLunaraIdx = lunaraTabs.findIndex(t => t.id === lunaraTab);
-    const safeLunaraIdx = activeLunaraIdx < 0 ? 0 : activeLunaraIdx;
-
-    // ─── Swipe-Sync: Moon ↔ Lunara row swap ───────────────────────────────
-    // We transition rows as the user swipes between Milestones (index 4) and Lunara (index 5)
     const moonRowSlide = useDerivedValue(() => {
-        // From index 4 to 5, moon slides out left
         return interpolate(scrollOffset.value, [4, 5], [0, -SCREEN_WIDTH], Extrapolate.CLAMP);
     });
 
     const lunaraRowSlide = useDerivedValue(() => {
-        // From index 4 to 5, lunara slides in from right
         return interpolate(scrollOffset.value, [4, 5], [SCREEN_WIDTH, 0], Extrapolate.CLAMP);
     });
 
     const moonRowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: moonRowSlide.value }] }));
     const lunaraRowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: lunaraRowSlide.value }] }));
 
-    // ─── Moon indicator (tracks app screens 1-4) ─────────────────────────
     const moonIndicatorX = useDerivedValue(() => {
         const inputRange = [1, 2, 3, 4];
         const outputRange = [0, 1, 2, 3].map(s => s * SLOT);
@@ -111,18 +104,15 @@ export function NavbarDock() {
     });
     const moonIndicatorStyle = useAnimatedStyle(() => ({ transform: [{ translateX: moonIndicatorX.value }] }));
 
-    // ─── Lunara indicator (tracks app screens 5-8) ───────────────────────
-    // IMPORTANT: Array.from() is NOT available inside worklets (UI thread).
-    // Both genders always have exactly 4 Lunara tabs at indices 5-8.
     const lunaraIndicatorX = useDerivedValue(() => {
-        return interpolate(scrollOffset.value, [5, 6, 7, 8], [0, SLOT, SLOT * 2, SLOT * 3], Extrapolate.CLAMP);
+        const slots = lunaraTabs.length;
+        const inputRange = Array.from({ length: slots }, (_, i) => 5 + i);
+        const outputRange = Array.from({ length: slots }, (_, i) => i * SLOT);
+        return interpolate(scrollOffset.value, inputRange, outputRange, Extrapolate.CLAMP);
     });
     const lunaraIndicatorStyle = useAnimatedStyle(() => ({ transform: [{ translateX: lunaraIndicatorX.value }] }));
 
-    // ─── Dock show/hide (tracks 0 and 10+) ────────────────────────────────
-    // Pages: 0=cinema, 1=dashboard, 2=letters, 3=memories, 4=milestones, 5-8=lunara, 9=settings
-    // Both genders have the same page count (female has 4 lunara tabs, male has 4 lunara tabs)
-    const MAX_INDEX = 9;
+    const MAX_INDEX = isFemale ? 10 : 9;
     const dockOpacity = useDerivedValue(() => {
         return interpolate(scrollOffset.value, [0, 0.5, 1, MAX_INDEX, MAX_INDEX + 0.5], [0, 0, 1, 1, 0], Extrapolate.CLAMP);
     });
@@ -135,19 +125,11 @@ export function NavbarDock() {
         opacity: dockOpacity.value,
     }));
 
-    // ─── Accent color (interpolated based on scroll) ──────────────────────
-    const moonProgress = useDerivedValue(() => {
-        return interpolate(scrollOffset.value, [4, 5], [1, 0], Extrapolate.CLAMP);
-    });
-
-    // We can't interpolate strings directly easily in JS without useAnimatedStyle, 
-    // but we can calculate the current effective accent for non-animated props
     const rawAccent = isLunara && lunaraPhaseColor ? lunaraPhaseColor : '#f43f5e';
     const accent = rawAccent;
     const accentBorder = `${accent}66`;
 
     const unreadCount = notifications.filter(n => !n?.is_read).length;
-    const moonActiveIdx = MOON_TABS.findIndex(t => t.tabIndex === activeTabIndex);
 
     const handleLunaraTab = useCallback((id: LunaraTabId) => {
         const idx = lunaraTabs.findIndex(t => t.id === id);
@@ -155,118 +137,165 @@ export function NavbarDock() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setLunaraTab(id);
         setTabIndex(5 + idx, 'tap');
-    }, [activeTabIndex, lunaraTabs, setLunaraTab, setTabIndex]);
+    }, [lunaraTabs, setLunaraTab, setTabIndex]);
+
+    // ─── Swipe Mode Switch ──────────────────────────────────────────────────
+    const panGesture = Gesture.Pan()
+        .activeOffsetX([-20, 20])
+        .onEnd((event) => {
+            const swipeThreshold = 50;
+            if (Math.abs(event.translationX) > swipeThreshold) {
+                runOnJS(() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                    toggleAppMode();
+                    // Go to dashboard (1) or Lunara Today (5) based on current mode (will be toggled)
+                    setTabIndex(appMode === 'moon' ? 5 : 1, 'tap');
+                })();
+            }
+        });
 
     return (
-        <Animated.View
-            style={[styles.dockContainer, { bottom: Math.max(insets.bottom, 12) }, animatedDockStyle]}
-            pointerEvents={activeTabIndex === 0 ? 'none' : 'box-none'}
-        >
-            <View style={styles.dockWrapper}>
+        <GestureHandlerRootView>
+            <Animated.View
+                style={[styles.dockContainer, { bottom: Math.max(insets.bottom, 12) }, animatedDockStyle]}
+                pointerEvents={activeTabIndex === 0 ? 'none' : 'box-none'}
+            >
+                <GestureDetector gesture={panGesture}>
+                    <View style={styles.dockWrapper}>
 
-                {/* Bell */}
-                <SafeBlurView intensity={18} tint="dark" experimentalBlurMethod="dimezisBlurView"
-                    fallbackBackgroundColor="rgba(5,5,10,0.92)" allowAndroidBlur={!isLiteMode}
-                    style={[styles.sideCapsule, { borderColor: accentBorder }]}
-                >
-                    <TouchableOpacity style={styles.sideBtn} onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        setNotificationDrawerOpen(true);
-                    }}>
-                        <Bell size={20} color="rgba(255,255,255,0.5)" strokeWidth={2} />
-                        {unreadCount > 0 && <View style={styles.unreadBadge} />}
-                    </TouchableOpacity>
-                </SafeBlurView>
+                    {/* Bell */}
+                    <SafeBlurView intensity={18} tint="dark" experimentalBlurMethod="dimezisBlurView"
+                        fallbackBackgroundColor="rgba(5,5,10,0.92)" allowAndroidBlur={!isLiteMode}
+                        style={[styles.sideCapsule, { borderColor: accentBorder }]}
+                    >
+                        <TouchableOpacity style={styles.sideBtn} onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            setNotificationDrawerOpen(true);
+                        }}>
+                            <Bell size={20} color="rgba(255,255,255,0.5)" strokeWidth={2} />
+                            {unreadCount > 0 && <View style={styles.unreadBadge} />}
+                        </TouchableOpacity>
+                    </SafeBlurView>
 
-                {/* Main capsule with sliding rows */}
-                <SafeBlurView intensity={18} tint="dark" experimentalBlurMethod="dimezisBlurView"
-                    fallbackBackgroundColor="rgba(5,5,10,0.92)" allowAndroidBlur={!isLiteMode}
-                    style={[styles.middleCapsule, { borderColor: accentBorder }]}
-                >
-                    {/* Clip container — hides off-screen rows */}
-                    <View style={styles.rowClip}>
+                    {/* Main capsule with sliding rows */}
+                    <SafeBlurView intensity={18} tint="dark" experimentalBlurMethod="dimezisBlurView"
+                        fallbackBackgroundColor="rgba(5,5,10,0.92)" allowAndroidBlur={!isLiteMode}
+                        style={[styles.middleCapsule, { borderColor: accentBorder }]}
+                    >
+                        <View style={[styles.rowClip, { width: (isLunara ? lunaraTabs.length : MOON_TABS.length) * SLOT + 16 }]}>
 
-                        {/* ── Moon row ──────────────────────────────────────── */}
-                        <Animated.View style={[styles.middleContent, StyleSheet.absoluteFillObject, moonRowStyle]}>
-                            <View style={styles.navRow}>
-                                {MOON_TABS.map(item => {
-                                    const Icon = item.icon;
-                                    const isActive = item.tabIndex === activeTabIndex;
-                                    return (
-                                        <TouchableOpacity
-                                            key={item.id}
-                                            style={styles.navBtn}
-                                            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setTabIndex(item.tabIndex, 'tap'); }}
-                                            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); toggleAppMode(); setTabIndex(5, 'tap'); }}
-                                            delayLongPress={400}
-                                        >
-                                            <Icon
-                                                size={16}
-                                                color={isActive ? accent : 'rgba(255,255,255,0.4)'}
-                                                strokeWidth={isActive ? 2.5 : 2}
-                                            />
-                                            <Text style={[styles.tabLabel, isActive && { color: accent }]}>
-                                                {item.label}
-                                            </Text>
-                                            {isActive && <View style={[styles.activeDot, { backgroundColor: accent }]} />}
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
-                        </Animated.View>
+                            {/* ── Moon row ──────────────────────────────────────── */}
+                            <Animated.View style={[styles.middleContent, StyleSheet.absoluteFillObject, moonRowStyle]}>
+                                <Animated.View style={[styles.activeIndicator, moonIndicatorStyle, { backgroundColor: accent }]} />
+                                <View style={styles.navRow}>
+                                    {MOON_TABS.map(item => {
+                                        const IconComponent = item.icon;
+                                        const isActive = item.tabIndex === activeTabIndex;
+                                        const iconActiveColor = accent;
+                                        const iconInactiveColor = "rgba(255,255,255,0.35)";
 
-                        {/* ── Lunara row ─────────────────────────────────────── */}
-                        <Animated.View style={[styles.middleContent, StyleSheet.absoluteFillObject, lunaraRowStyle]}>
-                            <View style={styles.navRow}>
-                                {lunaraTabs.map((tab, idx) => {
-                                    const Icon = tab.icon;
-                                    const tabIndex = 5 + idx;
-                                    const isActive = activeTabIndex === tabIndex;
-                                    return (
-                                        <TouchableOpacity
-                                            key={tab.id}
-                                            style={styles.navBtn}
-                                            onPress={() => handleLunaraTab(tab.id as LunaraTabId)}
-                                            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); toggleAppMode(); setTabIndex(1, 'tap'); }}
-                                            delayLongPress={400}
-                                        >
-                                            <Icon
-                                                size={16}
-                                                color={isActive ? accent : 'rgba(255,255,255,0.35)'}
-                                                strokeWidth={isActive ? 2.5 : 1.8}
-                                            />
-                                            <Text style={[styles.tabLabel, isActive && { color: accent }]}>
-                                                {tab.label}
-                                            </Text>
-                                            {isActive && <View style={[styles.activeDot, { backgroundColor: accent }]} />}
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
-                        </Animated.View>
+                                        return (
+                                            <TouchableOpacity
+                                                key={item.id}
+                                                style={styles.navBtn}
+                                                onPress={() => {
+                                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                                    setTabIndex(item.tabIndex, 'tap');
+                                                }}
+                                                onLongPress={() => {
+                                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                                                    toggleAppMode();
+                                                    setTabIndex(5, 'tap');
+                                                }}
+                                                delayLongPress={400}
+                                            >
+                                                <IconComponent
+                                                    size={18}
+                                                    color={isActive ? iconActiveColor : iconInactiveColor}
+                                                    strokeWidth={isActive ? 2.5 : 2}
+                                                />
+                                                <Text
+                                                    style={[
+                                                        styles.tabLabel,
+                                                        { color: isActive ? iconActiveColor : "rgba(255,255,255,0.3)" }
+                                                    ]}
+                                                    numberOfLines={1}
+                                                >
+                                                    {item.label.toUpperCase()}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </Animated.View>
+
+                            {/* ── Lunara row ─────────────────────────────────────── */}
+                            <Animated.View style={[styles.middleContent, StyleSheet.absoluteFillObject, lunaraRowStyle]}>
+                                <Animated.View style={[styles.activeIndicator, lunaraIndicatorStyle, { backgroundColor: accent }]} />
+                                <View style={styles.navRow}>
+                                    {lunaraTabs.map((tab, idx) => {
+                                        const IconComponent = tab.icon;
+                                        const tabIndex = 5 + idx;
+                                        const isActive = activeTabIndex === tabIndex;
+                                        const iconActiveColor = accent;
+                                        const iconInactiveColor = "rgba(255,255,255,0.35)";
+
+                                        return (
+                                            <TouchableOpacity
+                                                key={tab.id}
+                                                style={[styles.navBtn, { width: SLOT }]}
+                                                onPress={() => handleLunaraTab(tab.id as LunaraTabId)}
+                                                onLongPress={() => {
+                                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                                                    toggleAppMode();
+                                                    setTabIndex(1, 'tap');
+                                                }}
+                                                delayLongPress={400}
+                                            >
+                                                <IconComponent
+                                                    size={18}
+                                                    color={isActive ? iconActiveColor : iconInactiveColor}
+                                                    strokeWidth={isActive ? 2.5 : 2}
+                                                />
+                                                <Text
+                                                    style={[
+                                                        styles.tabLabel,
+                                                        { color: isActive ? iconActiveColor : "rgba(255,255,255,0.3)" }
+                                                    ]}
+                                                    numberOfLines={1}
+                                                >
+                                                    {tab.label.toUpperCase()}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </Animated.View>
+
+                        </View>
+                    </SafeBlurView>
+
+                    {/* Search */}
+                    <SafeBlurView intensity={18} tint="dark" experimentalBlurMethod="dimezisBlurView"
+                        fallbackBackgroundColor="rgba(5,5,10,0.92)" allowAndroidBlur={!isLiteMode}
+                        style={[styles.sideCapsule, { borderColor: accentBorder }]}
+                    >
+                        <TouchableOpacity style={styles.sideBtn} onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            setSearchOpen(true);
+                        }}>
+                            <Search size={20} color="rgba(255,255,255,0.5)" strokeWidth={2} />
+                        </TouchableOpacity>
+                    </SafeBlurView>
 
                     </View>
-                </SafeBlurView>
-
-                {/* Search */}
-                <SafeBlurView intensity={18} tint="dark" experimentalBlurMethod="dimezisBlurView"
-                    fallbackBackgroundColor="rgba(5,5,10,0.92)" allowAndroidBlur={!isLiteMode}
-                    style={[styles.sideCapsule, { borderColor: accentBorder }]}
-                >
-                    <TouchableOpacity style={styles.sideBtn} onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        setSearchOpen(true);
-                    }}>
-                        <Search size={20} color="rgba(255,255,255,0.5)" strokeWidth={2} />
-                    </TouchableOpacity>
-                </SafeBlurView>
-
-            </View>
-        </Animated.View>
+                </GestureDetector>
+            </Animated.View>
+        </GestureHandlerRootView>
     );
 }
 
-const ROW_HEIGHT = BTN_SIZE + 8; // paddingVertical 4 * 2
+const ROW_HEIGHT = BTN_SIZE + SLOT / 2;
 
 const styles = StyleSheet.create({
     dockContainer: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 100 },
@@ -276,7 +305,7 @@ const styles = StyleSheet.create({
 
     // Main capsule clips both sliding rows
     middleCapsule: { borderRadius: 999, overflow: 'hidden', borderWidth: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
-    rowClip: { width: 4 * SLOT + 16, height: ROW_HEIGHT, overflow: 'hidden', position: 'relative' },
+    rowClip: { height: ROW_HEIGHT, overflow: 'hidden', position: 'relative' },
 
     middleContent: {
         flexDirection: 'row', alignItems: 'center',
@@ -285,13 +314,21 @@ const styles = StyleSheet.create({
     },
 
     navRow: { flexDirection: 'row', alignItems: 'center', gap: BTN_GAP },
-    navBtn: { width: BTN_SIZE, height: BTN_SIZE, alignItems: 'center', justifyContent: 'center', zIndex: 1, gap: 1 },
-    tabLabel: { fontSize: 7, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 0.3 },
-    activeDot: {
-        width: 3,
-        height: 3,
-        borderRadius: 1.5,
-        marginTop: 1,
+    navBtn: { width: BTN_SIZE, height: ROW_HEIGHT, alignItems: 'center', justifyContent: 'center', zIndex: 1, gap: 1 },
+    tabLabel: {
+        fontSize: 9,
+        fontFamily: Typography.sansBold,
+        marginTop: 4,
+        letterSpacing: 1,
+    },
+    activeIndicator: {
+        position: 'absolute',
+        top: 4,
+        left: 8,
+        width: BTN_SIZE,
+        height: BTN_SIZE,
+        borderRadius: BTN_SIZE / 2,
+        opacity: 0.1,
     },
     unreadBadge: {
         position: 'absolute', top: 8, right: 8,

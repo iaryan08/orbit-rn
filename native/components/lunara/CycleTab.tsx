@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Droplets } from 'lucide-react-native';
 import { GlassCard } from '../GlassCard';
@@ -104,6 +104,13 @@ export const CycleTab = React.memo(({
                     <Droplets size={28} color="rgba(251,113,133,0.4)" />
                     <Text style={tab.emptyTitle}>Log your first period</Text>
                     <Text style={tab.emptySub}>Lunara needs your last period date to build your cycle map.</Text>
+                    <TouchableOpacity 
+                        activeOpacity={0.7}
+                        style={tab.emptyBtn} 
+                        onPress={onLogPeriod}
+                    >
+                        <Text style={tab.emptyBtnText}>Log Period Started Today</Text>
+                    </TouchableOpacity>
                 </View>
             )}
         </View>

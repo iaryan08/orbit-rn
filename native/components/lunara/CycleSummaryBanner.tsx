@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -160,7 +160,7 @@ export const CycleSummaryBanner = React.memo(({ cycleDay, phase, prediction, onL
 
                     {prediction.isIrregular && (
                         <View style={styles.irregularPill}>
-                            <Text style={styles.irregularText}>⚠ Irregular pattern</Text>
+                            <Text style={styles.irregularText}>âš  Irregular pattern</Text>
                         </View>
                     )}
 

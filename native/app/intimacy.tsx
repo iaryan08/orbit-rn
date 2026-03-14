@@ -1,2 +1,2 @@
-import { IntimacyScreen } from '../components/screens/IntimacyScreen';
-export default IntimacyScreen;
+import { IntimacyRepo } from '../components/screens/IntimacyRepo';
+export default IntimacyRepo;

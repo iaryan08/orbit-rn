@@ -1,28 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Image } from 'expo-image';
-import { Flame } from 'lucide-react-native';
+import { Flame, Plus, Thermometer, Droplets, Activity } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GlassCard } from '../GlassCard';
 import { LibidoMeter } from '../../components/LibidoMeter';
 import { LibidoSlider } from '../../components/LibidoSlider';
 import { HormonePhaseDetail } from './HormonePhaseDetail';
-import { FADE_IN, FADE_IN_DOWN_1, FADE_IN_DOWN_2, tab } from './tabStyles';
+import { FADE_IN, tab } from './tabStyles';
 
 export function BodyTab({
     phase,
     todaySymptoms,
     partnerSymptoms,
     onToggleSymptom,
+    onAddCustomSymptom,
     currentLibido,
     onLibidoSelect,
     partnerLibido,
     partnerName,
     isFemale,
     PHASE_SYMPTOMS,
+    coupleId,
 }: any) {
     const suggestedSymptoms = phase ? (PHASE_SYMPTOMS[phase.name] || []) : [];
+
+    // Identify custom symptoms (those not in the suggested list nor special prefixes like CM/BBT)
+    const customSymptoms = todaySymptoms.filter((s: string) =>
+        !suggestedSymptoms.includes(s) &&
+        !s.startsWith('CM_') &&
+        !s.startsWith('BBT_') &&
+        !s.startsWith('EQ_')
+    );
+
     const phaseColor = phase?.color || '#818cf8';
 
     const [libidoPhoto, setLibidoPhoto] = useState<string | null>(null);
@@ -64,29 +75,74 @@ export function BodyTab({
                 <GlassCard style={tab.bodyCard} intensity={8}>
                     <Text style={tab.bodyCardLabel}>PHYSICAL TELEMETRY</Text>
                     <Text style={tab.bodyCardTitle}>Current biological states</Text>
-                    {suggestedSymptoms.length > 0 ? (
+                    {suggestedSymptoms.length > 0 || customSymptoms.length > 0 ? (
                         <View style={tab.chipGrid}>
                             {suggestedSymptoms.map((symptom: string) => {
                                 const isSelected = todaySymptoms.includes(symptom);
                                 return (
-                                    <Pressable
+                                    <TouchableOpacity
                                         key={symptom}
+                                        activeOpacity={0.7}
                                         onPress={() => onToggleSymptom(symptom)}
-                                        style={({ pressed }) => [
+                                        style={[
                                             tab.chip,
-                                            isSelected && { backgroundColor: `${phaseColor}22`, borderColor: phaseColor },
-                                            { opacity: pressed ? 0.65 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
+                                            isSelected && { backgroundColor: `${phaseColor}22`, borderColor: phaseColor }
                                         ]}
                                     >
                                         <Text style={[tab.chipText, isSelected && { color: phaseColor }]}>
                                             {symptom}
                                         </Text>
-                                    </Pressable>
+                                    </TouchableOpacity>
                                 );
                             })}
+
+                            {/* Render Custom Symptoms */}
+                            {customSymptoms.map((symptom: string) => (
+                                <TouchableOpacity
+                                    key={symptom}
+                                    activeOpacity={0.7}
+                                    onPress={() => onToggleSymptom(symptom)}
+                                    style={[
+                                        tab.chip,
+                                        { backgroundColor: 'rgba(168,85,247,0.1)', borderColor: 'rgba(168,85,247,0.4)' }
+                                    ]}
+                                >
+                                    <Text style={[tab.chipText, { color: '#d8b4fe' }]}>
+                                        {symptom}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+
+                            {/* Add Custom Symptom Button */}
+                            <TouchableOpacity
+                                activeOpacity={0.7}
+                                onPress={onAddCustomSymptom}
+                                style={[
+                                    tab.chip,
+                                    { borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.3)', backgroundColor: 'transparent' }
+                                ]}
+                            >
+                                <Text style={[tab.chipText, { color: 'rgba(255,255,255,0.5)' }]}>
+                                    + ADD
+                                </Text>
+                            </TouchableOpacity>
                         </View>
                     ) : (
-                        <Text style={tab.emptySub}>Log a period first to see phase-specific symptoms.</Text>
+                        <View style={tab.chipGrid}>
+                            {/* Even if no history, allow adding custom */}
+                            <TouchableOpacity
+                                activeOpacity={0.7}
+                                onPress={onAddCustomSymptom}
+                                style={[
+                                    tab.chip,
+                                    { borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.3)', backgroundColor: 'transparent' }
+                                ]}
+                            >
+                                <Text style={[tab.chipText, { color: 'rgba(255,255,255,0.5)' }]}>
+                                    + ADD SYMPTOM
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
                     )}
                 </GlassCard>
             )}
@@ -100,19 +156,19 @@ export function BodyTab({
                     <Text style={tab.bodyCardTitle}>Cervical Mucus</Text>
                     <View style={tab.chipGrid}>
                         {['Dry', 'Sticky', 'Creamy', 'Egg White'].map(type => (
-                            <Pressable
+                            <TouchableOpacity
                                 key={type}
+                                activeOpacity={0.7}
                                 onPress={() => onToggleSymptom(`CM_${type}`)}
-                                style={({ pressed }) => [
+                                style={[
                                     tab.chip,
-                                    todaySymptoms.includes(`CM_${type}`) && { backgroundColor: `${phaseColor}22`, borderColor: phaseColor },
-                                    { opacity: pressed ? 0.65 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
+                                    todaySymptoms.includes(`CM_${type}`) && { backgroundColor: `${phaseColor}22`, borderColor: phaseColor }
                                 ]}
                             >
                                 <Text style={[tab.chipText, todaySymptoms.includes(`CM_${type}`) && { color: phaseColor }]}>
                                     {type}
                                 </Text>
-                            </Pressable>
+                            </TouchableOpacity>
                         ))}
                     </View>
 
@@ -120,25 +176,25 @@ export function BodyTab({
                     <Text style={[tab.bodyCardTitle, { marginTop: 16 }]}>Basal Body Temperature</Text>
                     <View style={tab.chipGrid}>
                         {['Normal', 'Shifted High', 'Shifted Low'].map(type => (
-                            <Pressable
+                            <TouchableOpacity
                                 key={type}
+                                activeOpacity={0.7}
                                 onPress={() => onToggleSymptom(`BBT_${type}`)}
-                                style={({ pressed }) => [
+                                style={[
                                     tab.chip,
-                                    todaySymptoms.includes(`BBT_${type}`) && { backgroundColor: `${phaseColor}22`, borderColor: phaseColor },
-                                    { opacity: pressed ? 0.65 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
+                                    todaySymptoms.includes(`BBT_${type}`) && { backgroundColor: `${phaseColor}22`, borderColor: phaseColor }
                                 ]}
                             >
                                 <Text style={[tab.chipText, todaySymptoms.includes(`BBT_${type}`) && { color: phaseColor }]}>
                                     {type}
                                 </Text>
-                            </Pressable>
+                            </TouchableOpacity>
                         ))}
                     </View>
 
                     <View style={[tab.phaseNote, { marginTop: 12 }]}>
-                        <Text style={[tab.phaseNoteText, { color: 'rgba(255,255,255,0.6)' }]}>
-                            ✦ A sustained BBT rise + "Egg White" mucus confirms ovulation has uniquely occurred.
+                        <Text style={[tab.phaseNoteText, { color: 'rgba(255,255,255,0.82)' }]}>
+                            A sustained BBT rise + "Egg White" mucus confirms ovulation has uniquely occurred.
                         </Text>
                     </View>
                 </GlassCard>
@@ -192,12 +248,12 @@ export function BodyTab({
                         <View style={[tab.phaseNote, { marginTop: 12, borderTopWidth: 0 }]}>
                             <Text style={[tab.phaseNoteText, { color: phase.color }]}>
                                 {phase.name === 'Ovulatory'
-                                    ? '✦ Peak libido phase — estrogen and testosterone are both elevated'
+                                    ? 'Peak libido phase — estrogen and testosterone are both elevated'
                                     : phase.name === 'Luteal'
-                                        ? '✦ Progesterone dampens drive. Completely normal.'
+                                        ? 'Progesterone dampens drive. Completely normal.'
                                         : phase.name === 'Follicular'
-                                            ? '✦ Libido building as estrogen rises through this phase'
-                                            : '✦ Rest phase — low drive is your body\'s signal for recovery'}
+                                            ? 'Libido building as estrogen rises through this phase'
+                                            : 'Rest phase — low drive is your body\'s signal for recovery'}
                             </Text>
                         </View>
                     )}
@@ -211,19 +267,19 @@ export function BodyTab({
                     <Text style={tab.bodyCardTitle}>Morning Erection Quality</Text>
                     <View style={tab.chipGrid}>
                         {['Strong', 'Normal', 'Weak', 'None'].map(quality => (
-                            <Pressable
+                            <TouchableOpacity
                                 key={quality}
+                                activeOpacity={0.7}
                                 onPress={() => onToggleSymptom(`EQ_${quality}`)}
-                                style={({ pressed }) => [
+                                style={[
                                     tab.chip,
-                                    todaySymptoms.includes(`EQ_${quality}`) && { backgroundColor: `rgba(52, 211, 153, 0.2)`, borderColor: '#34d399' },
-                                    { opacity: pressed ? 0.65 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] }
+                                    todaySymptoms.includes(`EQ_${quality}`) && { backgroundColor: `rgba(52, 211, 153, 0.2)`, borderColor: '#34d399' }
                                 ]}
                             >
                                 <Text style={[tab.chipText, todaySymptoms.includes(`EQ_${quality}`) && { color: '#34d399' }]}>
                                     {quality}
                                 </Text>
-                            </Pressable>
+                            </TouchableOpacity>
                         ))}
                     </View>
                     <View style={tab.phaseNote}>
@@ -231,6 +287,20 @@ export function BodyTab({
                             ✦ Morning erections are a key indicator of cardiovascular and hormonal health.
                         </Text>
                     </View>
+
+                    {/* Add Custom Health Entry for Men */}
+                    <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={onAddCustomSymptom}
+                        style={[
+                            tab.chip,
+                            { borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.3)', backgroundColor: 'transparent', marginTop: 12 }
+                        ]}
+                    >
+                        <Text style={[tab.chipText, { color: 'rgba(255,255,255,0.5)' }]}>
+                            + LOG FEELING
+                        </Text>
+                    </TouchableOpacity>
                 </GlassCard>
             )}
 
@@ -245,6 +315,89 @@ export function BodyTab({
                                 <Text style={[tab.chipText, { color: '#34d399' }]}>{symptom}</Text>
                             </View>
                         ))}
+                    </View>
+                </GlassCard>
+            )}
+
+            {/* Libido-Boosting Nutrition (Flo-inspired Quick Win) */}
+            {phase && (
+                <GlassCard style={tab.bodyCard} intensity={8}>
+                    <Text style={tab.bodyCardLabel}>HORMONE-ALIGNED NUTRITION</Text>
+                    <Text style={tab.bodyCardTitle}>Libido-Boosting Foods</Text>
+
+                    <View style={{ marginTop: 12, gap: 12 }}>
+                        {phase.name === 'Menstrual' && (
+                            <>
+                                <View style={tab.foodRow}>
+                                    <Text style={tab.foodEmoji}>🍫</Text>
+                                    <View>
+                                        <Text style={tab.foodName}>Dark Chocolate</Text>
+                                        <Text style={tab.foodBenefit}>Magnesium for mood & pain relief</Text>
+                                    </View>
+                                </View>
+                                <View style={tab.foodRow}>
+                                    <Text style={tab.foodEmoji}>🥬</Text>
+                                    <View>
+                                        <Text style={tab.foodName}>Iron-Rich Greens</Text>
+                                        <Text style={tab.foodBenefit}>Replenish energy lost during flow</Text>
+                                    </View>
+                                </View>
+                            </>
+                        )}
+                        {phase.name === 'Follicular' && (
+                            <>
+                                <View style={tab.foodRow}>
+                                    <Text style={tab.foodEmoji}>🥗</Text>
+                                    <View>
+                                        <Text style={tab.foodName}>Fermented Foods</Text>
+                                        <Text style={tab.foodBenefit}>Metabolize rising estrogen efficiently</Text>
+                                    </View>
+                                </View>
+                                <View style={tab.foodRow}>
+                                    <Text style={tab.foodEmoji}>🥜</Text>
+                                    <View>
+                                        <Text style={tab.foodName}>Brazil Nuts</Text>
+                                        <Text style={tab.foodBenefit}>Selenium for follicular health</Text>
+                                    </View>
+                                </View>
+                            </>
+                        )}
+                        {phase.name === 'Ovulatory' && (
+                            <>
+                                <View style={tab.foodRow}>
+                                    <Text style={tab.foodEmoji}>🦪</Text>
+                                    <View>
+                                        <Text style={tab.foodName}>Zinc-Rich Foods</Text>
+                                        <Text style={tab.foodBenefit}>Supports peak libido & egg release</Text>
+                                    </View>
+                                </View>
+                                <View style={tab.foodRow}>
+                                    <Text style={tab.foodEmoji}>🍓</Text>
+                                    <View>
+                                        <Text style={tab.foodName}>High Fiber Fruit</Text>
+                                        <Text style={tab.foodBenefit}>Flush excess hormones after the peak</Text>
+                                    </View>
+                                </View>
+                            </>
+                        )}
+                        {phase.name === 'Luteal' && (
+                            <>
+                                <View style={tab.foodRow}>
+                                    <Text style={tab.foodEmoji}>🍠</Text>
+                                    <View>
+                                        <Text style={tab.foodName}>Complex Carbs</Text>
+                                        <Text style={tab.foodBenefit}>Sweet potato/Oats for serotonin</Text>
+                                    </View>
+                                </View>
+                                <View style={tab.foodRow}>
+                                    <Text style={tab.foodEmoji}>🥑</Text>
+                                    <View>
+                                        <Text style={tab.foodName}>Healthy Fats</Text>
+                                        <Text style={tab.foodBenefit}>Anchor progesterone production</Text>
+                                    </View>
+                                </View>
+                            </>
+                        )}
                     </View>
                 </GlassCard>
             )}

@@ -88,7 +88,7 @@ const newComponent = `export const ConnectionBoard = React.memo(({ profile, part
                 <View style={styles.connHeaderRedesign}>
                     <View style={styles.connTitleGroup}>
                         <Sparkles size={18} color={Colors.dark.indigo[400]} />
-                        <Text style={styles.connTitle}>Vibe Sync</Text>
+                        <Text style={styles.connTitle}>Moods</Text>
                     </View>
                     <View style={styles.connActions}>
                         <TouchableOpacity

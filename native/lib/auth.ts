@@ -1,5 +1,5 @@
 import { auth, db, storage, rtdb } from './firebase';
-import { doc, setDoc, addDoc, collection, serverTimestamp, getDocs, query, where, deleteDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, addDoc, collection, serverTimestamp, getDocs, query, where, deleteDoc, Timestamp, orderBy, limit, arrayUnion, updateDoc } from 'firebase/firestore';
 import { ref, deleteObject, uploadBytes, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image as ImageCompressor } from 'react-native-compressor';
@@ -7,13 +7,20 @@ import { updateDoc as firestoreUpdateDoc } from 'firebase/firestore';
 
 // useOrbitStore is imported dynamically inside functions to avoid circular dependency with store.ts
 
-import { getTodayIST } from './utils';
+import { getTodayIST, isLikelyNetworkError } from './utils';
 import { sendNotification } from './notifications';
+import { enqueueMutation, isOffline } from './offline-queue';
 
 const resolveCoupleId = (state: any): string | null =>
     state.couple?.id || state.profile?.couple_id || state.activeCoupleId || null;
 
 export async function submitMood(mood: string, note?: string) {
+    if (await isOffline()) {
+        console.log('[Auth] Offline detected, enqueuing mood submission...');
+        await enqueueMutation('mood.log' as any, { mood, note }); // Adding to queue
+        return { success: true, queued: true };
+    }
+
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -50,11 +57,20 @@ export async function submitMood(mood: string, note?: string) {
 
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('mood.log' as any, { mood, note });
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
 
 export async function clearMood() {
+    if (await isOffline()) {
+        await enqueueMutation('mood.clear' as any, {});
+        return { success: true, queued: true };
+    }
+
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -76,11 +92,20 @@ export async function clearMood() {
 
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('mood.clear' as any, {});
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
 
 export async function logSymptoms(symptoms: string[], options?: { notifyPartner?: boolean; customPrefix?: string; note?: string }) {
+    if (await isOffline()) {
+        await enqueueMutation('cycle.log' as any, { symptoms, options });
+        return { success: true, queued: true };
+    }
+
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -106,9 +131,24 @@ export async function logSymptoms(symptoms: string[], options?: { notifyPartner?
 
         if (options?.notifyPartner !== false && state.partnerProfile?.id) {
             const prefix = (options?.customPrefix || 'is having').trim();
+            const displayName = state.profile?.display_name || 'Partner';
+
             let message = symptoms.length > 0
-                ? `${state.profile?.display_name || 'Partner'} ${prefix} - ${symptoms.join(', ')}.`
-                : `${state.profile?.display_name || 'Partner'} shared a feeling update: no symptoms right now.`;
+                ? `${displayName} ${prefix} - ${symptoms.join(', ')}.`
+                : `${displayName} shared a feeling update: no symptoms right now.`;
+
+            // 🚀 CARE SUGGESTIONS: Add actionable advice for the partner
+            const lowSymptoms = symptoms.map(s => s.toLowerCase());
+            let careSuggestion = '';
+            if (lowSymptoms.includes('cramps')) careSuggestion = "Offer her a heat pack or a gentle massage.";
+            else if (lowSymptoms.includes('fatigue')) careSuggestion = "Maybe handle dinner or extra chores tonight so she can rest?";
+            else if (lowSymptoms.includes('back pain')) careSuggestion = "A warm bath or a lower back rub would be amazing right now.";
+            else if (lowSymptoms.includes('headache')) careSuggestion = "Try to keep the room quiet and light low; offer some water.";
+            else if (lowSymptoms.includes('low mood')) careSuggestion = "Just being there to listen and offer a hug goes a long way.";
+
+            if (careSuggestion) {
+                message += `\n\nCare Suggestion: ${careSuggestion}`;
+            }
 
             if (options?.note) {
                 message += ` Note: "${options.note}"`;
@@ -121,17 +161,26 @@ export async function logSymptoms(symptoms: string[], options?: { notifyPartner?
                 title: 'Feeling Update',
                 message,
                 actionUrl: '/dashboard',
-                metadata: { source: 'cycle_symptoms_update', symptoms }
+                metadata: { source: 'cycle_symptoms_update', symptoms, careSuggestion }
             });
         }
 
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('cycle.log' as any, { symptoms, options });
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
 
 export async function logSexDrive(level: string) {
+    if (await isOffline()) {
+        await enqueueMutation('cycle.libido' as any, { level });
+        return { success: true, queued: true };
+    }
+
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -168,6 +217,102 @@ export async function logSexDrive(level: string) {
 
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('cycle.libido' as any, { level });
+            return { success: true, queued: true };
+        }
+        return { error: error.message };
+    }
+}
+
+export async function logPeriodStart(date: string) {
+    if (await isOffline()) {
+        await enqueueMutation('cycle.periodStart' as any, { date });
+        return { success: true, queued: true };
+    }
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = resolveCoupleId(state);
+    if (!coupleId) return { error: 'No couple ID' };
+
+    try {
+        const profile = state.profile;
+        const cycleProfile = profile?.cycle_profile || {};
+        const history = cycleProfile.period_history || [];
+        const nextHistory = [...new Set([date, ...history])].slice(0, 24);
+
+        const nextProfileCycle = {
+            ...cycleProfile,
+            last_period_start: date,
+            period_history: nextHistory,
+            updated_at: new Date().toISOString()
+        };
+
+        // 1) Update Profile (Batch)
+        await setDoc(doc(db, 'couples', coupleId, 'cycle_profiles', user.uid), nextProfileCycle, { merge: true });
+        await firestoreUpdateDoc(doc(db, 'users', user.uid), { cycle_profile: nextProfileCycle, updated_at: serverTimestamp() });
+
+        // 2) Notify Partner
+        if (state.partnerProfile?.id) {
+            await sendNotification({
+                recipientId: state.partnerProfile.id,
+                actorId: user.uid,
+                type: 'announcement',
+                title: 'Period Started',
+                message: `${state.profile?.display_name || 'Partner'} started her period today (${date}).`,
+                actionUrl: '/dashboard',
+                metadata: { source: 'period_start', date }
+            });
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        return { error: error.message };
+    }
+}
+
+export async function logPeriodEnd(date: string) {
+    if (await isOffline()) {
+        await enqueueMutation('cycle.periodEnd' as any, { date });
+        return { success: true, queued: true };
+    }
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = resolveCoupleId(state);
+    if (!coupleId) return { error: 'No couple ID' };
+
+    try {
+        const profile = state.profile;
+        const cycleProfile = profile?.cycle_profile || {};
+        const nextProfileCycle = {
+            ...cycleProfile,
+            last_period_end: date,
+            updated_at: new Date().toISOString()
+        };
+
+        await setDoc(doc(db, 'couples', coupleId, 'cycle_profiles', user.uid), nextProfileCycle, { merge: true });
+        await firestoreUpdateDoc(doc(db, 'users', user.uid), { cycle_profile: nextProfileCycle, updated_at: serverTimestamp() });
+
+        if (state.partnerProfile?.id) {
+            await sendNotification({
+                recipientId: state.partnerProfile.id,
+                actorId: user.uid,
+                type: 'announcement',
+                title: 'Period Ended',
+                message: `${state.profile?.display_name || 'Partner'}'s period ended today (${date}).`,
+                actionUrl: '/dashboard',
+                metadata: { source: 'period_end', date }
+            });
+        }
+
+        return { success: true };
+    } catch (error: any) {
         return { error: error.message };
     }
 }
@@ -178,6 +323,11 @@ export async function logIntimacyMilestone(payload: {
     date?: string;
     time?: string;
 }) {
+    if (await isOffline()) {
+        await enqueueMutation('intimacy.log', payload);
+        return { success: true, queued: true };
+    }
+
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -224,6 +374,10 @@ export async function logIntimacyMilestone(payload: {
 
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('intimacy.log', payload);
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
@@ -267,6 +421,11 @@ export async function addBucketItem(title: string, description: string = '', is_
 
         return { success: true, id: docRef.id };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            console.log('[Auth] Network error detected, enqueuing bucket item addition...');
+            await enqueueMutation('bucket.add', { title: normalizedTitle, description, is_private });
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
@@ -306,6 +465,11 @@ export async function toggleBucketItem(id: string, isCompleted: boolean) {
 
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            console.log('[Auth] Network error detected, enqueuing bucket item toggle...');
+            await enqueueMutation('bucket.toggle', { id, isCompleted });
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
@@ -326,11 +490,21 @@ export async function deleteBucketItem(id: string) {
         }, { merge: true });
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            console.log('[Auth] Network error detected, enqueuing bucket item deletion...');
+            await enqueueMutation('bucket.delete', { id });
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
 
-export async function updateLetterReadStatus(id: string, isRead: boolean) {
+export async function updateLetterReadStatus(id: string, isRead: boolean, isVanish: boolean = false) {
+    if (await isOffline()) {
+        await enqueueMutation('letter.update' as any, { letterId: id, isRead, isVanish });
+        return { success: true, queued: true };
+    }
+
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -341,17 +515,33 @@ export async function updateLetterReadStatus(id: string, isRead: boolean) {
 
     try {
         const itemRef = doc(db, 'couples', coupleId, 'letters', id);
-        await setDoc(itemRef, {
-            is_read: isRead,
-            updated_at: serverTimestamp()
-        }, { merge: true });
+
+        if (isVanish && isRead) {
+            // VANISHING RULE: Delete after reading
+            await deleteDoc(itemRef);
+        } else {
+            await setDoc(itemRef, {
+                is_read: isRead,
+                updated_at: serverTimestamp()
+            }, { merge: true });
+        }
+
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('letter.update' as any, { letterId: id, isRead, isVanish });
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
 
 export async function deleteMemory(memory: any) {
+    if (await isOffline()) {
+        await enqueueMutation('memory.update', { memoryId: memory.id, deleted: true });
+        return { success: true, queued: true };
+    }
+
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -371,20 +561,31 @@ export async function deleteMemory(memory: any) {
         }, { merge: true });
 
         // 2. Best-in-Class: Total Storage Cleanup
-        const urls = memory.image_urls || (memory.image_url ? [memory.image_url] : []);
-        for (const url of urls) {
+        const urls = [
+            ...(memory.image_urls || []),
+            ...(memory.image_url ? [memory.image_url] : [])
+        ];
+        
+        // Remove duplicates if any
+        const uniqueUrls = Array.from(new Set(urls.filter(Boolean)));
+
+        for (const url of uniqueUrls) {
             if (!url || url.startsWith('http')) continue;
 
             const cleanPath = url.replace(/^\/+/, '').replace(/^memories\//i, '');
             const fullPath = `memories/${cleanPath}`;
 
             // Cleanup R2 (Primary Storage)
-            if (R2_URL && R2_SECRET) {
+            if (R2_URL) {
                 try {
                     const r2DeleteUrl = `${R2_URL.replace(/\/$/, '')}/memories/${cleanPath}`;
+                    const headers: Record<string, string> = {};
+                    if (R2_SECRET) {
+                        headers['Authorization'] = `Bearer ${R2_SECRET}`;
+                    }
                     await fetch(r2DeleteUrl, {
                         method: 'DELETE',
-                        headers: { 'Authorization': `Bearer ${R2_SECRET}` }
+                        headers
                     });
                 } catch (e) {
                     console.error("[StorageCleanup] R2 delete failed:", e);
@@ -403,12 +604,22 @@ export async function deleteMemory(memory: any) {
 
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('memory.update', { memoryId: memory.id, deleted: true });
+            return { success: true, queued: true };
+        }
         console.error("deleteMemory error:", error);
         return { error: error.message };
     }
 }
 
 export async function submitPolaroid(imageUrl: string, caption?: string, explicitDate?: string) {
+    const today = explicitDate || getTodayIST();
+    if (await isOffline()) {
+        await enqueueMutation('pin.create' as any, { imageUrl, caption, today });
+        return { success: true, queued: true };
+    }
+
     const user = auth.currentUser;
     if (!user) return { error: 'Not authenticated' };
 
@@ -417,7 +628,6 @@ export async function submitPolaroid(imageUrl: string, caption?: string, explici
     const coupleId = resolveCoupleId(state);
     if (!coupleId) return { error: 'No couple found' };
 
-    const today = explicitDate || getTodayIST();
     try {
         const polaroidData = {
             user_id: user.uid,
@@ -436,6 +646,20 @@ export async function submitPolaroid(imageUrl: string, caption?: string, explici
 
         await setDoc(polaroidRef, polaroidData);
 
+        // Enforce max 2 polaroids in Firestore (latest two only) and remove >3 day old
+        try {
+            const polaroidsRef = collection(db, 'couples', coupleId, 'polaroids');
+            const snap = await getDocs(query(polaroidsRef, orderBy('created_at', 'desc'), limit(6)));
+            const toDelete = snap.docs.slice(2);
+            await Promise.all(toDelete.map(d => deleteDoc(d.ref)));
+
+            const cutoff = Timestamp.fromMillis(Date.now() - 3 * 24 * 60 * 60 * 1000);
+            const expiredSnap = await getDocs(query(polaroidsRef, where('created_at', '<', cutoff)));
+            await Promise.all(expiredSnap.docs.map(d => deleteDoc(d.ref)));
+        } catch (cleanupErr) {
+            console.warn("[Polaroid] Cleanup failed:", cleanupErr);
+        }
+
         if (state.partnerProfile?.id) {
             await sendNotification({
                 recipientId: state.partnerProfile.id,
@@ -449,7 +673,108 @@ export async function submitPolaroid(imageUrl: string, caption?: string, explici
 
         return { success: true };
     } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('pin.create' as any, { imageUrl, caption, today });
+            return { success: true, queued: true };
+        }
         console.error("submitPolaroid error:", error);
+        return { error: error.message };
+    }
+}
+
+export async function addMemory(memory: any) {
+    if (await isOffline()) {
+        await enqueueMutation('memory.create', memory);
+        return { success: true, queued: true };
+    }
+
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = resolveCoupleId(state);
+    if (!coupleId) return { error: 'No couple found' };
+
+    try {
+        const dataToSync = {
+            ...memory,
+            couple_id: coupleId,
+            sender_id: user.uid,
+            sender_name: state.profile?.display_name || null,
+            created_at: serverTimestamp(),
+            updated_at: serverTimestamp()
+        };
+        delete (dataToSync as any).id;
+
+        const docRef = await addDoc(collection(db, 'couples', coupleId, 'memories'), dataToSync);
+
+        if (state.partnerProfile?.id) {
+            await sendNotification({
+                recipientId: state.partnerProfile.id,
+                actorId: user.uid,
+                type: 'memory',
+                title: 'New Memory Added! ✨',
+                message: `${state.profile?.display_name || 'Your partner'} shared a new memory: "${memory.title || 'Untitled'}".`,
+                actionUrl: `/dashboard?memoryId=${docRef.id}`,
+                metadata: { memory_id: docRef.id }
+            });
+        }
+
+        return { success: true, id: docRef.id };
+    } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('memory.create', memory);
+            return { success: true, queued: true };
+        }
+        return { error: error.message };
+    }
+}
+
+export async function sendLetter(letter: any) {
+    if (await isOffline()) {
+        await enqueueMutation('letter.send', letter);
+        return { success: true, queued: true };
+    }
+
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = resolveCoupleId(state);
+    if (!coupleId) return { error: 'No couple found' };
+
+    try {
+        const dataToSync = {
+            ...letter,
+            sender_id: user.uid,
+            sender_name: state.profile?.display_name || null,
+            created_at: serverTimestamp(),
+            updated_at: serverTimestamp()
+        };
+        delete (dataToSync as any).id;
+
+        const docRef = await addDoc(collection(db, 'couples', coupleId, 'letters'), dataToSync);
+
+        if (state.partnerProfile?.id) {
+            await sendNotification({
+                recipientId: state.partnerProfile.id,
+                actorId: user.uid,
+                type: 'letter',
+                title: 'You got a letter! 💌',
+                message: `${state.profile?.display_name || 'Your partner'} sent you a letter: "${letter.title || 'Untitled'}".`,
+                actionUrl: `/dashboard?letterId=${docRef.id}`,
+                metadata: { letter_id: docRef.id }
+            });
+        }
+
+        return { success: true, id: docRef.id };
+    } catch (error: any) {
+        if (isLikelyNetworkError(error)) {
+            await enqueueMutation('letter.send', letter);
+            return { success: true, queued: true };
+        }
         return { error: error.message };
     }
 }
@@ -496,15 +821,18 @@ export async function uploadWallpaper(uri: string) {
         }
 
         // 2. Upload to R2 (Primary)
-        if (R2_URL && R2_SECRET) {
+        if (R2_URL) {
             try {
                 const r2TargetUrl = `${R2_URL.replace(/\/$/, '')}/wallpapers/${fileName}`;
+                const headers: Record<string, string> = {
+                    'Content-Type': 'image/webp'
+                };
+                if (R2_SECRET) {
+                    headers['Authorization'] = `Bearer ${R2_SECRET}`;
+                }
                 await fetch(r2TargetUrl, {
                     method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${R2_SECRET}`,
-                        'Content-Type': 'image/webp'
-                    },
+                    headers,
                     body: blob
                 });
             } catch (r2Err) {
@@ -512,26 +840,40 @@ export async function uploadWallpaper(uri: string) {
             }
         }
 
-        // 3. Upload to Firebase (Backup/Meta)
+        // 3. Upload to Firebase (Backup/Meta) — best-effort only for Android
         const storageRef = ref(storage, storagePath);
         try {
             await uploadBytes(storageRef, blob, { contentType: 'image/webp' });
         } catch (fbErr: any) {
-            console.error("Firebase uploadBytes failed:", fbErr);
-            throw fbErr;
+            // If Firebase Storage is misconfigured, don't block or show a red error screen.
+            // R2 already has the primary copy, so we quietly log a DEV-only warning.
+            if (__DEV__) {
+                console.warn("Firebase uploadBytes failed (wallpaper backup only):", fbErr?.code || fbErr?.message || fbErr);
+            }
         } finally {
             if (blob && typeof blob.close === 'function') {
                 blob.close();
             }
         }
 
-        // 4. Update Profile
+        // 4. Update Profile in Firestore (source of truth)
         const userRef = doc(db, 'users', user.uid);
         await firestoreUpdateDoc(userRef, {
             custom_wallpaper_url: storagePath,
             wallpaper_mode: 'custom',
             updated_at: serverTimestamp()
         });
+
+        // 5. Optimistically update local store so DynamicBackground switches immediately
+        try {
+            const current = useOrbitStore.getState().profile;
+            useOrbitStore.setState({
+                profile: {
+                    ...(current || {}),
+                    custom_wallpaper_url: storagePath,
+                },
+            });
+        } catch { /* non-critical for UI */ }
 
         return { success: true, url: storagePath };
     } catch (error: any) {
@@ -565,12 +907,16 @@ export async function deleteWallpaper() {
             const fullPath = `wallpapers/${cleanPath}`;
 
             // R2 Cleanup
-            if (R2_URL && R2_SECRET) {
+            if (R2_URL) {
                 try {
                     const r2DeleteUrl = `${R2_URL.replace(/\/$/, '')}/wallpapers/${cleanPath}`;
+                    const headers: Record<string, string> = {};
+                    if (R2_SECRET) {
+                        headers['Authorization'] = `Bearer ${R2_SECRET}`;
+                    }
                     await fetch(r2DeleteUrl, {
                         method: 'DELETE',
-                        headers: { 'Authorization': `Bearer ${R2_SECRET}` }
+                        headers
                     });
                 } catch (e) {
                     console.error("[WallpaperCleanup] R2 delete failed:", e);
@@ -604,6 +950,12 @@ export async function savePolaroidToMemories(polaroid: any) {
     if (!coupleId) return { error: 'No couple found' };
 
     try {
+        // PERMANENT MEMORY RULE: Check if already archived
+        const alreadySaved = (state.memories || []).some(m => (m.image_url === polaroid.image_url || m.source_polaroid_id === polaroid.id) && m.source === 'polaroid');
+        if (alreadySaved) {
+            return { error: 'ALREADY_SAVED', message: 'This polaroid is already in your permanent memories.' };
+        }
+
         const memoryData = {
             couple_id: coupleId,
             user_id: user.uid,
@@ -614,7 +966,8 @@ export async function savePolaroidToMemories(polaroid: any) {
             created_at: serverTimestamp(),
             updated_at: serverTimestamp(),
             is_favorite: false,
-            source: 'polaroid'
+            source: 'polaroid',
+            source_polaroid_id: polaroid.id
         };
 
         const { collection, addDoc } = await import('firebase/firestore');
@@ -634,6 +987,98 @@ export async function savePolaroidToMemories(polaroid: any) {
         return { success: true };
     } catch (error: any) {
         console.error("savePolaroidToMemories error:", error);
+        return { error: error.message };
+    }
+}
+
+export async function addComment(targetId: string, type: 'memory' | 'polaroid', text: string) {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = resolveCoupleId(state);
+    if (!coupleId) return { error: 'No couple found' };
+
+    const collectionName = type === 'memory' ? 'memories' : 'polaroids';
+    const docRef = doc(db, 'couples', coupleId, collectionName, targetId);
+
+    const newComment = {
+        id: `comment_${Date.now()}`,
+        user_id: user.uid,
+        user_name: state.profile?.display_name || 'Partner',
+        user_avatar_url: state.profile?.avatar_url || null,
+        text,
+        created_at: Date.now()
+    };
+
+    try {
+        await updateDoc(docRef, {
+            comments: arrayUnion(newComment),
+            updated_at: serverTimestamp()
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error("addComment error:", error);
+        return { error: error.message };
+    }
+}
+
+export async function deletePolaroid(polaroid: any) {
+    const user = auth.currentUser;
+    if (!user) return { error: 'Not authenticated' };
+
+    const { useOrbitStore } = await import('./store');
+    const state = useOrbitStore.getState();
+    const coupleId = resolveCoupleId(state);
+    if (!coupleId || typeof coupleId !== 'string') return { error: 'No couple found' };
+
+    const R2_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
+    const R2_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
+
+    try {
+        let polaroidId: string;
+        let polaroidObj: any = null;
+
+        if (typeof polaroid === 'string') {
+            polaroidId = polaroid;
+        } else if (polaroid && typeof polaroid.id === 'string') {
+            polaroidId = polaroid.id;
+            polaroidObj = polaroid;
+        } else {
+            console.error("[Auth] deletePolaroid: Invalid polaroid input", polaroid);
+            return { error: 'Invalid polaroid input' };
+        }
+
+        const docRef = doc(db, 'couples', coupleId, 'polaroids', polaroidId);
+        await deleteDoc(docRef);
+
+        // Cleanup R2 (Only if we have the full object with image_url)
+        if (polaroidObj?.image_url && !polaroidObj.image_url.startsWith('http')) {
+            const cleanPath = polaroidObj.image_url.replace(/^\/+/, '').replace(/^polaroids\//i, '');
+            const fullPath = `polaroids/${cleanPath}`;
+
+            if (R2_URL) {
+                try {
+                    const r2DeleteUrl = `${R2_URL.replace(/\/$/, '')}/polaroids/${cleanPath}`;
+                    const headers: Record<string, string> = {};
+                    if (R2_SECRET) {
+                        headers['Authorization'] = `Bearer ${R2_SECRET}`;
+                    }
+                    await fetch(r2DeleteUrl, { method: 'DELETE', headers });
+                } catch (e) {
+                    console.error("[PolaroidCleanup] R2 delete failed:", e);
+                }
+            }
+
+            try {
+                await deleteObject(ref(storage, fullPath));
+            } catch (e) { /* non-critical */ }
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("deletePolaroid error:", error);
         return { error: error.message };
     }
 }
@@ -666,15 +1111,18 @@ export async function uploadAvatar(uri: string) {
         const blob = await response.blob();
 
         // 2. Upload to R2 (Primary)
-        if (R2_URL && R2_SECRET) {
+        if (R2_URL) {
             try {
                 const r2TargetUrl = `${R2_URL.replace(/\/$/, '')}/avatars/${fileName}`;
+                const headers: Record<string, string> = {
+                    'Content-Type': 'image/webp'
+                };
+                if (R2_SECRET) {
+                    headers['Authorization'] = `Bearer ${R2_SECRET}`;
+                }
                 await fetch(r2TargetUrl, {
                     method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${R2_SECRET}`,
-                        'Content-Type': 'image/webp'
-                    },
+                    headers,
                     body: blob
                 });
             } catch (r2Err) {
@@ -682,23 +1130,38 @@ export async function uploadAvatar(uri: string) {
             }
         }
 
-        // 3. Upload to Firebase (Vastly more stable on Android than Blobs)
+        // 3. Upload to Firebase (backup/meta) — best-effort only
         const storageRef = ref(storage, storagePath);
         try {
             await uploadBytes(storageRef, blob, { contentType: 'image/webp' });
         } catch (firstError: any) {
-            console.error("Firebase uploadString failed:", firstError);
-            throw firstError;
+            // Do not surface a red error screen if backup storage is misconfigured.
+            // R2 already has the primary copy; log as a DEV-only warning.
+            if (__DEV__) {
+                console.warn("Firebase avatar backup failed:", firstError?.code || firstError?.message || firstError);
+            }
         }
 
-        // 4. Update Profile
+        // 4. Update Profile in Firestore
+        const timestampedPath = `${storagePath}?t=${Date.now()}`;
         const userRef = doc(db, 'users', user.uid);
         await firestoreUpdateDoc(userRef, {
-            avatar_url: storagePath,
+            avatar_url: timestampedPath,
             updated_at: serverTimestamp()
         });
 
-        // 5. Cleanup OLD avatar
+        // 5. Optimistically update local store so avatar updates instantly
+        try {
+            const current = useOrbitStore.getState().profile;
+            useOrbitStore.setState({
+                profile: {
+                    ...(current || {}),
+                    avatar_url: timestampedPath,
+                },
+            });
+        } catch { /* non-critical */ }
+
+        // 6. Cleanup OLD avatar
         const oldAvatar = state.profile?.avatar_url;
         if (oldAvatar && oldAvatar.startsWith('avatars/') && oldAvatar !== storagePath) {
             (async () => {
@@ -722,3 +1185,29 @@ export async function uploadAvatar(uri: string) {
         return { error: error.code || error.message || "Unknown Upload Error" };
     }
 }
+
+/**
+ * Sync deletion with Cloudflare R2 via worker.
+ */
+export async function deleteFromR2(path: string) {
+    const R2_URL = process.env.EXPO_PUBLIC_UPLOAD_URL;
+    const R2_SECRET = process.env.EXPO_PUBLIC_UPLOAD_SECRET;
+    if (!R2_URL || !path) return;
+
+    try {
+        const cleanPath = path.replace(/^\/+/, '');
+        const r2DeleteUrl = `${R2_URL.replace(/\/$/, '')}/${cleanPath}`;
+        const headers: Record<string, string> = {};
+        if (R2_SECRET) {
+            headers['Authorization'] = `Bearer ${R2_SECRET}`;
+        }
+        await fetch(r2DeleteUrl, {
+            method: 'DELETE',
+            headers
+        });
+    } catch (e) {
+        console.warn("[R2] Delete failed:", e);
+    }
+}
+
+

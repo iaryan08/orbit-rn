@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import { Colors, Spacing, Typography } from './Theme';
+import { Colors, Spacing, Typography, TextTones } from './Theme';
 
 /**
  * Global Design System Styles
@@ -9,51 +9,64 @@ import { Colors, Spacing, Typography } from './Theme';
 export const GlobalStyles = StyleSheet.create({
     // Standardized screen header container
     standardHeader: {
-        paddingTop: 10,
-        paddingBottom: 32,
-        paddingHorizontal: Spacing.xl,
+        paddingTop: 12,
+        paddingBottom: 36,
+        paddingHorizontal: Spacing.md, // Aligned with Lunara (reduced from xl)
     },
 
-    // Primary title (e.g., "Dashboard", "Settings")
+    // Primary title (The "Poetic Voice")
     standardTitle: {
-        fontSize: 34,
-        fontFamily: Typography.serifBold,
-        color: 'white',
-        letterSpacing: -0.5,
-        marginBottom: 4,
+        fontSize: 38,
+        fontFamily: Typography.display, // BodoniModa_700Bold for structural strength
+        color: TextTones.primary,
+        letterSpacing: -1,
+        lineHeight: 44,
+        marginBottom: 6,
         textAlign: 'left',
     },
 
-    // Sub-header tags (e.g., "IDENTITY · SPACE")
+    // Sub-header tags (The "Technical" voice)
     standardSubtitle: {
-        fontSize: 11,
-        fontFamily: Typography.serifItalic,
-        color: 'rgba(255,255,255,0.7)',
-        letterSpacing: 1.5,
+        fontSize: 10,
+        fontFamily: Typography.sansBold, // Outfit for sharp clarity
+        color: TextTones.muted,
+        letterSpacing: 1.5, // Reduced from 4 for "natural flow"
+        lineHeight: 16,
+        textTransform: 'uppercase',
         textAlign: 'left',
     },
 
-    // Centered layout variants for specific hero moments
+    // Centered layout variants for hero moments
     centeredHeader: {
-        paddingTop: 40,
-        paddingBottom: Spacing.xl,
-        paddingHorizontal: Spacing.md,
+        paddingTop: 48,
+        paddingBottom: Spacing.xxl,
+        paddingHorizontal: Spacing.lg,
         alignItems: 'center',
     },
     centeredTitle: {
-        fontSize: 48,
-        fontFamily: Typography.serif,
-        color: 'white',
+        fontSize: 52,
+        fontFamily: Typography.serifItalic,
+        color: TextTones.primary,
         letterSpacing: -1,
-        marginBottom: 4,
+        lineHeight: 60,
+        marginBottom: 8,
         textAlign: 'center',
     },
     centeredSubtitle: {
-        fontSize: 10,
-        fontFamily: Typography.sansBold,
-        color: 'rgba(255,255,255,0.6)',
-        letterSpacing: 2,
+        fontSize: 11,
+        fontFamily: Typography.sansBold, // Outfit
+        color: TextTones.subtle,
+        letterSpacing: 3,
         textAlign: 'center',
+    },
+
+    // Modal Overlays
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: Spacing.xl,
     },
 });
 

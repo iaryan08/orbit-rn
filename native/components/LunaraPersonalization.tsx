@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated } from 'react-native';
 import { Colors, Radius, Spacing, Typography } from '../constants/Theme';
 import { ChevronRight, Check, X, Sparkles } from 'lucide-react-native';

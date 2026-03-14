@@ -37,8 +37,8 @@ export default function Login() {
     return (
         <SafeAreaView style={styles.container}>
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={styles.keyboardView}
+                style={{ flex: 1 }}
+                behavior={undefined}
             >
                 <View style={styles.formContainer}>
                     <View style={styles.header}>

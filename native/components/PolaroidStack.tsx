@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Dimensions, Pressable, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, {
@@ -16,12 +16,16 @@ import { Camera, Flame } from 'lucide-react-native';
 import { RefreshCw } from 'lucide-react-native';
 import { getPublicStorageUrl } from '../lib/storage';
 import * as Haptics from 'expo-haptics';
+import { normalizeDate } from '../lib/utils';
+import { useOrbitStore } from '../lib/store';
+import { PolaroidData } from '../lib/store/types';
+import { usePersistentMedia } from '../lib/media';
 
 const AnimatedImage = Animated.createAnimatedComponent(Image);
 
 const SWIPE_THRESHOLD = 60;
 const SHAKE_THRESHOLD = 2.5;
-import { PolaroidData } from '../lib/store/types';
+
 
 interface PolaroidStackProps {
     userPolaroid: PolaroidData | null;
@@ -33,7 +37,7 @@ interface PolaroidStackProps {
     isActive?: boolean;
 }
 
-export function PolaroidStack({
+export const PolaroidStack = React.memo(({
     userPolaroid,
     partnerPolaroid,
     partnerName,
@@ -41,26 +45,47 @@ export function PolaroidStack({
     onUploadPress,
     authToken,
     isActive = true
-}: PolaroidStackProps) {
-    const [view, setView] = useState<'partner' | 'user'>('partner');
+}: PolaroidStackProps) => {
+    const activeIndex = useSharedValue(0); // 0 for partner, 1 for user
+    const [viewLabel, setViewLabel] = useState(partnerName);
     const translateX = useSharedValue(0);
+    const setPagerScrollEnabled = useOrbitStore(s => s.setPagerScrollEnabled);
 
     const panGesture = Gesture.Pan()
+        .onBegin(() => {
+            // Lock main pager while interacting with the Polaroid stack
+            runOnJS(setPagerScrollEnabled)(false);
+        })
         .onUpdate((event) => {
             translateX.value = event.translationX;
         })
         .onEnd((event) => {
             if (event.translationX > SWIPE_THRESHOLD) {
                 runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
-                runOnJS(setView)('partner');
+                activeIndex.value = withSpring(0);
+                runOnJS(setViewLabel)(partnerName);
             } else if (event.translationX < -SWIPE_THRESHOLD) {
                 runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
-                runOnJS(setView)('user');
+                activeIndex.value = withSpring(1);
+                runOnJS(setViewLabel)('You');
             }
             translateX.value = withSpring(0);
+            // Always re-enable pager when gesture finishes
+            runOnJS(setPagerScrollEnabled)(true);
+        })
+        .onFinalize(() => {
+            // Safety: ensure pager is unlocked even if gesture is cancelled
+            runOnJS(setPagerScrollEnabled)(true);
         });
 
-    const activeIndex = view === 'partner' ? 0 : 1;
+    const handleUserPress = useCallback(() => {
+        if (userPolaroid) onPress?.(userPolaroid);
+        else onUploadPress?.();
+    }, [userPolaroid, onPress, onUploadPress]);
+
+    const handlePartnerPress = useCallback(() => {
+        if (partnerPolaroid) onPress?.(partnerPolaroid);
+    }, [partnerPolaroid, onPress]);
 
     return (
         <View style={styles.container}>
@@ -69,54 +94,58 @@ export function PolaroidStack({
                     <PolaroidCard
                         data={userPolaroid}
                         label="You"
-                        isActive={isActive && activeIndex === 1}
-                        index={1}
+                        isActive={isActive}
+                        cardIndex={1}
+                        activeIndex={activeIndex}
                         translateX={translateX}
-                        onPress={() => userPolaroid ? onPress?.(userPolaroid) : onUploadPress?.()}
+                        onPress={handleUserPress}
                         authToken={authToken}
                     />
                     <PolaroidCard
                         data={partnerPolaroid}
                         label={partnerName}
-                        isActive={isActive && activeIndex === 0}
-                        index={0}
+                        isActive={isActive}
+                        cardIndex={0}
+                        activeIndex={activeIndex}
                         translateX={translateX}
-                        onPress={() => partnerPolaroid ? onPress?.(partnerPolaroid) : null}
+                        onPress={handlePartnerPress}
                         authToken={authToken}
                     />
                 </View>
             </GestureDetector>
             <View style={styles.footer}>
-                <Text style={styles.footerLabel}>
-                    {view === 'partner' ? partnerName : 'You'}
-                </Text>
+                <Text style={styles.footerLabel}>{viewLabel}</Text>
             </View>
         </View>
     );
-}
+});
 
 interface PolaroidCardProps {
     data: PolaroidData | null;
     label: string;
     isActive: boolean;
-    index: number;
+    cardIndex: number;
+    activeIndex: SharedValue<number>;
     translateX: SharedValue<number>;
     onPress: () => void;
     authToken?: string | null;
 }
 
-import { usePersistentMedia } from '../lib/media';
 
-function PolaroidCard({ data, label, isActive, index, translateX, onPress, authToken }: PolaroidCardProps) {
+function PolaroidCard({ data, label, isActive, cardIndex, activeIndex, translateX, onPress, authToken }: PolaroidCardProps) {
     const [developProgress, setDevelopProgress] = useState(100);
     const [isShaking, setIsShaking] = useState(false);
 
     const rawUrl = useMemo(() =>
-        getPublicStorageUrl(data?.image_url, 'memories', authToken),
+        getPublicStorageUrl(data?.image_url, 'polaroids', authToken),
         [data?.image_url, authToken]);
 
     // Use the optimized media engine with content-stable ID (URL)
     const sourceUri = usePersistentMedia(data?.image_url, rawUrl || undefined, isActive);
+    
+    // Fallback strategy to prevent Black Screen
+    // We always try to show rawUrl if sourceUri isn't ready, even if in background.
+    const finalUri = sourceUri || rawUrl || undefined;
 
     // Shake detector removed for performance optimization. Polaroids are instantly developed.
     useEffect(() => {
@@ -125,22 +154,33 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
     }, [data, isActive, developProgress]);
 
     const animatedStyle = useAnimatedStyle(() => {
-        const offset = index === 0 ? -15 : 15;
-        const rotate = index === 0 ? -4 : 4;
+        const distance = Math.abs(activeIndex.value - cardIndex);
 
-        const targetX = isActive ? 0 : offset;
-        const targetRotate = isActive ? (index === 0 ? -2 : 2) : rotate;
-        const targetScale = isActive ? 1 : 0.95;
-        const targetOpacity = isActive ? 1 : 0.7;
+        // Continuous interpolation for smooth state morphing
+        const targetScale = interpolate(distance, [0, 1], [1, 0.95]);
+        const targetOpacity = interpolate(distance, [0, 1], [1, 0.7]);
+        const targetZIndex = interpolate(distance, [0, 1], [20, 10]);
+
+        const defaultOffset = cardIndex === 0 ? -15 : 15;
+        const defaultRotate = cardIndex === 0 ? -4 : 4;
+        const activeRotate = cardIndex === 0 ? -2 : 2;
+
+        const currentOffset = interpolate(distance, [0, 1], [0, defaultOffset]);
+        const currentRotate = interpolate(distance, [0, 1], [activeRotate, defaultRotate]);
+
+        // Interactive translate based on distance from top
+        const swipeInfluence = interpolate(distance, [0, 0.5, 1], [1, 0, 0]);
+        const swipeX = translateX.value * 0.2 * swipeInfluence;
+        const swipeRot = translateX.value * 0.05 * swipeInfluence;
 
         return {
             transform: [
-                { translateX: withSpring(targetX + (isActive ? translateX.value * 0.2 : 0)) },
-                { rotateZ: withSpring(`${targetRotate + (isActive ? translateX.value * 0.05 : 0)}deg`) },
-                { scale: withSpring(targetScale) }
+                { translateX: currentOffset + swipeX },
+                { rotateZ: `${currentRotate + swipeRot}deg` },
+                { scale: targetScale }
             ],
-            opacity: withSpring(isActive ? interpolate(translateX.value, [-100, 0, 100], [0.8, 1, 0.8]) : targetOpacity),
-            zIndex: isActive ? 20 : 10,
+            opacity: targetOpacity,
+            zIndex: Math.round(targetZIndex),
         };
     });
 
@@ -159,7 +199,7 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
                         {data ? (
                             <>
                                 <AnimatedImage
-                                    source={{ uri: sourceUri || undefined }}
+                                    source={{ uri: finalUri || undefined }}
                                     style={[styles.image, imageStyle]}
                                     contentFit="cover"
                                     transition={200}
@@ -191,7 +231,7 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
                         <View style={styles.timeWrapper}>
                             <View style={styles.timeDot} />
                             <Text style={styles.time}>
-                                {data?.created_at ? new Date(data.created_at).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, day: 'numeric', month: 'short' }) : 'Waiting...'}
+                                {data?.created_at ? normalizeDate(data.created_at).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, day: 'numeric', month: 'short' }) : 'Waiting...'}
                             </Text>
                         </View>
                     </View>
@@ -203,8 +243,8 @@ function PolaroidCard({ data, label, isActive, index, translateX, onPress, authT
 
 const styles = StyleSheet.create({
     container: {
-        width: 290,
-        height: 400,
+        width: 310, // Wider for premium feel
+        height: 420,
         alignSelf: 'center',
     },
     stackArea: {
@@ -217,12 +257,17 @@ const styles = StyleSheet.create({
     },
     card: {
         flex: 1,
-        backgroundColor: '#FFFFFF', // Pure white like real photo paper
-        padding: 12,
-        paddingBottom: 20,
-        borderRadius: 2,
+        backgroundColor: '#FCFBF7',
+        padding: 14, // Slightly more padding
+        paddingBottom: 28,
+        borderRadius: 4, // Slightly softer corners
         borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.1)',
+        borderColor: 'rgba(0,0,0,0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
+        elevation: 5,
     },
     paperBase: {
         flex: 1,
@@ -245,8 +290,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#000', // Premium deep ink
     },
     emptyText: {
-        fontSize: 10,
-        color: 'rgba(255,255,255,0.4)',
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.65)',
         fontFamily: Typography.sansBold,
         marginTop: 4,
         letterSpacing: 1,
@@ -264,8 +309,9 @@ const styles = StyleSheet.create({
     ownerText: {
         color: 'white',
         fontSize: 10,
-        fontFamily: Typography.sansBold,
-        letterSpacing: 0.2,
+        fontFamily: Typography.sansBold, // Outfit technical labels
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
     },
     developingOverlay: {
         ...StyleSheet.absoluteFillObject,
@@ -286,11 +332,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     caption: {
-        fontSize: 34,
-        color: '#1e293b', // Elegant slate-900 like dark blue/black
-        fontFamily: Typography.script,
-        lineHeight: 40,
-        letterSpacing: -0.4,
+        fontSize: 38, // Slightly larger for handwritten feel
+        color: '#1e293b',
+        fontFamily: Typography.script, // MeaCulpa
+        lineHeight: 44,
+        letterSpacing: -0.2,
         marginTop: -4,
         includeFontPadding: false,
     },
@@ -308,7 +354,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#1e293b',
     },
     time: {
-        fontSize: 8,
+        fontSize: 12,
         color: '#1e293b',
         fontFamily: Typography.sansBold,
         letterSpacing: 1.5,

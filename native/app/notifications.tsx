@@ -1,2 +1,2 @@
-import { NotificationsScreen } from '../components/screens/NotificationsScreen';
+﻿import { NotificationsScreen } from '../components/screens/NotificationsScreen';
 export default NotificationsScreen;

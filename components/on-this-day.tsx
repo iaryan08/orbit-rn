@@ -18,7 +18,7 @@ interface Memory {
     type: 'memory'
     title: string
     description: string
-    image_urls: string[]
+    image_urls?: string[]
     location: string | null
     memory_date: string
     is_encrypted?: boolean
@@ -272,7 +272,7 @@ export function OnThisDay({ memories, milestones, partnerName = "Partner", daysT
                         onClick={handleItemClick}
                     >
                         <DecryptedImage
-                            src={currentItem.image_urls[0] || "/placeholder.svg"}
+                            src={currentItem.image_urls?.[0] || "/placeholder.svg"}
                             alt={currentItem.title}
                             fill
                             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"

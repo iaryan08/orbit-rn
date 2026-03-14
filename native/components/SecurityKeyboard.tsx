@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Colors, Radius, Typography, Spacing } from '../constants/Theme';

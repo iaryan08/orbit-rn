@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
   BlendMode,
@@ -107,7 +107,12 @@ const pointsToPath = (points: Point[]): SkPath | null => {
 };
 
 export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
-  const { couple, profile, setPagerScrollEnabled, activeTabIndex, isLiteMode, isDebugMode } = useOrbitStore();
+  const couple = useOrbitStore(s => s.couple);
+  const profile = useOrbitStore(s => s.profile);
+  const setPagerScrollEnabled = useOrbitStore(s => s.setPagerScrollEnabled);
+  const activeTabIndex = useOrbitStore(s => s.activeTabIndex);
+  const isLiteMode = useOrbitStore(s => s.isLiteMode);
+  const isDebugMode = useOrbitStore(s => s.isDebugMode);
   const canvasRef = useCanvasRef();
   const perfStats = usePerfMonitor('CanvasDoodle');
 
@@ -528,8 +533,8 @@ export function SharedCanvas({ isActive = true }: { isActive?: boolean }) {
 
       // Throttle points aggressively for Redmi 10/12 if isLiteMode is active
       const unsyncedCount = localPointsRef.current.length - syncedPointCountRef.current;
-      const minPointsTrigger = isLiteMode ? 12 : 6;
-      const syncInterval = unsyncedCount > MAX_POINTS_PER_DELTA ? FAST_DELTA_SYNC_MS : (isLiteMode ? DELTA_SYNC_MS * 1.5 : DELTA_SYNC_MS);
+      const minPointsTrigger = isLiteMode ? 16 : 8;
+      const syncInterval = unsyncedCount > MAX_POINTS_PER_DELTA ? FAST_DELTA_SYNC_MS * 1.2 : (isLiteMode ? DELTA_SYNC_MS * 2 : DELTA_SYNC_MS * 1.2);
 
       if (unsyncedCount < minPointsTrigger && now - lastDeltaSyncAtRef.current < syncInterval) return;
       lastDeltaSyncAtRef.current = now;
@@ -1171,7 +1176,7 @@ const styles = StyleSheet.create({
   },
   headerPillText: {
     color: '#f4b3c0',
-    fontSize: 9,
+    fontSize: 13,
     letterSpacing: 1.3,
     fontWeight: '700',
   },
@@ -1195,7 +1200,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   clearConfirmText: {
-    color: 'rgba(255,255,255,0.75)',
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 13,
     fontWeight: '500',
   },
@@ -1317,14 +1322,14 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: 'rgba(255,255,255,0.5)',
   },
   swatchActive: {
     borderColor: '#fff',
     transform: [{ scale: 1.08 }],
   },
   pickerSlotSwatch: {
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: 'rgba(255,255,255,0.75)',
   },
   rainbowSaveWrap: {
     width: 18,
@@ -1351,7 +1356,7 @@ const styles = StyleSheet.create({
   divider: {
     width: 1,
     height: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.45)',
     marginHorizontal: 2,
   },
   rightRail: {

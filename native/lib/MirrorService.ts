@@ -1,4 +1,4 @@
-import { persistMediaAsync } from './media';
+import { persistMediaAsync, getMediaId } from './media';
 import { getPublicStorageUrl } from './storage';
 
 /**
@@ -28,10 +28,13 @@ export const triggerMirroring = async (
         const queue: { id: string; url: string }[] = [];
 
         // 1. Gather all unique media paths
-        const add = (u: string | null | undefined, type: 'avatars' | 'memories' | 'wallpapers') => {
+        const add = (u: string | null | undefined, type: 'avatars' | 'memories' | 'wallpapers' | 'polaroids') => {
             if (!u) return;
             const raw = getPublicStorageUrl(u, type, idToken);
-            if (raw) queue.push({ id: u, url: raw });
+            if (raw) {
+                const stableId = getMediaId(u) || u;
+                queue.push({ id: stableId, url: raw });
+            }
         };
 
         memories.forEach(m => {
@@ -39,7 +42,7 @@ export const triggerMirroring = async (
             urls.forEach((u: string) => add(u, 'memories'));
         });
 
-        polaroids.forEach(p => add(p.image_url, 'memories'));
+        polaroids.forEach(p => add(p.image_url, 'polaroids'));
 
         // 🛡️ Phase 3: Add Avatars and Wallpapers
         add(profile?.avatar_url, 'avatars');

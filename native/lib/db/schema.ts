@@ -106,5 +106,23 @@ export const profiles = sqliteTable('profiles', {
     location_city: text('location_city'),
     location_json: text('location_json'), // Stringified location object {temp, lat, long, etc}
     bio: text('bio'),
+    gender: text('gender'),
+    cycle_profile_json: text('cycle_profile_json'), // Stringified cycle profile object
     updated_at: integer('updated_at'),
+});
+
+export const offlineMutations = sqliteTable('offline_mutations', {
+    id: text('id').primaryKey(),
+    kind: text('kind').notNull(),
+    payload: text('payload').notNull(), // JSON stringified
+    created_at: integer('created_at').notNull(),
+    attempts: integer('attempts').default(0),
+    last_error: text('last_error'),
+});
+export const cycleLogs = sqliteTable('cycle_logs', {
+    id: text('id').primaryKey(), // composite user_id + log_date
+    user_id: text('user_id').notNull(),
+    log_date: text('log_date').notNull(),
+    data: text('data'), // JSON stringified single log entry
+    updated_at: integer('updated_at').notNull(),
 });

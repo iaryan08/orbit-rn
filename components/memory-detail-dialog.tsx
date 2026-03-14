@@ -153,16 +153,17 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
         );
 
         const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const commentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CommentData));
+            const subcollectionComments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CommentData));
+            
+            // Orbit Integration: Merge with native-style embedded comments if they exist
+            const embeddedComments = (memory as any)?.comments || [];
+            const allCommentsRaw = [...subcollectionComments, ...embeddedComments];
 
-            // Client-side sort by created_at - Removed as orderBy is now in query
-            const sorted = commentsData.sort((a: any, b: any) =>
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            )// );
+            // Filter out duplicates (unlikely but safe) by ID
+            const uniqueComments = Array.from(new Map(allCommentsRaw.map(c => [c.id, c])).values());
 
-            // Map profiles (this is slightly inefficient to do every time but works for now)
-            // In a more complex app, we'd use a global user cache or join in a function
-            const userIds = [...new Set(commentsData.map(c => c.user_id))]; // Used commentsData directly
+            // Map profiles
+            const userIds = [...new Set(uniqueComments.map(c => (c as any).user_id))];
             const profiles: Record<string, any> = {};
 
             for (const uid of userIds) {
@@ -172,10 +173,18 @@ export function MemoryDetailDialog({ memory, isOpen, onClose, onDelete }: Memory
                 }
             }
 
-            const formatted = commentsData.map(c => ({ // Used commentsData directly
+            const formatted = uniqueComments.map(c => ({
                 ...c,
-                profiles: profiles[c.user_id] || { display_name: 'User', avatar_url: null }
+                profiles: profiles[(c as any).user_id] || { 
+                    display_name: (c as any).user_name || 'User', 
+                    avatar_url: (c as any).user_avatar_url || null 
+                }
             }));
+
+            // Client-side sort: latest on top
+            formatted.sort((a, b) => 
+                new Date((b as any).created_at).getTime() - new Date((a as any).created_at).getTime()
+            );
 
             setComments(formatted as any);
         });

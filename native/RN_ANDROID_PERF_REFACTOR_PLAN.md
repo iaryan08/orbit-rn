@@ -84,5 +84,17 @@ Work is delivered in **phases**. Each phase is implemented and verified before m
 - [ ] Runtime stability pass on device (edge flows)
 - [ ] Final changelog and risk notes
 
+### Phase 7 - Network & Realtime Optimization (In Progress)
+- [x] Replace broad `useOrbitStore()` subscriptions with stable selectors in `SettingsScreen`, `SearchPalette`, `MediaViewer`, `MilestoneCard`, `NavbarDock`, and `Index`.
+- [x] Implement throttled presence updates (15s limit) for vibe and heartbeat signals.
+- [x] Optimize SharedCanvas realtime payload batching and frequency.
+- [x] Implement selective listener lifecycle (Tab-based `onSnapshot` suspension) to reduce Firestore read costs and background JS load.
+- [x] Integrated background listener suspension in `runJanitor()` and foreground resumption with `lastForegroundTime` state.
+
+### Phase 8 - Long-term Maintenance & Cost Control (Upcoming)
+- [ ] Implement local-first write queue for offline-to-online resilience.
+- [ ] Audit image compression settings to ensure R2/Firebase storage stays within free tier for 10 years.
+- [ ] Add "Deep Clean" utility to purge ancient ephemeral logs from Firestore.
+
 ## Current Phase
-**Phase 6 - Verification & Release Gate**
+**Phase 7 - Network & Realtime Optimization**

@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+﻿import React, { useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Dimensions, Platform } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Typography, Spacing, Radius, Colors } from '../../constants/Theme';
 import { Sparkles, Droplets } from 'lucide-react-native';
-import { useOrbitStore } from '../../lib/store';
+import { PagerLockGesture } from '../../components/PagerLockGesture';
 import { PhaseWindow } from '../../lib/cycle';
 
 const IS_ANDROID = Platform.OS === 'android';
@@ -70,8 +70,6 @@ const DayCell = React.memo(({ item, isSelected, onPress }: {
 
 export const BiologicalTimeline = React.memo(({ days, selectedDay, onSelectDay }: BiologicalTimelineProps) => {
     const listRef = useRef<any>(null);
-    const setPagerScrollEnabled = useOrbitStore(s => s.setPagerScrollEnabled);
-
     // Auto-scroll to today or selected on mount
     useEffect(() => {
         const targetIdx = days.findIndex(d => d.dayOfCycle === selectedDay);
@@ -94,31 +92,30 @@ export const BiologicalTimeline = React.memo(({ days, selectedDay, onSelectDay }
 
     return (
         <View style={styles.container}>
-            <Animated.FlatList
-                ref={listRef}
-                data={days}
-                renderItem={renderItem}
-                keyExtractor={(item) => item.dayOfCycle.toString()}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
-                snapToInterval={ITEM_WIDTH + ITEM_GAP}
-                decelerationRate="fast"
-                onScrollBeginDrag={() => setPagerScrollEnabled(false)}
-                onScrollEndDrag={() => setPagerScrollEnabled(true)}
-                onMomentumScrollEnd={() => setPagerScrollEnabled(true)}
-                // Performance Props
-                getItemLayout={(_, index) => ({
-                    length: ITEM_WIDTH + ITEM_GAP,
-                    offset: (ITEM_WIDTH + ITEM_GAP) * index,
-                    index,
-                })}
-                windowSize={5}
-                maxToRenderPerBatch={5}
-                initialNumToRender={10}
-                removeClippedSubviews={IS_ANDROID}
-                scrollEventThrottle={16}
-            />
+            <PagerLockGesture>
+                <Animated.FlatList
+                    ref={listRef}
+                    data={days}
+                    renderItem={renderItem}
+                    keyExtractor={(item) => item.dayOfCycle.toString()}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.scrollContent}
+                    snapToInterval={ITEM_WIDTH + ITEM_GAP}
+                    decelerationRate="fast"
+                    // Performance Props
+                    getItemLayout={(_, index) => ({
+                        length: ITEM_WIDTH + ITEM_GAP,
+                        offset: (ITEM_WIDTH + ITEM_GAP) * index,
+                        index,
+                    })}
+                    windowSize={5}
+                    maxToRenderPerBatch={5}
+                    initialNumToRender={10}
+                    removeClippedSubviews={IS_ANDROID}
+                    scrollEventThrottle={16}
+                />
+            </PagerLockGesture>
         </View>
     );
 });
@@ -139,8 +136,8 @@ const styles = StyleSheet.create({
         position: 'relative',
     },
     phaseBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 2, borderRadius: 1 },
-    dateNum: { fontSize: 20, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.45)', lineHeight: 26 },
-    dateMonth: { fontSize: 9, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.25)', letterSpacing: 0.5, marginBottom: 6 },
+    dateNum: { fontSize: 20, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.7)', lineHeight: 26 },
+    dateMonth: { fontSize: 13, fontFamily: Typography.sans, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5, marginBottom: 6 },
     markerRow: { height: 12, alignItems: 'center', justifyContent: 'center' },
     fertileDot: { width: 6, height: 6, borderRadius: 3 },
     phaseDot: { width: 4, height: 4, borderRadius: 2, opacity: 0.4 },

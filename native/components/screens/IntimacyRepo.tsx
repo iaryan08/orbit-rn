@@ -4,17 +4,19 @@ import { Colors, Radius, Spacing, Typography } from '../../constants/Theme';
 import { GlobalStyles } from '../../constants/Styles';
 import { Flame } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
-import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate, withTiming } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderPill } from '../../components/HeaderPill';
 import { useOrbitStore } from '../../lib/store';
 
 import { MilestoneCard } from '../MilestoneCard';
-import { Heart, Sparkles, MapPin, Camera, Music, Gift, Coffee, Star, Plus, Check, Trash2, ChevronDown, ChevronUp, Trophy, Target, Lock, Unlock, MessageSquare, Waves, Moon, Infinity, CloudMoon, Home, Film, HeartPulse } from 'lucide-react-native';
+import { Heart, Sparkles, Plus, Check, Trash2, Trophy, Target, Lock, Unlock, MessageSquare, Waves, Moon, Infinity, CloudMoon, Home, Film, HeartPulse, Gift } from 'lucide-react-native';
 import { addBucketItem } from '../../lib/auth';
-import { TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert, Pressable } from 'react-native';
+import { TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import Svg, { Circle, Path } from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
+
+import { Camera } from 'lucide-react-native';
 
 // Local milestone configurations
 
@@ -36,9 +38,11 @@ const MILESTONES = [
     { id: 'first_intimate_moment', title: 'First Intimate Moment', description: 'Romantic Spark', prompt: 'First romantic expression to your partner?', icon: <HeartPulse size={22} color={Colors.dark.indigo[400]} /> },
 ];
 
-export function IntimacyScreen({ isActive = true }: { isActive?: boolean }) {
+export function IntimacyRepo({ isActive = true }: { isActive?: boolean }) {
     const insets = useSafeAreaInsets();
-    const { milestones, bucketList, profile } = useOrbitStore();
+    const milestones = useOrbitStore(s => s.milestones);
+    const bucketList = useOrbitStore(s => s.bucketList);
+    const profile = useOrbitStore(s => s.profile);
     const isAndroidPerformanceMode = Platform.OS === 'android';
 
     // Scroll tracking for morphing header
@@ -52,16 +56,15 @@ export function IntimacyScreen({ isActive = true }: { isActive?: boolean }) {
     const [newItem, setNewItem] = useState('');
     const [isAdding, setIsAdding] = useState(false);
     const [isPrivate, setIsPrivate] = useState(false);
-    const [showBucket, setShowBucket] = useState(true);
 
     const filteredBucket = useMemo(() => {
-        return bucketList.filter(item => {
+        return bucketList.filter((item: any) => {
             if (!item.is_private) return true;
             return item.created_by === profile?.id;
         });
     }, [bucketList, profile?.id]);
 
-    const completedCount = filteredBucket.filter(i => i.is_completed).length;
+    const completedCount = filteredBucket.filter((i: any) => i.is_completed).length;
     const totalCount = filteredBucket.length;
     const progress = totalCount === 0 ? 0 : (completedCount / totalCount);
 
@@ -106,20 +109,20 @@ export function IntimacyScreen({ isActive = true }: { isActive?: boolean }) {
         );
     };
 
-    // Morphing: Title fades and scales down (Further Delayed for Premium Dominance)
+    // Morphing: Title fades and scales down (Synchronized with Letters standard)
     const titleAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [80, 130], [1, 0], Extrapolate.CLAMP),
-        transform: [{ scale: interpolate(scrollOffset.value, [80, 130], [1, 0.9], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [0, 80], [1, 0], Extrapolate.CLAMP),
+        transform: [{ scale: interpolate(scrollOffset.value, [0, 80], [1, 0.95], Extrapolate.CLAMP) }]
     }));
 
     const sublineAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [60, 110], [1, 0], Extrapolate.CLAMP),
+        opacity: interpolate(scrollOffset.value, [0, 60], [1, 0], Extrapolate.CLAMP),
     }));
 
-    // Morphing: HeaderPill fades and slides in (Precise sync with title exit)
+    // Morphing: HeaderPill fades and slides in (Precise sync)
     const headerPillStyle = useAnimatedStyle(() => ({
-        opacity: interpolate(scrollOffset.value, [120, 160], [0, 1], Extrapolate.CLAMP),
-        transform: [{ translateY: interpolate(scrollOffset.value, [120, 160], [8, 0], Extrapolate.CLAMP) }]
+        opacity: interpolate(scrollOffset.value, [60, 100], [0, 1], Extrapolate.CLAMP),
+        transform: [{ translateY: interpolate(scrollOffset.value, [60, 100], [8, 0], Extrapolate.CLAMP) }]
     }));
 
     return (
@@ -129,12 +132,12 @@ export function IntimacyScreen({ isActive = true }: { isActive?: boolean }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
             {/* Sticky Header Pill */}
-            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, !isAndroidPerformanceMode && headerPillStyle]}>
+            <Animated.View style={[styles.stickyHeader, { top: insets.top - 4 }, headerPillStyle]}>
                 <HeaderPill title="Intimacy" scrollOffset={scrollOffset} />
             </Animated.View>
 
             <Animated.ScrollView
-                onScroll={isAndroidPerformanceMode ? undefined : scrollHandler}
+                onScroll={scrollHandler}
                 scrollEventThrottle={32}
                 contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: 100 }}
                 keyboardShouldPersistTaps="handled"
@@ -142,8 +145,8 @@ export function IntimacyScreen({ isActive = true }: { isActive?: boolean }) {
                 removeClippedSubviews={isAndroidPerformanceMode}
             >
                 <View style={styles.standardHeader}>
-                    <Animated.Text style={[styles.standardTitle, !isAndroidPerformanceMode && titleAnimatedStyle]}>Intimacy</Animated.Text>
-                    <Animated.Text style={[styles.standardSubtitle, !isAndroidPerformanceMode && sublineAnimatedStyle]}>Precious · Milestones</Animated.Text>
+                    <Animated.Text style={[styles.standardTitle, titleAnimatedStyle]}>Intimacy</Animated.Text>
+                    <Animated.Text style={[styles.standardSubtitle, sublineAnimatedStyle]}>Precious · Milestones</Animated.Text>
                 </View>
 
                 <View style={styles.content}>
@@ -219,7 +222,7 @@ export function IntimacyScreen({ isActive = true }: { isActive?: boolean }) {
                             </View>
 
                             <View style={styles.bucketListContainer}>
-                                {filteredBucket.map((item) => (
+                                {filteredBucket.map((item: any) => (
                                     <Pressable
                                         key={item.id}
                                         onPress={() => handleToggle(item.id, item.is_completed)}
@@ -278,54 +281,11 @@ const styles = StyleSheet.create({
         pointerEvents: 'box-none',
     },
     standardHeader: GlobalStyles.standardHeader,
-    headerTitleContainer: {
-        paddingHorizontal: Spacing.md,
-        paddingTop: 20,
-        paddingBottom: 2,
-    },
-    badgeRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 8,
-    },
-    badgeDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: Colors.dark.rose[500],
-    },
-    badgeText: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
-        fontFamily: Typography.sansBold,
-        letterSpacing: 2,
-    },
-    badgeCount: {
-        color: 'rgba(255,255,255,0.2)',
-        fontSize: 10,
-        fontFamily: Typography.sansBold,
-    },
     standardTitle: GlobalStyles.standardTitle,
     standardSubtitle: GlobalStyles.standardSubtitle,
     content: {
         flex: 1,
         width: '100%',
-    },
-    particle: {
-        position: 'absolute',
-    },
-    card: {
-        padding: Spacing.xl,
-        borderRadius: Radius.xl,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    cardText: {
-        color: Colors.dark.mutedForeground,
-        fontSize: 15,
-        lineHeight: 24,
-        textAlign: 'center',
     },
     bucketSection: {
         marginHorizontal: Spacing.md,
@@ -369,7 +329,7 @@ const styles = StyleSheet.create({
         fontSize: 8,
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 2,
+        letterSpacing: 1.5,
         marginTop: 2,
     },
     progressContainer: {
@@ -418,10 +378,6 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         borderWidth: 1,
         borderColor: 'rgba(225, 29, 72, 0.15)',
-        shadowColor: Colors.dark.rose[500],
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
     },
     privateToggle: {
         width: 36,
@@ -481,10 +437,6 @@ const styles = StyleSheet.create({
     itemCheckActive: {
         backgroundColor: Colors.dark.rose[500],
         borderColor: Colors.dark.rose[500],
-        shadowColor: Colors.dark.rose[500],
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 10,
     },
     itemTitle: {
         flex: 1,
@@ -496,9 +448,6 @@ const styles = StyleSheet.create({
         color: 'rgba(255,255,255,0.3)',
         textDecorationLine: 'line-through',
     },
-    trophyIcon: {
-        opacity: 0.6,
-    },
     deleteBtn: {
         padding: 4,
     },
@@ -506,7 +455,7 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontFamily: Typography.sansBold,
         color: 'rgba(255,255,255,0.3)',
-        letterSpacing: 2,
+        letterSpacing: 1.5,
         marginLeft: Spacing.md,
         marginBottom: Spacing.md,
     }

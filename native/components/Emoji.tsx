@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Text, TextProps, StyleSheet } from 'react-native';
 import { Typography } from '../constants/Theme';
 

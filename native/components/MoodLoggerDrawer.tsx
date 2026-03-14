@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Dimensions, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import Animated, {
     useAnimatedStyle,
@@ -33,7 +33,7 @@ const MOOD_EMOJIS: Record<string, string> = {
     tired: '😴',
     grateful: '🙏',
     flirty: '😉',
-    'missing you badly': '🥹',
+    'missing you badly': '🥺',
     cuddly: '🫂',
     romantic: '🌹',
     passionate: '❤️‍🔥',
@@ -57,7 +57,10 @@ const getMoodTimestamp = (mood: any) => {
 
 export function MoodLoggerDrawer() {
     const insets = useSafeAreaInsets();
-    const { isMoodDrawerOpen, setMoodDrawerOpen, profile, moods } = useOrbitStore();
+    const isMoodDrawerOpen = useOrbitStore(s => s.isMoodDrawerOpen);
+    const setMoodDrawerOpen = useOrbitStore(s => s.setMoodDrawerOpen);
+    const profile = useOrbitStore(s => s.profile);
+    const moods = useOrbitStore(s => s.moods);
 
     const [selectedMood, setSelectedMood] = useState<string | null>(null);
     const [note, setNote] = useState('');
@@ -277,28 +280,28 @@ const styles = StyleSheet.create({
         backgroundColor: 'transparent',
     },
     handleContainer: { height: 32, alignItems: 'center', justifyContent: 'center' },
-    handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)' },
+    handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.45)' },
     header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 20 },
     title: { fontSize: 28, fontFamily: Typography.serif, color: 'white' },
-    subtitle: { fontSize: 9, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.4)', letterSpacing: 2, marginTop: 4 },
+    subtitle: { fontSize: 13, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.65)', letterSpacing: 1.5, marginTop: 4 },
     closeBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center' },
     scrollContent: { paddingHorizontal: 24, paddingBottom: 60 },
     section: { marginBottom: 32 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
-    sectionTitle: { fontSize: 11, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.3)', letterSpacing: 2 },
+    sectionTitle: { fontSize: 11, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.55)', letterSpacing: 1.5 },
     tagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-start' },
     tag: { width: '31.5%', height: 94, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', justifyContent: 'center', alignItems: 'center', gap: 4, paddingHorizontal: 4, marginBottom: 8 },
     tagSelected: { backgroundColor: Colors.dark.indigo[400] + '20', borderColor: Colors.dark.indigo[400] },
     tagPlaceholder: { borderStyle: 'dashed', backgroundColor: 'transparent' },
-    tagEmoji: { fontSize: 28 },
-    tagText: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, textAlign: 'center' },
-    tagTextSelected: { color: Colors.dark.indigo[400] },
     tagTextPlaceholder: { fontSize: 10, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.2)', letterSpacing: 0.5, marginTop: 2 },
+    tagText: { fontSize: 14, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.65)', letterSpacing: 0.5, textAlign: 'center' },
+    tagTextSelected: { color: Colors.dark.indigo[400] },
+    tagTextPlaceholder: { fontSize: 14, fontFamily: Typography.sansBold, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.5, marginTop: 2 },
     noteContainer: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', padding: 16 },
-    noteInput: { color: 'white', fontSize: 15, fontFamily: Typography.serifItalic, minHeight: 60, textAlignVertical: 'top' },
+    saveBtnText: { color: 'white', fontFamily: Typography.sansBold, fontSize: 15, letterSpacing: 1.5 },
     saveBtn: { height: 64, borderRadius: 32, backgroundColor: Colors.dark.indigo[400], flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
     saveBtnDisabled: { opacity: 0.5, backgroundColor: 'rgba(255,255,255,0.05)', shadowOpacity: 0 },
-    saveBtnText: { color: 'white', fontFamily: Typography.sansBold, fontSize: 15, letterSpacing: 2 },
+    saveBtnText: { color: 'white', fontFamily: Typography.sansBold, fontSize: 15, letterSpacing: 1.5 },
     clearBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24, opacity: 0.6 },
-    clearBtnText: { color: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: Typography.sansBold, letterSpacing: 1.5 }
+    clearBtnText: { color: 'rgba(255,255,255,0.55)', fontSize: 14, fontFamily: Typography.sansBold, letterSpacing: 1.5 }
 });

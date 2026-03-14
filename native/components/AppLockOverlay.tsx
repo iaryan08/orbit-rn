@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, AppState, AppStateStatus, PanResponder, Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Haptics from 'expo-haptics';
@@ -20,101 +20,44 @@ const USE_LAYOUT_ANIM = Platform.OS !== 'android';
 const LAYOUT_ANIM_INC = USE_LAYOUT_ANIM ? FadeIn.duration(220) : undefined;
 const LAYOUT_ANIM_OUT = USE_LAYOUT_ANIM ? FadeOut.duration(200) : undefined;
 
+import { useAppLock } from '../lib/hooks/useAppLock';
+
 export function AppLockOverlay() {
     const isAppLockEnabled = useOrbitStore(state => state.isAppLockEnabled);
+    const setAppLocked = useOrbitStore(state => state.setAppLocked);
     const isBiometricEnabled = useOrbitStore(state => state.isBiometricEnabled);
     const appPinCode = useOrbitStore(state => state.appPinCode);
 
     const [isLocked, setIsLocked] = useState(false);
-    const [isAuthenticating, setIsAuthenticating] = useState(false);
-    const [pin, setPin] = useState('');
-    const [pinError, setPinError] = useState(false);
     const [swipeHintVisible, setSwipeHintVisible] = useState(true);
     const hasPin = !!appPinCode;
     const canBiometric = isBiometricEnabled;
 
-    const shake = useSharedValue(0);
-    const errorResetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const {
+        pin,
+        pinError,
+        isAuthenticating,
+        shake,
+        handlePinPress,
+        handleDelete,
+        authenticateBiometric,
+    } = useAppLock(() => {
+        setAppLocked(false);
+        setIsLocked(false);
+    });
 
     const shakeStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: shake.value }],
     }));
 
-    const unlock = () => {
-        setPin('');
-        setPinError(false);
-        setIsLocked(false);
-    };
-
     const lock = () => {
-        setPin('');
-        setPinError(false);
+        setAppLocked(true);
         setIsLocked(true);
-    };
-
-    const triggerError = () => {
-        setPinError(true);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        shake.value = withSequence(
-            withTiming(-10, { duration: 50 }),
-            withTiming(10, { duration: 50 }),
-            withTiming(-8, { duration: 50 }),
-            withTiming(8, { duration: 50 }),
-            withSpring(0)
-        );
-        if (errorResetTimerRef.current) clearTimeout(errorResetTimerRef.current);
-        errorResetTimerRef.current = setTimeout(() => {
-            setPin('');
-            setPinError(false);
-        }, 500);
-    };
-
-    const authenticateBiometric = async () => {
-        if (isAuthenticating) return;
-        setIsAuthenticating(true);
-        try {
-            const hasHardware = await LocalAuthentication.hasHardwareAsync();
-            const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-            if (!hasHardware || !isEnrolled) return;
-
-            const result = await LocalAuthentication.authenticateAsync({
-                promptMessage: 'Unlock Orbit',
-                fallbackLabel: 'Use PIN',
-                disableDeviceFallback: false,
-                cancelLabel: 'Cancel',
-            });
-            if (result.success) {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                unlock();
-            }
-        } catch (e) {
-            console.error('[AppLock] Biometric auth error:', e);
-        } finally {
-            setIsAuthenticating(false);
-        }
-    };
-
-    const onPinPress = (digit: string) => {
-        if (!isLocked || pin.length >= 4) return;
-        const next = `${pin}${digit}`;
-        setPin(next);
-        if (next.length === 4) {
-            if (appPinCode && next === appPinCode) {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                unlock();
-            } else {
-                triggerError();
-            }
-        }
-    };
-
-    const onDelete = () => {
-        if (!isLocked) return;
-        setPin(prev => prev.slice(0, -1));
     };
 
     useEffect(() => {
         if (!isAppLockEnabled) {
+            setAppLocked(false);
             setIsLocked(false);
             return;
         }
@@ -141,12 +84,6 @@ export function AppLockOverlay() {
         const t = setTimeout(() => setSwipeHintVisible(false), 3500);
         return () => clearTimeout(t);
     }, [isLocked]);
-
-    useEffect(() => {
-        return () => {
-            if (errorResetTimerRef.current) clearTimeout(errorResetTimerRef.current);
-        };
-    }, []);
 
     const swipeUpResponder = useMemo(
         () =>
@@ -204,8 +141,8 @@ export function AppLockOverlay() {
                 {hasPin && (
                     <View style={styles.keyboardWrap}>
                         <SecurityKeyboard
-                            onKeyPress={onPinPress}
-                            onDelete={onDelete}
+                            onKeyPress={handlePinPress}
+                            onDelete={handleDelete}
                             onBiometricPress={canBiometric ? authenticateBiometric : undefined}
                             showBiometric={canBiometric}
                             showDelete={pin.length > 0}
@@ -263,7 +200,7 @@ const styles = StyleSheet.create({
     },
     subtitle: {
         marginTop: 6,
-        color: 'rgba(255,255,255,0.5)',
+        color: 'rgba(255,255,255,0.75)',
         fontSize: 12,
         fontFamily: Typography.sansBold,
         letterSpacing: 1.2,
@@ -279,7 +216,7 @@ const styles = StyleSheet.create({
         height: 12,
         borderRadius: 6,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.4)',
+        borderColor: 'rgba(255,255,255,0.65)',
         backgroundColor: 'transparent',
     },
     dotFilled: {
@@ -314,8 +251,8 @@ const styles = StyleSheet.create({
     },
     swipeHintText: {
         marginTop: 14,
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
+        color: 'rgba(255,255,255,0.65)',
+        fontSize: 14,
         fontFamily: Typography.sansBold,
         letterSpacing: 1,
         textTransform: 'uppercase',

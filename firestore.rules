@@ -28,7 +28,14 @@ service cloud.firestore {
 
     // ── Couples collection ────────────────────────────────────────
     match /couples/{coupleId} {
-      allow read, write: if request.auth != null;
+      // Allow read/write only if the user is a member of this specific couple
+      allow read: if isCoupleMember(coupleId);
+      allow write: if request.auth != null && (
+        // Initial creation by user1 (logic should ensure user1_id matches auth.uid)
+        (resource == null && request.resource.data.user1_id == request.auth.uid) ||
+        // Updates only if already a member
+        isCoupleMember(coupleId)
+      );
 
       match /profiles/{userId} {
         allow read, write: if isCoupleMember(coupleId);
@@ -43,15 +50,15 @@ service cloud.firestore {
       }
 
       match /moods/{moodId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isCoupleMember(coupleId);
       }
       
       match /doodles/{allPaths=**} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isCoupleMember(coupleId);
       }
 
       match /doodle_strokes/{strokeId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isCoupleMember(coupleId);
       }
 
       match /polaroids/{polaroidId} {

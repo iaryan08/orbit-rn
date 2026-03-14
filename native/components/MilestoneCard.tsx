@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Platform } from 'react-native';
 import { Calendar, Clock, ChevronDown, Check, Sparkles } from 'lucide-react-native';
 import Animated, { useAnimatedStyle, withSpring, withTiming, useSharedValue } from 'react-native-reanimated';
@@ -22,7 +22,8 @@ interface MilestoneCardProps {
 }
 
 export function MilestoneCard({ id, title, description, icon, existingData, isPartner, prompt }: MilestoneCardProps) {
-    const { profile, couple } = useOrbitStore();
+    const profile = useOrbitStore(s => s.profile);
+    const couple = useOrbitStore(s => s.couple);
     const isUser1 = couple?.user1_id === auth.currentUser?.uid;
 
     const userContent = isUser1 ? existingData?.content_user1 : existingData?.content_user2;
@@ -292,15 +293,17 @@ const styles = StyleSheet.create({
     },
     title: {
         color: 'white',
-        fontSize: 18,
-        fontFamily: Typography.serif,
+        fontSize: 20,
+        fontFamily: Typography.display, // Bodoni Bold for structural strength
+        letterSpacing: -0.2,
     },
     description: {
         color: 'rgba(255,255,255,0.4)',
-        fontSize: 11,
-        fontFamily: Typography.sansBold,
-        letterSpacing: 0.5,
-        marginTop: 2,
+        fontSize: 10,
+        fontFamily: Typography.sansBold, // Outfit
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+        marginTop: 4,
     },
     expandable: {
         overflow: 'hidden',
@@ -315,8 +318,8 @@ const styles = StyleSheet.create({
         gap: 16,
     },
     label: {
-        color: 'rgba(255,255,255,0.3)',
-        fontSize: 9,
+        color: 'rgba(255,255,255,0.55)',
+        fontSize: 13,
         fontFamily: Typography.sansBold,
         letterSpacing: 1.5,
     },
@@ -350,24 +353,25 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255,255,255,0.03)',
     },
     partnerPickerText: {
-        color: 'rgba(255,255,255,0.2)',
+        color: 'rgba(255,255,255,0.45)',
         fontSize: 12,
         fontFamily: Typography.sans,
         flex: 1,
     },
     textInput: {
         color: 'white',
-        fontSize: 14,
-        fontFamily: Typography.serifItalic,
+        fontSize: 16,
+        fontFamily: Typography.serifItalic, // Poetic Handwriting vibe
         textAlignVertical: 'top',
         flex: 1,
-        opacity: 0.8,
+        opacity: 0.9,
     },
     promptText: {
-        color: 'rgba(255,255,255,0.7)',
-        fontSize: 15,
-        fontFamily: Typography.serifItalic,
-        marginBottom: 8,
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 20,
+        fontFamily: Typography.serifItalic, // Bodoni Italic
+        marginBottom: 12,
+        lineHeight: 28,
     },
     row: {
         flexDirection: 'row',
@@ -403,7 +407,7 @@ const styles = StyleSheet.create({
         minHeight: 60,
     },
     partnerContentText: {
-        color: 'rgba(255,255,255,0.3)',
+        color: 'rgba(255,255,255,0.55)',
         fontStyle: 'italic',
     },
 });

@@ -20,7 +20,12 @@ interface HeaderPillProps {
 }
 
 export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, onLongPress }: HeaderPillProps) {
-    const { profile, idToken, setTabIndex, appMode, isLiteMode, lunaraPhaseColor } = useOrbitStore();
+    const profile = useOrbitStore(s => s.profile);
+    const idToken = useOrbitStore(s => s.idToken);
+    const setTabIndex = useOrbitStore(s => s.setTabIndex);
+    const appMode = useOrbitStore(s => s.appMode);
+    const isLiteMode = useOrbitStore(s => s.isLiteMode);
+    const lunaraPhaseColor = useOrbitStore(s => s.lunaraPhaseColor);
     const isLunara = appMode === 'lunara';
 
     // Phase-driven accent — mirrors NavbarDock indicator color exactly
@@ -37,9 +42,7 @@ export function HeaderPill({ title, scrollOffset, showAt = 60, count, onPress, o
         setTabIndex(9, 'tap');
     };
 
-    const avatarUrl = useMemo(() =>
-        getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken),
-        [profile?.avatar_url, idToken]);
+    const avatarUrl = getPublicStorageUrl(profile?.avatar_url, 'avatars', idToken);
 
     return (
         <View style={styles.headerContent}>
@@ -123,23 +126,21 @@ const styles = StyleSheet.create({
         fontFamily: Typography.sansBold,
     },
     lunaraText: {
-        color: '#d8b4fe',
+        color: 'white', // Ensure text is always white as per request
         letterSpacing: 1.5,
         fontSize: 11,
     },
     divider: {
         width: 1,
         height: 12,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: 'rgba(255,255,255,0.45)',
     },
     count: {
-        color: 'rgba(255,255,255,0.6)',
-        fontSize: 10,
+        color: 'rgba(255,255,255,0.82)',
+        fontSize: 14,
         fontFamily: Typography.sansBold,
     },
     profileContainer: {
-        borderWidth: 1.2,
-        borderColor: 'rgba(255,255,255,0.15)',
         borderRadius: 24,
         alignItems: 'center',
         justifyContent: 'center',
